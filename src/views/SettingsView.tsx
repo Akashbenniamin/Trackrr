@@ -10,11 +10,13 @@ import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 import EditRoundedIcon from '@mui/icons-material/EditRounded';
 import WorkspacesRoundedIcon from '@mui/icons-material/WorkspacesRounded';
 import { useApp } from '../contexts/AppContext';
+import { useAuth } from '../contexts/AuthContext';
 
 const WS_COLORS = ['#818CF8', '#34D399', '#F59E0B', '#F87171', '#A78BFA', '#60A5FA', '#FB7185', '#4ADE80'];
 
 export default function SettingsView() {
-  const { settings, updateSettings, workspaces, activeWorkspace, createWorkspace, updateWorkspace, deleteWorkspace, switchWorkspace, tasks, clients, payments } = useApp();
+  const { user } = useAuth();
+  const { settings, updateSettings, workspaces, activeWorkspace, createWorkspace, updateWorkspace, deleteWorkspace, switchWorkspace, tasks, clients, payments, isOnline } = useApp();
   const [wsDialog, setWsDialog] = useState(false);
   const [editWs, setEditWs] = useState<{ id?: string; name: string; color: string } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
@@ -112,6 +114,7 @@ export default function SettingsView() {
             <Button
               size="small"
               variant="outlined"
+              disabled={!isOnline}
               startIcon={<AddRoundedIcon />}
               onClick={() => { setEditWs({ name: '', color: WS_COLORS[0] }); setWsDialog(true); }}
             >
@@ -120,23 +123,27 @@ export default function SettingsView() {
           </Box>
           <Divider sx={{ borderColor: 'rgba(255,255,255,0.06)' }} />
           <List disablePadding>
-            {workspaces.map((ws, i) => (
-              <React.Fragment key={ws.id}>
-                {i > 0 && <Divider sx={{ borderColor: 'rgba(255,255,255,0.04)' }} />}
-                <ListItem
-                  secondaryAction={
-                    <Box sx={{ display: 'flex', gap: 0.5 }}>
-                      <IconButton size="small" onClick={() => { setEditWs({ id: ws.id, name: ws.name, color: ws.color }); setWsDialog(true); }}>
-                        <EditRoundedIcon sx={{ fontSize: 16 }} />
-                      </IconButton>
-                      {workspaces.length > 1 && (
-                        <IconButton size="small" onClick={() => setDeleteConfirm(ws.id)}>
-                          <DeleteOutlineRoundedIcon sx={{ fontSize: 16, color: '#F87171' }} />
-                        </IconButton>
-                      )}
-                    </Box>
-                  }
-                >
+            {workspaces.map((ws, i) => {
+              const isOwner = !ws.user_id || !user || ws.user_id === user.id;
+              return (
+                <React.Fragment key={ws.id}>
+                  {i > 0 && <Divider sx={{ borderColor: 'rgba(255,255,255,0.04)' }} />}
+                  <ListItem
+                    secondaryAction={
+                      <Box sx={{ display: 'flex', gap: 0.5 }}>
+                        {isOwner && isOnline && (
+                          <IconButton size="small" onClick={() => { setEditWs({ id: ws.id, name: ws.name, color: ws.color }); setWsDialog(true); }}>
+                            <EditRoundedIcon sx={{ fontSize: 16 }} />
+                          </IconButton>
+                        )}
+                        {isOwner && isOnline && workspaces.length > 1 && (
+                          <IconButton size="small" onClick={() => setDeleteConfirm(ws.id)}>
+                            <DeleteOutlineRoundedIcon sx={{ fontSize: 16, color: '#F87171' }} />
+                          </IconButton>
+                        )}
+                      </Box>
+                    }
+                  >
                   <ListItemAvatar sx={{ minWidth: 40 }}>
                     <Avatar sx={{ width: 32, height: 32, bgcolor: ws.color, fontSize: '0.8rem', fontWeight: 700 }}>
                       {ws.name?.[0]?.toUpperCase()}
@@ -155,7 +162,8 @@ export default function SettingsView() {
                   )}
                 </ListItem>
               </React.Fragment>
-            ))}
+            );
+          })}
           </List>
         </Card>
 

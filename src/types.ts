@@ -1,9 +1,33 @@
+export type WorkspaceRole = 'owner' | 'manager' | 'viewer';
+
 export interface Workspace {
   id: string;
+  user_id?: string;
   name: string;
   color: string;
   created_at: string;
   updated_at: string;
+}
+
+export interface WorkspaceMember {
+  id: string;
+  workspace_id: string;
+  user_id: string;
+  user_email: string;
+  role: WorkspaceRole;
+  created_at: string;
+}
+
+export interface WorkspaceInvite {
+  id: string;
+  workspace_id: string;
+  workspace_name: string;
+  invited_by_user_id: string;
+  invited_by_email: string;
+  invitee_email: string;
+  role: 'manager' | 'viewer';
+  status: 'pending' | 'accepted' | 'declined';
+  created_at: string;
 }
 
 export interface Client {

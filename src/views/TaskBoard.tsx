@@ -35,7 +35,7 @@ function TaskCard({ task, onEdit, onDelete }: {
   onEdit: (t: Task) => void;
   onDelete: (id: string) => void;
 }) {
-  const { clients, salaryRates, tasks, settings } = useApp();
+  const { clients, salaryRates, tasks, settings, canEdit } = useApp();
   const client = clients.find(c => c.id === task.client_id);
   const cur = (v: number) => formatCurrency(v, settings.currency);
   const rev = calcTaskRevenueFull(task, client, salaryRates, tasks);
@@ -43,21 +43,21 @@ function TaskCard({ task, onEdit, onDelete }: {
 
   return (
     <Card
-      draggable
+      draggable={canEdit}
       data-task-id={task.id}
-      onDoubleClick={() => onEdit(task)}
+      onDoubleClick={() => canEdit && onEdit(task)}
       sx={{
         mb: 1, p: 0,
         borderLeft: client ? `3px solid ${client.color}` : undefined,
-        cursor: 'grab',
+        cursor: canEdit ? 'grab' : 'default',
         transition: 'transform 0.15s ease, box-shadow 0.15s ease',
-        '&:hover': { transform: 'translateY(-1px)', boxShadow: '0 6px 20px rgba(0,0,0,0.3)' },
-        '&:active': { cursor: 'grabbing', transform: 'rotate(1.5deg) scale(0.97)' },
+        '&:hover': canEdit ? { transform: 'translateY(-1px)', boxShadow: '0 6px 20px rgba(0,0,0,0.3)' } : {},
+        '&:active': canEdit ? { cursor: 'grabbing', transform: 'rotate(1.5deg) scale(0.97)' } : {},
       }}
     >
-      <Box sx={{ p: 1.5, pr: 0 }}>
+      <Box sx={{ p: 1.5, pr: canEdit ? 0 : 1.5 }}>
         <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1 }}>
-          <DragIndicatorRoundedIcon sx={{ color: 'text.disabled', fontSize: 16, mt: 0.3, flexShrink: 0 }} />
+          {canEdit && <DragIndicatorRoundedIcon sx={{ color: 'text.disabled', fontSize: 16, mt: 0.3, flexShrink: 0 }} />}
           <Box sx={{ flex: 1, minWidth: 0 }}>
             <Typography
               variant="body2"
@@ -87,18 +87,20 @@ function TaskCard({ task, onEdit, onDelete }: {
               {formatDate(dateStr)}
             </Typography>
           </Box>
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, pr: 1.5,
-            '& .MuiIconButton-root': { width: 28, height: 28, border: '1px solid rgba(255,255,255,0.08)', borderRadius: 1, transition: 'all 0.15s ease' },
-          }}>
-            <IconButton size="small" onClick={() => onEdit(task)}
-              sx={{ '&:hover': { bgcolor: 'rgba(129,140,248,0.2)', borderColor: '#818CF8' } }}>
-              <EditRoundedIcon sx={{ fontSize: 14, color: 'text.disabled' }} />
-            </IconButton>
-            <IconButton size="small" onClick={() => onDelete(task.id)}
-              sx={{ '&:hover': { bgcolor: 'rgba(248,113,113,0.2)', borderColor: '#F87171' } }}>
-              <DeleteOutlineRoundedIcon sx={{ fontSize: 14, color: '#F87171' }} />
-            </IconButton>
-          </Box>
+          {canEdit && (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, pr: 1.5,
+              '& .MuiIconButton-root': { width: 28, height: 28, border: '1px solid rgba(255,255,255,0.08)', borderRadius: 1, transition: 'all 0.15s ease' },
+            }}>
+              <IconButton size="small" onClick={() => onEdit(task)}
+                sx={{ '&:hover': { bgcolor: 'rgba(129,140,248,0.2)', borderColor: '#818CF8' } }}>
+                <EditRoundedIcon sx={{ fontSize: 14, color: 'text.disabled' }} />
+              </IconButton>
+              <IconButton size="small" onClick={() => onDelete(task.id)}
+                sx={{ '&:hover': { bgcolor: 'rgba(248,113,113,0.2)', borderColor: '#F87171' } }}>
+                <DeleteOutlineRoundedIcon sx={{ fontSize: 14, color: '#F87171' }} />
+              </IconButton>
+            </Box>
+          )}
         </Box>
       </Box>
     </Card>
@@ -202,7 +204,7 @@ function EditEntryDialog({ open, item, editType, clients, currency, onClose, onS
 }
 
 function PaymentEntry() {
-  const { clients, payments, discounts, settings, addPayment, updatePayment, deletePayment, addDiscount, updateDiscount, deleteDiscount, activeWorkspace } = useApp();
+  const { clients, payments, discounts, settings, addPayment, updatePayment, deletePayment, addDiscount, updateDiscount, deleteDiscount, activeWorkspace, canEdit, currentRole } = useApp();
   const [entryType, setEntryType] = useState<'payment' | 'discount'>('payment');
   const [clientId, setClientId] = useState('');
   const [amount, setAmount] = useState('');
@@ -222,7 +224,7 @@ function PaymentEntry() {
   const resetForm = () => { setAmount(''); setNote(''); setPaymentForMonths([]); };
 
   const handleAdd = async () => {
-    if (!clientId || !amount) return;
+    if (!canEdit || !clientId || !amount) return;
     if (entryType === 'payment') {
       await addPayment({ client_id: clientId, workspace_id: activeWorkspace?.id, amount: parseFloat(amount), method, note, date: new Date(date + 'T12:00:00').toISOString(), payment_for_months: paymentForMonths });
     } else {
@@ -266,8 +268,14 @@ function PaymentEntry() {
           return (
             <Box
               key={item.type + item.id}
-              onDoubleClick={() => setEditItem({ type: item.type, id: item.id })}
-              sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 1, mb: 0.75, borderRadius: 2, bgcolor: isDisc ? 'rgba(167,139,250,0.08)' : 'rgba(255,255,255,0.04)', borderLeft: `3px solid ${isDisc ? '#A78BFA' : client?.color ?? '#475569'}`, cursor: 'pointer', '&:hover': { bgcolor: isDisc ? 'rgba(167,139,250,0.14)' : 'rgba(255,255,255,0.07)' } }}
+              onDoubleClick={() => canEdit && setEditItem({ type: item.type, id: item.id })}
+              sx={{
+                display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 1, mb: 0.75, borderRadius: 2,
+                bgcolor: isDisc ? 'rgba(167,139,250,0.08)' : 'rgba(255,255,255,0.04)',
+                borderLeft: `3px solid ${isDisc ? '#A78BFA' : client?.color ?? '#475569'}`,
+                cursor: canEdit ? 'pointer' : 'default',
+                '&:hover': canEdit ? { bgcolor: isDisc ? 'rgba(167,139,250,0.14)' : 'rgba(255,255,255,0.07)' } : {},
+              }}
             >
               <Box>
                 <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
@@ -285,9 +293,11 @@ function PaymentEntry() {
               </Box>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
                 <Typography variant="caption" sx={{ fontWeight: 700, color: isDisc ? '#A78BFA' : '#34D399', fontSize: '0.82rem' }}>{isDisc ? '-' : ''}{cur(item.amount)}</Typography>
-                <IconButton size="small" sx={{ p: 0.25 }} onClick={() => isDisc ? deleteDiscount(item.id) : deletePayment(item.id)}>
-                  <DeleteOutlineRoundedIcon sx={{ fontSize: 13, color: '#F87171' }} />
-                </IconButton>
+                {canEdit && (
+                  <IconButton size="small" sx={{ p: 0.25 }} onClick={() => isDisc ? deleteDiscount(item.id) : deletePayment(item.id)}>
+                    <DeleteOutlineRoundedIcon sx={{ fontSize: 13, color: '#F87171' }} />
+                  </IconButton>
+                )}
               </Box>
             </Box>
           );
@@ -295,46 +305,54 @@ function PaymentEntry() {
       </Box>
 
       {/* Unified add form */}
-      <Box sx={{ p: 1.5, borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column', gap: 1 }}>
-        <ToggleButtonGroup
-          value={entryType}
-          exclusive
-          size="small"
-          fullWidth
-          onChange={(_, v) => v && setEntryType(v)}
-          sx={{ '& .MuiToggleButton-root': { py: 0.4, fontSize: '0.72rem', textTransform: 'none', borderColor: 'rgba(255,255,255,0.1)' } }}
-        >
-          <ToggleButton value="payment" sx={{ color: isPayment ? '#34D399 !important' : 'rgba(255,255,255,0.5)', bgcolor: isPayment ? 'rgba(52,211,153,0.12) !important' : 'transparent' }}>
-            <PaymentsRoundedIcon sx={{ fontSize: 14, mr: 0.5 }} /> Payment
-          </ToggleButton>
-          <ToggleButton value="discount" sx={{ color: !isPayment ? '#A78BFA !important' : 'rgba(255,255,255,0.5)', bgcolor: !isPayment ? 'rgba(167,139,250,0.12) !important' : 'transparent' }}>
-            <DiscountRoundedIcon sx={{ fontSize: 14, mr: 0.5 }} /> Discount
-          </ToggleButton>
-        </ToggleButtonGroup>
-        <Select value={clientId} onChange={e => setClientId(e.target.value)} size="small" displayEmpty fullWidth sx={{ fontSize: '0.78rem' }}>
-          <MenuItem value="" disabled>Select Client</MenuItem>
-          {clients.map(c => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
-        </Select>
-        <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
-          <TextField size="small" type="date" value={date} onChange={e => setDate(e.target.value)} sx={{ '& input': { fontSize: '0.78rem', py: 0.7 } }} />
-          {isPayment ? (
-            <Select value={method} onChange={e => setMethod(e.target.value)} size="small" sx={{ fontSize: '0.78rem' }}>
-              {PAYMENT_METHODS.map(m => <MenuItem key={m} value={m}>{m}</MenuItem>)}
-            </Select>
-          ) : (
-            <TextField size="small" placeholder="Reason" value={note} onChange={e => setNote(e.target.value)} sx={{ '& input': { fontSize: '0.78rem', py: 0.7 } }} />
-          )}
+      {canEdit ? (
+        <Box sx={{ p: 1.5, borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', flexDirection: 'column', gap: 1 }}>
+          <ToggleButtonGroup
+            value={entryType}
+            exclusive
+            size="small"
+            fullWidth
+            onChange={(_, v) => v && setEntryType(v)}
+            sx={{ '& .MuiToggleButton-root': { py: 0.4, fontSize: '0.72rem', textTransform: 'none', borderColor: 'rgba(255,255,255,0.1)' } }}
+          >
+            <ToggleButton value="payment" sx={{ color: isPayment ? '#34D399 !important' : 'rgba(255,255,255,0.5)', bgcolor: isPayment ? 'rgba(52,211,153,0.12) !important' : 'transparent' }}>
+              <PaymentsRoundedIcon sx={{ fontSize: 14, mr: 0.5 }} /> Payment
+            </ToggleButton>
+            <ToggleButton value="discount" sx={{ color: !isPayment ? '#A78BFA !important' : 'rgba(255,255,255,0.5)', bgcolor: !isPayment ? 'rgba(167,139,250,0.12) !important' : 'transparent' }}>
+              <DiscountRoundedIcon sx={{ fontSize: 14, mr: 0.5 }} /> Discount
+            </ToggleButton>
+          </ToggleButtonGroup>
+          <Select value={clientId} onChange={e => setClientId(e.target.value)} size="small" displayEmpty fullWidth sx={{ fontSize: '0.78rem' }}>
+            <MenuItem value="" disabled>Select Client</MenuItem>
+            {clients.map(c => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+          </Select>
+          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
+            <TextField size="small" type="date" value={date} onChange={e => setDate(e.target.value)} sx={{ '& input': { fontSize: '0.78rem', py: 0.7 } }} />
+            {isPayment ? (
+              <Select value={method} onChange={e => setMethod(e.target.value)} size="small" sx={{ fontSize: '0.78rem' }}>
+                {PAYMENT_METHODS.map(m => <MenuItem key={m} value={m}>{m}</MenuItem>)}
+              </Select>
+            ) : (
+              <TextField size="small" placeholder="Reason" value={note} onChange={e => setNote(e.target.value)} sx={{ '& input': { fontSize: '0.78rem', py: 0.7 } }} />
+            )}
+          </Box>
+          <MonthSelect value={paymentForMonths} onChange={setPaymentForMonths} />
+          {isPayment && <TextField size="small" placeholder="Note" value={note} onChange={e => setNote(e.target.value)} sx={{ '& input': { fontSize: '0.78rem' } }} />}
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <TextField size="small" type="number" placeholder={'Amount (' + (settings.currency === 'INR' ? '\u20B9' : '$') + ')'} value={amount} onChange={e => setAmount(e.target.value)} sx={{ flex: 1, '& input': { fontSize: '0.78rem' } }} />
+            <Button variant="contained" size="small" onClick={handleAdd} disabled={!clientId || !amount} startIcon={<AddRoundedIcon />}
+              sx={{ bgcolor: accentColor, color: '#111827', '&:hover': { bgcolor: accentColor, filter: 'brightness(1.1)' }, fontWeight: 700, textTransform: 'none', minWidth: 90 }}>
+              Add
+            </Button>
+          </Box>
         </Box>
-        <MonthSelect value={paymentForMonths} onChange={setPaymentForMonths} />
-        {isPayment && <TextField size="small" placeholder="Note" value={note} onChange={e => setNote(e.target.value)} sx={{ '& input': { fontSize: '0.78rem' } }} />}
-        <Box sx={{ display: 'flex', gap: 1 }}>
-          <TextField size="small" type="number" placeholder={'Amount (' + (settings.currency === 'INR' ? '\u20B9' : '$') + ')'} value={amount} onChange={e => setAmount(e.target.value)} sx={{ flex: 1, '& input': { fontSize: '0.78rem' } }} />
-          <Button variant="contained" size="small" onClick={handleAdd} disabled={!clientId || !amount} startIcon={<AddRoundedIcon />}
-            sx={{ bgcolor: accentColor, color: '#111827', '&:hover': { bgcolor: accentColor, filter: 'brightness(1.1)' }, fontWeight: 700, textTransform: 'none', minWidth: 90 }}>
-            Add
-          </Button>
+      ) : (
+        <Box sx={{ p: 2, borderTop: '1px solid rgba(255,255,255,0.06)', textAlign: 'center' }}>
+          <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+            {currentRole === 'viewer' ? 'Viewer access (Read Only)' : 'Read-only mode (Offline)'}
+          </Typography>
         </Box>
-      </Box>
+      )}
 
       <EditEntryDialog
         open={!!editItem}
@@ -355,7 +373,7 @@ function PaymentEntry() {
 }
 
 export default function TaskBoard() {
-  const { tasks, clients, salaryRates, deleteTask, loading } = useApp();
+  const { tasks, clients, salaryRates, deleteTask, loading, canEdit } = useApp();
   const [editTask, setEditTask] = useState<Task | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
@@ -406,7 +424,11 @@ export default function TaskBoard() {
     return allFilteredTasks.reduce((sum, t) => sum + (t.videos ?? 0), 0);
   }, [allFilteredTasks]);
 
-  const handleDragStart = (e: React.DragEvent, id: string) => { setDragId(id); e.dataTransfer.effectAllowed = 'move'; };
+  const handleDragStart = (e: React.DragEvent, id: string) => {
+    if (!canEdit) return;
+    setDragId(id);
+    e.dataTransfer.effectAllowed = 'move';
+  };
 
   if (loading) {
     return (
@@ -431,7 +453,9 @@ export default function TaskBoard() {
                 <Chip label={`${totalVideosCount} vids`} size="small" sx={{ height: 18, fontSize: '0.65rem', bgcolor: 'rgba(129,140,248,0.2)', color: 'primary.light', fontWeight: 700 }} />
                 <Chip label={`${allFilteredTasks.length} tasks`} size="small" sx={{ height: 18, fontSize: '0.65rem', bgcolor: 'rgba(255,255,255,0.06)', color: 'text.secondary' }} />
               </Box>
-              <IconButton size="small" onClick={() => { setEditTask(null); setDialogOpen(true); }}><AddRoundedIcon fontSize="small" /></IconButton>
+              {canEdit && (
+                <IconButton size="small" onClick={() => { setEditTask(null); setDialogOpen(true); }}><AddRoundedIcon fontSize="small" /></IconButton>
+              )}
             </Box>
             <Box sx={{ mb: 1, display: 'flex', flexDirection: 'column', gap: 0.75 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>

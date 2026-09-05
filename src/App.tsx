@@ -16,7 +16,7 @@ import SettingsView from './views/SettingsView';
 import TaskDialog from './components/TaskDialog';
 
 function AppContent() {
-  const { currentView, setCurrentView, loading } = useApp();
+  const { currentView, setCurrentView, loading, canEdit } = useApp();
   const [taskDialogOpen, setTaskDialogOpen] = useState(false);
   const muiTheme = useTheme();
   const isMobile = useMediaQuery(muiTheme.breakpoints.down('md'));
@@ -50,7 +50,7 @@ function AppContent() {
       </Box>
 
       {/* Mobile FAB for adding tasks (only on tasks view) */}
-      {isMobile && currentView === 'tasks' && (
+      {isMobile && currentView === 'tasks' && canEdit && (
         <Fab
           color="primary"
           onClick={() => setTaskDialogOpen(true)}

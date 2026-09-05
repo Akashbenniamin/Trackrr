@@ -16,7 +16,7 @@ import ClientDialog from '../components/ClientDialog';
 import type { Client } from '../types';
 
 export default function ClientsView() {
-  const { clients, tasks, payments, salaryRates, settings, deleteClient } = useApp();
+  const { clients, tasks, payments, salaryRates, settings, deleteClient, canEdit } = useApp();
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [expandedId, setExpandedId] = usePersistedState<string | null>('clients_expandedId', null);
@@ -106,6 +106,7 @@ export default function ClientsView() {
           </Select>
           <Button
             variant="contained"
+            disabled={!canEdit}
             startIcon={<AddRoundedIcon />}
             onClick={() => { setSelectedClient(null); setDialogOpen(true); }}
           >
@@ -118,7 +119,7 @@ export default function ClientsView() {
             <Typography variant="body1" color="text.secondary" sx={{ mb: 2 }}>
               No clients yet. Add your first client to get started.
             </Typography>
-            <Button variant="outlined" onClick={() => { setSelectedClient(null); setDialogOpen(true); }}>
+            <Button variant="outlined" disabled={!canEdit} onClick={() => { setSelectedClient(null); setDialogOpen(true); }}>
               Add Client
             </Button>
           </Card>
@@ -157,14 +158,18 @@ export default function ClientsView() {
                             size="small"
                             sx={{ height: 18, fontSize: '0.62rem', bgcolor: 'rgba(129,140,248,0.15)', color: 'primary.light' }}
                           />
-                          <IconButton size="small" sx={{ p: 0.4 }} onClick={() => { setSelectedClient(client); setDialogOpen(true); }}>
-                            <EditRoundedIcon sx={{ fontSize: 15 }} />
-                          </IconButton>
-                          <IconButton size="small" sx={{ p: 0.4 }} onClick={() => {
-                            if (window.confirm(`Delete client "${client.name}"?`)) deleteClient(client.id);
-                          }}>
-                            <DeleteOutlineRoundedIcon sx={{ fontSize: 15, color: '#F87171' }} />
-                          </IconButton>
+                          {canEdit && (
+                            <>
+                              <IconButton size="small" sx={{ p: 0.4 }} onClick={() => { setSelectedClient(client); setDialogOpen(true); }}>
+                                <EditRoundedIcon sx={{ fontSize: 15 }} />
+                              </IconButton>
+                              <IconButton size="small" sx={{ p: 0.4 }} onClick={() => {
+                                if (window.confirm(`Delete client "${client.name}"?`)) deleteClient(client.id);
+                              }}>
+                                <DeleteOutlineRoundedIcon sx={{ fontSize: 15, color: '#F87171' }} />
+                              </IconButton>
+                            </>
+                          )}
                         </Box>
                       </Box>
 

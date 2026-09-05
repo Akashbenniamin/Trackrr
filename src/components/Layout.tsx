@@ -16,8 +16,12 @@ import WorkspacesRoundedIcon from '@mui/icons-material/WorkspacesRounded';
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
 import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
+import GroupAddRoundedIcon from '@mui/icons-material/GroupAddRounded';
 import { useAuth } from '../contexts/AuthContext';
 import AuthDialog from './AuthDialog';
+import OfflineBanner from './OfflineBanner';
+import PendingInvitesBanner from './PendingInvitesBanner';
+import CollaboratorsDialog from './CollaboratorsDialog';
 import { useApp } from '../contexts/AppContext';
 import type { ViewName } from '../types';
 
@@ -38,9 +42,13 @@ interface LayoutProps {
 export default function Layout({ children, onAddTask }: LayoutProps) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
-  const { currentView, setCurrentView, workspaces, activeWorkspace, switchWorkspace, createWorkspace } = useApp();
+  const {
+    currentView, setCurrentView, workspaces, activeWorkspace,
+    switchWorkspace, createWorkspace, currentRole, canEdit, workspaceMembers,
+  } = useApp();
   const [wsDrawerOpen, setWsDrawerOpen] = useState(false);
   const [newWsName, setNewWsName] = useState('');
+  const [collabDialogOpen, setCollabDialogOpen] = useState(false);
   const { user, signOut } = useAuth();
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
   const [userMenuAnchor, setUserMenuAnchor] = useState<null | HTMLElement>(null);
@@ -57,29 +65,46 @@ export default function Layout({ children, onAddTask }: LayoutProps) {
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', bgcolor: 'background.default' }}>
+      <OfflineBanner />
+
       {/* Top AppBar */}
       <AppBar position="sticky" elevation={0}>
         <Toolbar sx={{ gap: 1, minHeight: { xs: 56, sm: 64 } }}>
-          <Tooltip title="Switch Workspace">
-            <Chip
-              avatar={<Avatar sx={{ bgcolor: activeWorkspace?.color || '#818CF8', width: 22, height: 22, fontSize: '0.65rem' }}>
-                {activeWorkspace?.name?.[0]?.toUpperCase() ?? 'W'}
-              </Avatar>}
-              label={activeWorkspace?.name ?? 'Workspace'}
-              onClick={() => setWsDrawerOpen(true)}
-              size="small"
-              sx={{
-                bgcolor: 'rgba(255,255,255,0.05)',
-                border: '1px solid rgba(255,255,255,0.1)',
-                color: 'text.primary',
-                fontWeight: 600,
-                cursor: 'pointer',
-                '&:hover': { bgcolor: 'rgba(255,255,255,0.1)' },
-                maxWidth: 140,
-                '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' },
-              }}
-            />
-          </Tooltip>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+            <Tooltip title="Switch Workspace">
+              <Chip
+                avatar={<Avatar sx={{ bgcolor: activeWorkspace?.color || '#818CF8', width: 22, height: 22, fontSize: '0.65rem' }}>
+                  {activeWorkspace?.name?.[0]?.toUpperCase() ?? 'W'}
+                </Avatar>}
+                label={activeWorkspace?.name ?? 'Workspace'}
+                onClick={() => setWsDrawerOpen(true)}
+                size="small"
+                sx={{
+                  bgcolor: 'rgba(255,255,255,0.05)',
+                  border: '1px solid rgba(255,255,255,0.1)',
+                  color: 'text.primary',
+                  fontWeight: 600,
+                  cursor: 'pointer',
+                  '&:hover': { bgcolor: 'rgba(255,255,255,0.1)' },
+                  maxWidth: 140,
+                  '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' },
+                }}
+              />
+            </Tooltip>
+            {currentRole !== 'owner' && (
+              <Chip
+                label={currentRole.toUpperCase()}
+                size="small"
+                sx={{
+                  height: 20,
+                  fontSize: '0.6rem',
+                  fontWeight: 700,
+                  bgcolor: currentRole === 'manager' ? 'rgba(52,211,153,0.15)' : 'rgba(129,140,248,0.15)',
+                  color: currentRole === 'manager' ? '#34D399' : '#818CF8',
+                }}
+              />
+            )}
+          </Box>
 
           <Typography
             variant="h6"
@@ -89,7 +114,7 @@ export default function Layout({ children, onAddTask }: LayoutProps) {
           </Typography>
 
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            {currentView === 'tasks' && (
+            {currentView === 'tasks' && canEdit && (
               <IconButton
                 onClick={onAddTask}
                 sx={{
@@ -176,6 +201,8 @@ export default function Layout({ children, onAddTask }: LayoutProps) {
           </Box>
         </Toolbar>
       </AppBar>
+
+      <PendingInvitesBanner />
 
       {/* Main content */}
       <Box
@@ -292,6 +319,29 @@ export default function Layout({ children, onAddTask }: LayoutProps) {
               </ListItem>
             ))}
           </List>
+          {activeWorkspace && (
+            <Button
+              fullWidth
+              size="small"
+              variant="outlined"
+              startIcon={<GroupAddRoundedIcon />}
+              onClick={() => { setWsDrawerOpen(false); setCollabDialogOpen(true); }}
+              sx={{
+                mt: 1.5,
+                mb: 0.5,
+                textTransform: 'none',
+                fontWeight: 600,
+                fontSize: '0.8rem',
+                borderRadius: 2,
+                borderColor: 'rgba(255,255,255,0.12)',
+                color: 'text.secondary',
+                '&:hover': { borderColor: 'primary.main', color: 'primary.light' },
+              }}
+            >
+              Collaborators ({workspaceMembers.length})
+            </Button>
+          )}
+
           <Divider sx={{ my: 2, borderColor: 'rgba(255,255,255,0.07)' }} />
           <Box sx={{ display: 'flex', gap: 1 }}>
             <input
@@ -312,6 +362,7 @@ export default function Layout({ children, onAddTask }: LayoutProps) {
       </Drawer>
 
       <AuthDialog open={authDialogOpen} onClose={() => setAuthDialogOpen(false)} />
+      <CollaboratorsDialog open={collabDialogOpen} onClose={() => setCollabDialogOpen(false)} />
     </Box>
   );
 }
