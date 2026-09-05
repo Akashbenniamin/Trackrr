@@ -3,11 +3,14 @@ import {
   Dialog, DialogTitle, DialogContent, Box, Typography, TextField,
   Button, Select, MenuItem, IconButton, List, ListItem,
   ListItemAvatar, ListItemText, Avatar, Divider, Alert, CircularProgress,
+  Chip, Tooltip,
 } from '@mui/material';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import GroupAddRoundedIcon from '@mui/icons-material/GroupAddRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 import ShieldRoundedIcon from '@mui/icons-material/ShieldRounded';
+import HourglassEmptyRoundedIcon from '@mui/icons-material/HourglassEmptyRounded';
+import MailOutlineRoundedIcon from '@mui/icons-material/MailOutlineRounded';
 import { useApp } from '../contexts/AppContext';
 import { useAuth } from '../contexts/AuthContext';
 
@@ -20,9 +23,11 @@ export default function CollaboratorsDialog({ open, onClose }: CollaboratorsDial
   const {
     activeWorkspace,
     workspaceMembers,
+    workspaceInvites,
     currentRole,
     isOnline,
     inviteCollaborator,
+    cancelInvite,
     removeCollaborator,
   } = useApp();
   const { user } = useAuth();
@@ -71,6 +76,18 @@ export default function CollaboratorsDialog({ open, onClose }: CollaboratorsDial
       await removeCollaborator(activeWorkspace.id, userId);
     } catch (err: any) {
       setErrorMsg(err.message || 'Failed to remove member');
+    }
+  };
+
+  const handleCancelInvite = async (inviteId: string, email: string) => {
+    if (!activeWorkspace) return;
+    if (!window.confirm(`Cancel invitation sent to ${email}?`)) return;
+
+    try {
+      await cancelInvite(inviteId);
+      setSuccessMsg(`Cancelled invite for ${email}`);
+    } catch (err: any) {
+      setErrorMsg(err.message || 'Failed to cancel invite');
     }
   };
 
@@ -165,6 +182,73 @@ export default function CollaboratorsDialog({ open, onClose }: CollaboratorsDial
         )}
 
         <Divider sx={{ my: 2, borderColor: 'rgba(255,255,255,0.06)' }} />
+
+        {/* Pending Invites for this Workspace */}
+        {workspaceInvites.length > 0 && (
+          <Box sx={{ mb: 2.5 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 1 }}>
+              <HourglassEmptyRoundedIcon sx={{ fontSize: 14, color: '#F59E0B' }} />
+              <Typography variant="caption" sx={{ color: '#F59E0B', fontWeight: 700, textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                Pending Invitations ({workspaceInvites.length})
+              </Typography>
+            </Box>
+
+            <List disablePadding>
+              {workspaceInvites.map((invite) => (
+                <ListItem
+                  key={invite.id}
+                  sx={{
+                    bgcolor: 'rgba(245, 158, 11, 0.05)',
+                    borderRadius: 2,
+                    mb: 1,
+                    px: 1.5,
+                    py: 0.75,
+                    border: '1px dashed rgba(245, 158, 11, 0.25)',
+                  }}
+                  secondaryAction={
+                    isOwner ? (
+                      <Tooltip title="Cancel invitation">
+                        <IconButton
+                          size="small"
+                          onClick={() => handleCancelInvite(invite.id, invite.invitee_email)}
+                          disabled={!isOnline}
+                          sx={{ color: '#F87171', '&:hover': { bgcolor: 'rgba(248, 113, 113, 0.12)' } }}
+                        >
+                          <DeleteOutlineRoundedIcon fontSize="small" />
+                        </IconButton>
+                      </Tooltip>
+                    ) : null
+                  }
+                >
+                  <ListItemAvatar sx={{ minWidth: 40 }}>
+                    <Avatar sx={{ width: 32, height: 32, bgcolor: 'rgba(245, 158, 11, 0.18)', color: '#F59E0B' }}>
+                      <MailOutlineRoundedIcon sx={{ fontSize: 16 }} />
+                    </Avatar>
+                  </ListItemAvatar>
+                  <ListItemText
+                    primary={
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="body2" sx={{ fontWeight: 600 }}>
+                          {invite.invitee_email}
+                        </Typography>
+                        <Chip
+                          label="Pending"
+                          size="small"
+                          sx={{ height: 18, fontSize: '0.62rem', bgcolor: 'rgba(245, 158, 11, 0.2)', color: '#F59E0B', fontWeight: 700 }}
+                        />
+                      </Box>
+                    }
+                    secondary={
+                      <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.72rem' }}>
+                        Invited as {invite.role === 'manager' ? 'Manager (Can Edit)' : 'Viewer (Read-only)'} • Waiting for user to accept
+                      </Typography>
+                    }
+                  />
+                </ListItem>
+              ))}
+            </List>
+          </Box>
+        )}
 
         {/* Members List */}
         <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, display: 'block', mb: 1, textTransform: 'uppercase' }}>

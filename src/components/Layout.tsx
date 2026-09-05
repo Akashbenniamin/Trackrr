@@ -3,7 +3,7 @@ import {
   AppBar, Toolbar, Typography, BottomNavigation, BottomNavigationAction,
   Box, IconButton, Avatar, Chip, Drawer, List, ListItem,
   ListItemButton, ListItemText, ListItemAvatar, Divider, Button, Tooltip,
-  Menu, MenuItem, useMediaQuery, useTheme,
+  Menu, MenuItem, useMediaQuery, useTheme, Badge,
 } from '@mui/material';
 import DashboardRoundedIcon from '@mui/icons-material/DashboardRounded';
 import VideoLibraryRoundedIcon from '@mui/icons-material/VideoLibraryRounded';
@@ -45,6 +45,7 @@ export default function Layout({ children, onAddTask }: LayoutProps) {
   const {
     currentView, setCurrentView, workspaces, activeWorkspace,
     switchWorkspace, createWorkspace, currentRole, canEdit, workspaceMembers,
+    workspaceInvites,
   } = useApp();
   const [wsDrawerOpen, setWsDrawerOpen] = useState(false);
   const [newWsName, setNewWsName] = useState('');
@@ -127,6 +128,25 @@ export default function Layout({ children, onAddTask }: LayoutProps) {
               >
                 <AddRoundedIcon fontSize="small" />
               </IconButton>
+            )}
+
+            {activeWorkspace && user && (
+              <Tooltip title={`Collaborators (${workspaceMembers.length})${workspaceInvites.length > 0 ? ` • ${workspaceInvites.length} pending invite${workspaceInvites.length > 1 ? 's' : ''}` : ''}`}>
+                <IconButton
+                  size="small"
+                  onClick={() => setCollabDialogOpen(true)}
+                  sx={{
+                    color: workspaceInvites.length > 0 ? '#F59E0B' : 'text.secondary',
+                    bgcolor: workspaceInvites.length > 0 ? 'rgba(245, 158, 11, 0.1)' : 'transparent',
+                    border: workspaceInvites.length > 0 ? '1px solid rgba(245, 158, 11, 0.3)' : '1px solid transparent',
+                    '&:hover': { color: 'primary.light', bgcolor: 'rgba(255,255,255,0.06)' },
+                  }}
+                >
+                  <Badge badgeContent={workspaceInvites.length} color="warning">
+                    <GroupAddRoundedIcon fontSize="small" />
+                  </Badge>
+                </IconButton>
+              </Tooltip>
             )}
 
             {user ? (
@@ -333,12 +353,12 @@ export default function Layout({ children, onAddTask }: LayoutProps) {
                 fontWeight: 600,
                 fontSize: '0.8rem',
                 borderRadius: 2,
-                borderColor: 'rgba(255,255,255,0.12)',
-                color: 'text.secondary',
+                borderColor: workspaceInvites.length > 0 ? 'rgba(245, 158, 11, 0.4)' : 'rgba(255,255,255,0.12)',
+                color: workspaceInvites.length > 0 ? '#F59E0B' : 'text.secondary',
                 '&:hover': { borderColor: 'primary.main', color: 'primary.light' },
               }}
             >
-              Collaborators ({workspaceMembers.length})
+              Collaborators ({workspaceMembers.length}){workspaceInvites.length > 0 ? ` • ${workspaceInvites.length} pending` : ''}
             </Button>
           )}
 

@@ -24,6 +24,7 @@ interface AppContextType {
   canEdit: boolean;
   workspaceMembers: WorkspaceMember[];
   pendingInvites: WorkspaceInvite[];
+  workspaceInvites: WorkspaceInvite[];
   setCurrentView: (v: ViewName) => void;
   switchWorkspace: (id: string) => void;
   createWorkspace: (name: string, color: string) => Promise<void>;
@@ -46,6 +47,7 @@ interface AppContextType {
   deleteDiscount: (id: string) => Promise<void>;
   updateSettings: (data: Partial<AppSettings>) => Promise<void>;
   inviteCollaborator: (workspaceId: string, email: string, role: 'manager' | 'viewer') => Promise<{ error?: any }>;
+  cancelInvite: (inviteId: string) => Promise<{ error?: any }>;
   removeCollaborator: (workspaceId: string, userId: string) => Promise<{ error?: any }>;
   respondToInvite: (inviteId: string, accept: boolean) => Promise<{ error?: any }>;
   refetch: () => Promise<void>;
@@ -68,6 +70,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [workspaceMembers, setWorkspaceMembers] = useState<WorkspaceMember[]>([]);
   const [pendingInvites, setPendingInvites] = useState<WorkspaceInvite[]>([]);
+  const [workspaceInvites, setWorkspaceInvites] = useState<WorkspaceInvite[]>([]);
   const [loading, setLoading] = useState(true);
   const [currentView, setCurrentView] = useState<ViewName>('dashboard');
 
@@ -165,6 +168,14 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           .eq('workspace_id', active.id);
         setWorkspaceMembers((members as WorkspaceMember[]) || []);
 
+        // Fetch sent pending invites for active workspace
+        const { data: wsInvites } = await supabase
+          .from('workspace_invites')
+          .select('*')
+          .eq('workspace_id', active.id)
+          .eq('status', 'pending');
+        setWorkspaceInvites((wsInvites as WorkspaceInvite[]) || []);
+
         // Fetch workspace data in parallel
         const [cRes, tRes, pRes, rRes, dRes] = await Promise.all([
           supabase.from('clients').select('*').eq('workspace_id', active.id),
@@ -199,6 +210,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setSalaryRates([]);
         setDiscounts([]);
         setWorkspaceMembers([]);
+        setWorkspaceInvites([]);
       }
 
       // Fetch pending invites for user's email
@@ -629,7 +641,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     if (!isOnline) return { error: new Error('Cannot invite collaborators while offline') };
     if (!user || !activeWorkspace) return { error: new Error('User not logged in') };
 
-    const { error } = await supabase.from('workspace_invites').insert([{
+    const { data: newInvite, error } = await supabase.from('workspace_invites').insert([{
       workspace_id: workspaceId,
       workspace_name: activeWorkspace.name,
       invited_by_user_id: user.id,
@@ -639,8 +651,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       status: 'pending',
     }]).select().single();
 
+    if (!error && newInvite) {
+      setWorkspaceInvites(prev => [...prev, newInvite as WorkspaceInvite]);
+    }
+
     return { error };
   }, [isOnline, user, activeWorkspace]);
+
+  // Collaboration: Cancel / Revoke invite
+  const cancelInvite = useCallback(async (inviteId: string) => {
+    if (!isOnline) return { error: new Error('Cannot cancel invite while offline') };
+    const { error } = await supabase
+      .from('workspace_invites')
+      .delete()
+      .eq('id', inviteId);
+
+    if (!error) {
+      setWorkspaceInvites(prev => prev.filter(i => i.id !== inviteId));
+    }
+    return { error };
+  }, [isOnline]);
 
   // Collaboration: Remove collaborator
   const removeCollaborator = useCallback(async (workspaceId: string, userId: string) => {
@@ -704,6 +734,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         canEdit,
         workspaceMembers,
         pendingInvites,
+        workspaceInvites,
         setCurrentView,
         switchWorkspace,
         createWorkspace,
@@ -726,6 +757,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         deleteDiscount,
         updateSettings,
         inviteCollaborator,
+        cancelInvite,
         removeCollaborator,
         respondToInvite,
         refetch: fetchAll,
