@@ -34,6 +34,9 @@ jobs:
         run: npm ci
 
       - name: Build project
+        env:
+          VITE_SUPABASE_URL: ${{ secrets.VITE_SUPABASE_URL || 'https://tdedvipgmafivbecfcpo.supabase.co' }}
+          VITE_SUPABASE_ANON_KEY: ${{ secrets.VITE_SUPABASE_ANON_KEY || 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkZWR2aXBnbWFmaXZiZWNmY3BvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg2MjA0MzksImV4cCI6MjEwNDE5NjQzOX0.Jxp2NwooiTn0CgCZdfcrQ6TBr_WNyTtHrAAEE-Iy1aA' }}
         run: npm run build
 
       - name: Setup Pages

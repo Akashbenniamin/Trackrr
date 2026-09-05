@@ -1,7 +1,10 @@
 import { createClient } from '@supabase/supabase-js';
 
-const supabaseUrl = import.meta.env.VITE_SUPABASE_URL as string | undefined;
-const supabaseAnonKey = import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined;
+const defaultUrl = 'https://tdedvipgmafivbecfcpo.supabase.co';
+const defaultAnonKey = 'eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InRkZWR2aXBnbWFmaXZiZWNmY3BvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg2MjA0MzksImV4cCI6MjEwNDE5NjQzOX0.Jxp2NwooiTn0CgCZdfcrQ6TBr_WNyTtHrAAEE-Iy1aA';
+
+const supabaseUrl = (import.meta.env.VITE_SUPABASE_URL as string | undefined) || defaultUrl;
+const supabaseAnonKey = (import.meta.env.VITE_SUPABASE_ANON_KEY as string | undefined) || defaultAnonKey;
 
 export const isSupabaseConfigured = (): boolean => {
   return Boolean(
@@ -13,10 +16,9 @@ export const isSupabaseConfigured = (): boolean => {
   );
 };
 
-// Fallback dummy to prevent top-level runtime crash if keys are not provided yet
 export const supabase = createClient(
-  supabaseUrl && supabaseUrl.startsWith('https://') ? supabaseUrl : 'https://placeholder.supabase.co',
-  supabaseAnonKey || 'placeholder-key',
+  supabaseUrl,
+  supabaseAnonKey,
   {
     auth: {
       persistSession: true,
