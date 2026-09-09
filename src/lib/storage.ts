@@ -30,7 +30,7 @@ export const defaultSettings: AppSettings = {
   id: 1,
   active_workspace_id: null,
   currency: 'INR',
-  theme_color: '#818CF8',
+  theme_color: 'auto',
   theme_style: 'default',
   show_completed: true,
 };

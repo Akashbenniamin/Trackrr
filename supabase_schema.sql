@@ -127,9 +127,12 @@ create table if not exists public.settings (
   active_workspace_id text,
   currency text default 'USD' check (currency in ('USD', 'INR')),
   theme_color text default '#818CF8',
+  theme_style text default 'default',
   show_completed boolean default true,
   updated_at timestamptz default timezone('utc'::text, now()) not null
 );
+
+alter table public.settings add column if not exists theme_style text default 'default';
 
 -- Helper function: Check if user has required permission in workspace
 create or replace function public.has_workspace_access(ws_id text, min_role text default 'viewer')

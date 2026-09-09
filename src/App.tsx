@@ -104,7 +104,7 @@ function AppContent() {
 function ThemedApp() {
   const { settings } = useApp();
   const currentMuiTheme = useMemo(() => {
-    return getAppTheme(settings.theme_style || 'default', settings.theme_color || '#818CF8');
+    return getAppTheme(settings.theme_style || 'default', settings.theme_color || 'auto');
   }, [settings.theme_style, settings.theme_color]);
 
   return (

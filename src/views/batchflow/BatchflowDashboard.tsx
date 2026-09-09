@@ -1,6 +1,6 @@
 import React from 'react';
 import {
-  Box, Card, Typography, Grid, LinearProgress, Chip,
+  Box, Card, CardContent, Typography, Grid, LinearProgress, Avatar, ButtonBase, Chip,
 } from '@mui/material';
 import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
 import LayersRoundedIcon from '@mui/icons-material/LayersRounded';
@@ -9,6 +9,33 @@ import MovieCreationRoundedIcon from '@mui/icons-material/MovieCreationRounded';
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { useApp } from '../../contexts/AppContext';
+
+function StatCard({ label, value, icon, color, subLabel, progress, onClick }: {
+  label: string; value: string | number; icon: React.ReactNode; color: string;
+  subLabel?: string; progress?: number; onClick?: () => void;
+}) {
+  return (
+    <ButtonBase onClick={onClick} sx={{ borderRadius: 2, display: 'block', width: '100%', textAlign: 'left' }}>
+      <Card sx={{
+        p: 0, transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+        '&:hover': { transform: 'translateY(-2px)', boxShadow: `0 8px 32px ${color}22` },
+        borderLeft: `4px solid ${color}`, cursor: onClick ? 'pointer' : 'default',
+      }}>
+        <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
+          <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 1 }}>
+            <Box>
+              <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600 }}>{label}</Typography>
+              <Typography variant="h4" sx={{ fontWeight: 800, color, mt: 0.25, lineHeight: 1.1 }}>{value}</Typography>
+              {subLabel && <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.25 }}>{subLabel}</Typography>}
+            </Box>
+            <Avatar sx={{ bgcolor: `${color}22`, color, width: 40, height: 40 }}>{icon}</Avatar>
+          </Box>
+          {progress !== undefined && <LinearProgress variant="determinate" value={Math.min(progress, 100)} sx={{ mt: 1.5, '& .MuiLinearProgress-bar': { bgcolor: color } }} />}
+        </CardContent>
+      </Card>
+    </ButtonBase>
+  );
+}
 
 export default function BatchflowDashboard({ onNavigate }: { onNavigate?: (view: any) => void }) {
   const { batchflowClients, batchflowBatches, batchflowVideos } = useApp();
@@ -29,14 +56,6 @@ export default function BatchflowDashboard({ onNavigate }: { onNavigate?: (view:
     { name: 'Posted', count: postedCount, color: '#10B981' },
   ];
 
-  const stats = [
-    { label: 'Active Clients', value: activeClients.length, icon: <PeopleRoundedIcon />, color: '#818CF8' },
-    { label: 'Active Batches', value: activeBatches.length, icon: <LayersRoundedIcon />, color: '#A78BFA' },
-    { label: 'Edit Pending', value: pendingCount, icon: <PendingRoundedIcon />, color: '#F59E0B' },
-    { label: 'Edited Videos', value: editedCount, icon: <MovieCreationRoundedIcon />, color: '#3B82F6' },
-    { label: 'Posted Videos', value: postedCount, icon: <CheckCircleRoundedIcon />, color: '#10B981' },
-  ];
-
   return (
     <Box sx={{ pb: 4 }}>
       {/* Header */}
@@ -50,46 +69,58 @@ export default function BatchflowDashboard({ onNavigate }: { onNavigate?: (view:
       </Box>
 
       {/* KPI Cards */}
-      <Grid container spacing={2} sx={{ mb: 3 }}>
-        {stats.map(s => (
-          <Grid size={{ xs: 6, sm: 4, md: 2.4 }} key={s.label}>
-            <Card
-              sx={{
-                p: 2,
-                display: 'flex',
-                flexDirection: 'column',
-                gap: 1.5,
-                borderRadius: 3,
-                transition: 'transform 0.15s ease',
-                '&:hover': { transform: 'translateY(-2px)' },
-              }}
-            >
-              <Box
-                sx={{
-                  width: 38,
-                  height: 38,
-                  borderRadius: 2,
-                  bgcolor: `${s.color}18`,
-                  color: s.color,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                }}
-              >
-                {React.cloneElement(s.icon, { sx: { fontSize: 20 } })}
-              </Box>
-              <Box>
-                <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, display: 'block' }}>
-                  {s.label}
-                </Typography>
-                <Typography variant="h4" sx={{ fontWeight: 800, color: s.color, mt: 0.25 }}>
-                  {s.value}
-                </Typography>
-              </Box>
-            </Card>
-          </Grid>
-        ))}
-      </Grid>
+      <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mb: 3 }}>
+        <Box sx={{ flex: { xs: '1 1 calc(50% - 6px)', sm: '1 1 calc(33% - 6px)', md: '1 1 0' }, minWidth: { xs: 'calc(50% - 6px)', md: 140 } }}>
+          <StatCard
+            label="Active Clients"
+            value={activeClients.length}
+            icon={<PeopleRoundedIcon fontSize="small" />}
+            color="#818CF8"
+            subLabel="in pipeline"
+            onClick={() => onNavigate?.('clients')}
+          />
+        </Box>
+        <Box sx={{ flex: { xs: '1 1 calc(50% - 6px)', sm: '1 1 calc(33% - 6px)', md: '1 1 0' }, minWidth: { xs: 'calc(50% - 6px)', md: 140 } }}>
+          <StatCard
+            label="Active Batches"
+            value={activeBatches.length}
+            icon={<LayersRoundedIcon fontSize="small" />}
+            color="#A78BFA"
+            subLabel="in progress"
+            onClick={() => onNavigate?.('batches')}
+          />
+        </Box>
+        <Box sx={{ flex: { xs: '1 1 calc(50% - 6px)', sm: '1 1 calc(33% - 6px)', md: '1 1 0' }, minWidth: { xs: 'calc(50% - 6px)', md: 140 } }}>
+          <StatCard
+            label="Edit Pending"
+            value={pendingCount}
+            icon={<PendingRoundedIcon fontSize="small" />}
+            color="#F59E0B"
+            subLabel="waiting edit"
+            onClick={() => onNavigate?.('batches')}
+          />
+        </Box>
+        <Box sx={{ flex: { xs: '1 1 calc(50% - 6px)', sm: '1 1 calc(33% - 6px)', md: '1 1 0' }, minWidth: { xs: 'calc(50% - 6px)', md: 140 } }}>
+          <StatCard
+            label="Edited Videos"
+            value={editedCount}
+            icon={<MovieCreationRoundedIcon fontSize="small" />}
+            color="#3B82F6"
+            subLabel="ready to post"
+            onClick={() => onNavigate?.('batches')}
+          />
+        </Box>
+        <Box sx={{ flex: { xs: '1 1 calc(50% - 6px)', sm: '1 1 calc(33% - 6px)', md: '1 1 0' }, minWidth: { xs: 'calc(50% - 6px)', md: 140 } }}>
+          <StatCard
+            label="Posted Videos"
+            value={postedCount}
+            icon={<CheckCircleRoundedIcon fontSize="small" />}
+            color="#10B981"
+            subLabel="published"
+            onClick={() => onNavigate?.('batches')}
+          />
+        </Box>
+      </Box>
 
       {/* Charts & Breakdown */}
       <Grid container spacing={2}>

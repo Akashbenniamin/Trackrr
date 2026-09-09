@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
-import { storage, generateId, defaultSettings } from '../lib/storage';
+import { storage, generateId } from '../lib/storage';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { useAuth } from './AuthContext';
 import { useNetworkStatus } from '../lib/useNetworkStatus';
@@ -75,8 +75,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const isOnline = useNetworkStatus();
   const isCloudActive = isSupabaseConfigured() && Boolean(user);
 
-  const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
-  const [activeWorkspace, setActiveWorkspace] = useState<Workspace | null>(null);
+  const [workspaces, setWorkspaces] = useState<Workspace[]>(() => storage.getWorkspaces());
+  const [settings, setSettings] = useState<AppSettings>(() => storage.getSettings());
+  const [activeWorkspace, setActiveWorkspace] = useState<Workspace | null>(() => {
+    const ws = storage.getWorkspaces();
+    const s = storage.getSettings();
+    return ws.find(w => w.id === s.active_workspace_id) ?? ws[0] ?? null;
+  });
   const [clients, setClients] = useState<Client[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [payments, setPayments] = useState<Payment[]>([]);
@@ -85,7 +90,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [batchflowClients, setBatchflowClients] = useState<BatchflowClient[]>([]);
   const [batchflowBatches, setBatchflowBatches] = useState<BatchflowBatch[]>([]);
   const [batchflowVideos, setBatchflowVideos] = useState<BatchflowVideo[]>([]);
-  const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [workspaceMembers, setWorkspaceMembers] = useState<WorkspaceMember[]>([]);
   const [pendingInvites, setPendingInvites] = useState<WorkspaceInvite[]>([]);
   const [workspaceInvites, setWorkspaceInvites] = useState<WorkspaceInvite[]>([]);
@@ -160,10 +164,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const localWsMap = new Map(localWorkspaces.map(w => [w.id, w]));
       const cloudIds = new Set(activeWsList.map(w => w.id));
 
-      activeWsList = activeWsList.map(w => ({
-        ...w,
-        type: w.type || localWsMap.get(w.id)?.type || 'freelance',
-      }));
+      activeWsList = activeWsList.map(w => {
+        const local = localWsMap.get(w.id);
+        // If locally marked or created as batchflow, NEVER let cloud default overwrite it
+        const resolvedType = (w.type === 'batchflow' || local?.type === 'batchflow')
+          ? 'batchflow'
+          : (w.type || local?.type || 'freelance');
+
+        return {
+          ...w,
+          type: resolvedType,
+        };
+      });
 
       // Keep any locally created workspace not yet present in the cloud
       for (const loc of localWorkspaces) {
@@ -200,7 +212,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setWorkspaces(activeWsList);
       storage.setWorkspaces(activeWsList);
 
-      const targetId = wsId ?? settings.active_workspace_id ?? activeWsList[0]?.id ?? null;
+      const savedSettings = storage.getSettings();
+      const targetId = wsId ?? savedSettings.active_workspace_id ?? settings.active_workspace_id ?? activeWsList[0]?.id ?? null;
       const active = activeWsList.find(w => w.id === targetId) ?? activeWsList[0] ?? null;
       setActiveWorkspace(active);
 
@@ -387,7 +400,15 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     assertCanEdit();
     const now = new Date().toISOString();
     if (isCloudActive) {
-      await supabase.from('workspaces').update({ ...data, updated_at: now }).eq('id', id);
+      try {
+        let { error } = await supabase.from('workspaces').update({ ...data, updated_at: now }).eq('id', id);
+        if (error && (error.message?.includes('type') || error.code === 'PGRST204' || error.code === '42703')) {
+          const { type: _t, ...dataNoType } = data;
+          await supabase.from('workspaces').update({ ...dataNoType, updated_at: now }).eq('id', id);
+        }
+      } catch (err) {
+        console.warn('Could not update workspace on cloud:', err);
+      }
     }
 
     const all = storage.getWorkspaces();
@@ -715,15 +736,29 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setSettings(updated);
 
     if (isCloudActive && isOnline && user) {
-      await supabase.from('settings').upsert({
-        user_id: user.id,
-        currency: updated.currency,
-        theme_color: updated.theme_color,
-        theme_style: updated.theme_style,
-        show_completed: updated.show_completed,
-        active_workspace_id: updated.active_workspace_id,
-        updated_at: new Date().toISOString(),
-      }, { onConflict: 'user_id' });
+      try {
+        const payload: any = {
+          user_id: user.id,
+          currency: updated.currency,
+          theme_color: updated.theme_color,
+          theme_style: updated.theme_style,
+          show_completed: updated.show_completed,
+          active_workspace_id: updated.active_workspace_id,
+          updated_at: new Date().toISOString(),
+        };
+        const { error } = await supabase.from('settings').upsert(payload, { onConflict: 'user_id' });
+        if (error) {
+          // If theme_style column does not exist in legacy cloud table, retry without it
+          if (error.message?.includes('theme_style') || error.code === 'PGRST204' || error.code === '42703' || error.message?.includes('column')) {
+            const { theme_style: _ts, ...payloadNoThemeStyle } = payload;
+            await supabase.from('settings').upsert(payloadNoThemeStyle, { onConflict: 'user_id' });
+          } else {
+            console.warn('Could not sync settings to cloud:', error);
+          }
+        }
+      } catch (err) {
+        console.warn('Network error syncing settings:', err);
+      }
     }
   }, [isCloudActive, isOnline, user]);
 

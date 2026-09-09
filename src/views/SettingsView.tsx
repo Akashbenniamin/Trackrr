@@ -3,7 +3,7 @@ import {
   Box, Card, Typography, Button, Select, MenuItem, Divider, Fade,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField,
   Avatar, IconButton, Alert, List, ListItem,
-  ListItemAvatar, ListItemText, Chip, Snackbar,
+  ListItemAvatar, ListItemText, Chip, Snackbar, ButtonBase,
 } from '@mui/material';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
@@ -139,7 +139,7 @@ export default function SettingsView() {
   const handleSaveWs = async () => {
     if (!editWs?.name.trim()) return;
     if (editWs.id) {
-      await updateWorkspace(editWs.id, { name: editWs.name, color: editWs.color });
+      await updateWorkspace(editWs.id, { name: editWs.name, color: editWs.color, type: editWs.type });
     } else {
       await createWorkspace(editWs.name, editWs.color, editWs.type || 'freelance');
     }
@@ -376,25 +376,71 @@ export default function SettingsView() {
 
           {/* Accent Color */}
           <Box sx={{ mb: 2.5 }}>
-            <Typography variant="body2" sx={{ fontWeight: 700, mb: 1 }}>Accent Color</Typography>
-            <Box sx={{ display: 'flex', gap: 1.25, flexWrap: 'wrap' }}>
-              {WS_COLORS.map(c => (
-                <Box
-                  key={c}
-                  onClick={() => updateSettings({ theme_color: c })}
-                  sx={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: '50%',
-                    bgcolor: c,
-                    cursor: 'pointer',
-                    border: settings.theme_color === c ? '3px solid #fff' : '3px solid transparent',
-                    boxShadow: settings.theme_color === c ? '0 0 10px rgba(0,0,0,0.3)' : 'none',
-                    transition: 'transform 0.2s, border 0.2s',
-                    '&:hover': { transform: 'scale(1.15)' },
-                  }}
+            <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.25 }}>
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 700 }}>Accent Color</Typography>
+                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                  Primary tint for buttons, active indicators, and highlights
+                </Typography>
+              </Box>
+              {(!settings.theme_color || settings.theme_color === 'auto') && (
+                <Chip
+                  icon={<AutoAwesomeRoundedIcon sx={{ fontSize: '13px !important' }} />}
+                  label="Adapts to Theme"
+                  size="small"
+                  color="primary"
+                  variant="outlined"
+                  sx={{ fontSize: '0.68rem', height: 22, fontWeight: 700 }}
                 />
-              ))}
+              )}
+            </Box>
+
+            <Box sx={{ display: 'flex', gap: 1.25, flexWrap: 'wrap', alignItems: 'center' }}>
+              {/* Auto Option */}
+              <ButtonBase
+                onClick={() => updateSettings({ theme_color: 'auto' })}
+                sx={{
+                  height: 32,
+                  px: 1.5,
+                  borderRadius: 2,
+                  border: '2px solid',
+                  borderColor: (!settings.theme_color || settings.theme_color === 'auto') ? 'primary.main' : 'divider',
+                  bgcolor: (!settings.theme_color || settings.theme_color === 'auto') ? 'rgba(129,140,248,0.15)' : 'action.hover',
+                  color: (!settings.theme_color || settings.theme_color === 'auto') ? 'primary.main' : 'text.primary',
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 0.75,
+                  fontWeight: 700,
+                  fontSize: '0.78rem',
+                  transition: 'all 0.15s ease',
+                  '&:hover': { borderColor: 'primary.light', transform: 'translateY(-1px)' },
+                }}
+              >
+                <AutoAwesomeRoundedIcon sx={{ fontSize: 15, color: (!settings.theme_color || settings.theme_color === 'auto') ? 'primary.main' : 'text.secondary' }} />
+                Auto
+              </ButtonBase>
+
+              {/* Color Swatches */}
+              {WS_COLORS.map(c => {
+                const isSelected = settings.theme_color === c;
+                return (
+                  <Box
+                    key={c}
+                    onClick={() => updateSettings({ theme_color: c })}
+                    sx={{
+                      width: 32,
+                      height: 32,
+                      borderRadius: '50%',
+                      bgcolor: c,
+                      cursor: 'pointer',
+                      border: isSelected ? '3px solid #fff' : '3px solid transparent',
+                      boxShadow: isSelected ? '0 0 10px rgba(0,0,0,0.3)' : 'none',
+                      transition: 'transform 0.2s, border 0.2s',
+                      '&:hover': { transform: 'scale(1.15)' },
+                    }}
+                  />
+                );
+              })}
             </Box>
           </Box>
 

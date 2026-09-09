@@ -13,12 +13,14 @@ interface ThemePaletteConfig {
   textSecondary: string;
   textDisabled: string;
   cardBorder: string;
+  defaultAccent: string;
   backdropBlur?: boolean;
 }
 
 const THEME_CONFIGS: Record<ThemeStyle, ThemePaletteConfig> = {
   default: {
     mode: 'dark',
+    defaultAccent: '#818CF8',
     bgDefault: '#080C14',
     bgPaper: '#111827',
     bgDialog: '#1E293B',
@@ -32,6 +34,7 @@ const THEME_CONFIGS: Record<ThemeStyle, ThemePaletteConfig> = {
   },
   soft: {
     mode: 'dark',
+    defaultAccent: '#60A5FA',
     bgDefault: '#141822',
     bgPaper: '#1D2330',
     bgDialog: '#242C3C',
@@ -45,6 +48,7 @@ const THEME_CONFIGS: Record<ThemeStyle, ThemePaletteConfig> = {
   },
   dark: {
     mode: 'dark',
+    defaultAccent: '#38BDF8',
     bgDefault: '#000000',
     bgPaper: '#0B0B0B',
     bgDialog: '#141414',
@@ -58,6 +62,7 @@ const THEME_CONFIGS: Record<ThemeStyle, ThemePaletteConfig> = {
   },
   smooth: {
     mode: 'dark',
+    defaultAccent: '#A78BFA',
     bgDefault: '#0C0C1A',
     bgPaper: '#151528',
     bgDialog: '#1B1B33',
@@ -72,6 +77,7 @@ const THEME_CONFIGS: Record<ThemeStyle, ThemePaletteConfig> = {
   },
   light: {
     mode: 'light',
+    defaultAccent: '#4F46E5',
     bgDefault: '#F8FAFC',
     bgPaper: '#FFFFFF',
     bgDialog: '#FFFFFF',
@@ -85,6 +91,7 @@ const THEME_CONFIGS: Record<ThemeStyle, ThemePaletteConfig> = {
   },
   'warm-light': {
     mode: 'light',
+    defaultAccent: '#D97706',
     bgDefault: '#FAF7F2',
     bgPaper: '#FFFFFF',
     bgDialog: '#FFFFFF',
@@ -98,6 +105,7 @@ const THEME_CONFIGS: Record<ThemeStyle, ThemePaletteConfig> = {
   },
   'cool-light': {
     mode: 'light',
+    defaultAccent: '#0284C7',
     bgDefault: '#F0F9FF',
     bgPaper: '#FFFFFF',
     bgDialog: '#FFFFFF',
@@ -111,15 +119,16 @@ const THEME_CONFIGS: Record<ThemeStyle, ThemePaletteConfig> = {
   },
 };
 
-export function getAppTheme(themeStyle: ThemeStyle = 'default', accentColor = '#818CF8') {
+export function getAppTheme(themeStyle: ThemeStyle = 'default', accentColor = 'auto') {
   const cfg = THEME_CONFIGS[themeStyle] || THEME_CONFIGS.default;
   const isLight = cfg.mode === 'light';
+  const resolvedAccent = (!accentColor || accentColor === 'auto') ? cfg.defaultAccent : accentColor;
 
   return createTheme({
     palette: {
       mode: cfg.mode || 'dark',
       primary: {
-        main: accentColor,
+        main: resolvedAccent,
         light: isLight ? '#818CF8' : '#A5B4FC',
         dark: isLight ? '#4338CA' : '#6366F1',
         contrastText: '#ffffff',
