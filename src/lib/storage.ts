@@ -1,4 +1,4 @@
-import type { Workspace, Client, Task, Payment, SalaryRate, Discount, AppSettings, BatchflowClient, BatchflowBatch, BatchflowVideo } from '../types';
+import type { Workspace, Client, Task, Payment, SalaryRate, Discount, AppSettings, BatchflowClient, BatchflowBatch, BatchflowVideo, WorkspaceType } from '../types';
 
 export function generateId(): string {
   try {
@@ -24,6 +24,8 @@ const STORAGE_KEYS = {
   BF_CLIENTS: 'ft_bf_clients',
   BF_BATCHES: 'ft_bf_batches',
   BF_VIDEOS: 'ft_bf_videos',
+  ACTIVE_WS: 'ft_active_workspace_id',
+  WS_TYPES: 'ft_workspace_types',
 };
 
 export const defaultSettings: AppSettings = {
@@ -84,6 +86,40 @@ export const storage = {
 
   getSettings: (): AppSettings => getItem(STORAGE_KEYS.SETTINGS, defaultSettings),
   setSettings: (data: AppSettings) => setItem(STORAGE_KEYS.SETTINGS, data),
+
+  getActiveWorkspaceId: (): string | null => {
+    try {
+      return localStorage.getItem(STORAGE_KEYS.ACTIVE_WS) || storage.getSettings().active_workspace_id || null;
+    } catch {
+      return storage.getSettings().active_workspace_id || null;
+    }
+  },
+  setActiveWorkspaceId: (id: string | null) => {
+    try {
+      if (id) {
+        localStorage.setItem(STORAGE_KEYS.ACTIVE_WS, id);
+      } else {
+        localStorage.removeItem(STORAGE_KEYS.ACTIVE_WS);
+      }
+    } catch {}
+    const s = storage.getSettings();
+    if (s.active_workspace_id !== id) {
+      storage.setSettings({ ...s, active_workspace_id: id });
+    }
+  },
+
+  getWorkspaceTypeMap: (): Record<string, WorkspaceType> => {
+    return getItem<Record<string, WorkspaceType>>(STORAGE_KEYS.WS_TYPES, {});
+  },
+  setWorkspaceType: (wsId: string, type: WorkspaceType) => {
+    const map = storage.getWorkspaceTypeMap();
+    map[wsId] = type;
+    setItem(STORAGE_KEYS.WS_TYPES, map);
+  },
+  getWorkspaceType: (wsId: string): WorkspaceType | undefined => {
+    const map = storage.getWorkspaceTypeMap();
+    return map[wsId];
+  },
 
   initStorage: () => {
     const existingWs = storage.getWorkspaces();

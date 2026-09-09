@@ -79,8 +79,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [settings, setSettings] = useState<AppSettings>(() => storage.getSettings());
   const [activeWorkspace, setActiveWorkspace] = useState<Workspace | null>(() => {
     const ws = storage.getWorkspaces();
-    const s = storage.getSettings();
-    return ws.find(w => w.id === s.active_workspace_id) ?? ws[0] ?? null;
+    const activeId = storage.getActiveWorkspaceId();
+    return ws.find(w => w.id === activeId) ?? ws[0] ?? null;
   });
   const [clients, setClients] = useState<Client[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
@@ -113,9 +113,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setWorkspaces(wsList);
     setSettings(appSettings);
 
-    const targetId = wsId ?? appSettings.active_workspace_id ?? wsList[0]?.id ?? null;
+    const targetId = wsId ?? storage.getActiveWorkspaceId() ?? appSettings.active_workspace_id ?? wsList[0]?.id ?? null;
     const active = wsList.find(w => w.id === targetId) ?? wsList[0] ?? null;
     setActiveWorkspace(active);
+    if (active) {
+      storage.setActiveWorkspaceId(active.id);
+    }
 
     if (active) {
       if (active.type === 'batchflow') {
@@ -166,10 +169,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       activeWsList = activeWsList.map(w => {
         const local = localWsMap.get(w.id);
-        // If locally marked or created as batchflow, NEVER let cloud default overwrite it
-        const resolvedType = (w.type === 'batchflow' || local?.type === 'batchflow')
-          ? 'batchflow'
-          : (w.type || local?.type || 'freelance');
+        const explicitType = storage.getWorkspaceType(w.id);
+        const isNamedBatchflow = Boolean(
+          w.name?.toLowerCase().includes('batchflow') ||
+          w.name?.toLowerCase().includes('batch flow')
+        );
+        const hasBfData = storage.getBatchflowBatches().some(b => b.workspace_id === w.id) ||
+                          storage.getBatchflowVideos().some(v => v.workspace_id === w.id);
+
+        const resolvedType: WorkspaceType =
+          explicitType
+          || (w.type === 'batchflow' ? 'batchflow' : undefined)
+          || (local?.type === 'batchflow' ? 'batchflow' : undefined)
+          || (isNamedBatchflow ? 'batchflow' : undefined)
+          || (hasBfData ? 'batchflow' : undefined)
+          || w.type
+          || local?.type
+          || 'freelance';
+
+        storage.setWorkspaceType(w.id, resolvedType);
 
         return {
           ...w,
@@ -180,7 +198,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       // Keep any locally created workspace not yet present in the cloud
       for (const loc of localWorkspaces) {
         if (!cloudIds.has(loc.id)) {
-          activeWsList.push(loc);
+          const explicitType = storage.getWorkspaceType(loc.id);
+          const resolvedType = explicitType || loc.type || 'freelance';
+          storage.setWorkspaceType(loc.id, resolvedType);
+          activeWsList.push({ ...loc, type: resolvedType });
         }
       }
 
@@ -212,10 +233,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       setWorkspaces(activeWsList);
       storage.setWorkspaces(activeWsList);
 
-      const savedSettings = storage.getSettings();
-      const targetId = wsId ?? savedSettings.active_workspace_id ?? settings.active_workspace_id ?? activeWsList[0]?.id ?? null;
+      const targetId = wsId ?? storage.getActiveWorkspaceId() ?? settings.active_workspace_id ?? activeWsList[0]?.id ?? null;
       const active = activeWsList.find(w => w.id === targetId) ?? activeWsList[0] ?? null;
       setActiveWorkspace(active);
+      if (active) {
+        storage.setActiveWorkspaceId(active.id);
+      }
 
       if (active) {
         // Fetch workspace members
@@ -241,17 +264,49 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               supabase.from('batchflow_videos').select('*').eq('workspace_id', active.id).order('script_number', { ascending: true }),
             ]);
 
-            const bfC = (bfCRes.data as BatchflowClient[]) || [];
-            const bfB = (bfBRes.data as BatchflowBatch[]) || [];
-            const bfV = (bfVRes.data as BatchflowVideo[]) || [];
+            const hasTableError = Boolean(bfCRes.error || bfBRes.error || bfVRes.error);
+            if (hasTableError) {
+              // Tables do not exist in cloud yet or network error - DO NOT overwrite with empty array!
+              // Fall back to offline localStorage cache
+              const bfC = storage.getBatchflowClients().filter(c => c.workspace_id === active.id);
+              const bfB = storage.getBatchflowBatches().filter(b => b.workspace_id === active.id);
+              const bfV = storage.getBatchflowVideos().filter(v => v.workspace_id === active.id);
+              setBatchflowClients(bfC);
+              setBatchflowBatches(bfB);
+              setBatchflowVideos(bfV);
+            } else {
+              const bfC = (bfCRes.data as BatchflowClient[]) || [];
+              const bfB = (bfBRes.data as BatchflowBatch[]) || [];
+              const bfV = (bfVRes.data as BatchflowVideo[]) || [];
 
-            setBatchflowClients(bfC);
-            setBatchflowBatches(bfB);
-            setBatchflowVideos(bfV);
-            storage.setBatchflowClients(bfC);
-            storage.setBatchflowBatches(bfB);
-            storage.setBatchflowVideos(bfV);
-          } catch {
+              // Merge local items that are not in cloud yet
+              const localC = storage.getBatchflowClients().filter(c => c.workspace_id === active.id);
+              const localB = storage.getBatchflowBatches().filter(b => b.workspace_id === active.id);
+              const localV = storage.getBatchflowVideos().filter(v => v.workspace_id === active.id);
+
+              const cloudCIds = new Set(bfC.map(c => c.id));
+              const cloudBIds = new Set(bfB.map(b => b.id));
+              const cloudVIds = new Set(bfV.map(v => v.id));
+
+              const mergedC = [...bfC, ...localC.filter(c => !cloudCIds.has(c.id))];
+              const mergedB = [...bfB, ...localB.filter(b => !cloudBIds.has(b.id))];
+              const mergedV = [...bfV, ...localV.filter(v => !cloudVIds.has(v.id))];
+
+              setBatchflowClients(mergedC);
+              setBatchflowBatches(mergedB);
+              setBatchflowVideos(mergedV);
+
+              // Update storage keeping other workspaces' data intact
+              const otherC = storage.getBatchflowClients().filter(c => c.workspace_id !== active.id);
+              const otherB = storage.getBatchflowBatches().filter(b => b.workspace_id !== active.id);
+              const otherV = storage.getBatchflowVideos().filter(v => v.workspace_id !== active.id);
+
+              storage.setBatchflowClients([...otherC, ...mergedC]);
+              storage.setBatchflowBatches([...otherB, ...mergedB]);
+              storage.setBatchflowVideos([...otherV, ...mergedV]);
+            }
+          } catch (err) {
+            console.warn('BatchFlow sync failed, loading from local cache:', err);
             const bfC = storage.getBatchflowClients().filter(c => c.workspace_id === active.id);
             const bfB = storage.getBatchflowBatches().filter(b => b.workspace_id === active.id);
             const bfV = storage.getBatchflowVideos().filter(v => v.workspace_id === active.id);
@@ -332,12 +387,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Workspace Switch
   const switchWorkspace = useCallback(async (id: string) => {
+    storage.setActiveWorkspaceId(id);
     const currSettings = storage.getSettings();
     const updated = { ...currSettings, active_workspace_id: id };
     storage.setSettings(updated);
     setSettings(updated);
+
+    if (isCloudActive && isOnline && user) {
+      try {
+        await supabase.from('settings').upsert({
+          user_id: user.id,
+          active_workspace_id: id,
+          updated_at: new Date().toISOString(),
+        }, { onConflict: 'user_id' });
+      } catch {}
+    }
+
     await fetchAll(id);
-  }, [fetchAll]);
+  }, [fetchAll, isCloudActive, isOnline, user]);
 
   // Check mutation allowed
   const assertCanEdit = () => {
@@ -358,6 +425,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       created_at: now,
       updated_at: now,
     };
+
+    // Store type explicitly in dedicated map
+    storage.setWorkspaceType(wsId, type);
 
     // 1. Immediately update local storage and state so workspace appears everywhere instantly
     const all = storage.getWorkspaces();
@@ -380,6 +450,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
         if (!error && data) {
           const syncedWs: Workspace = { ...newWs, ...data, type: newWs.type };
+          storage.setWorkspaceType(syncedWs.id, (newWs.type || 'freelance') as WorkspaceType);
           const refreshed = storage.getWorkspaces().map(w => w.id === wsId ? syncedWs : w);
           storage.setWorkspaces(refreshed);
           setWorkspaces(refreshed);
@@ -399,6 +470,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const updateWorkspace = useCallback(async (id: string, data: Partial<Workspace>) => {
     assertCanEdit();
     const now = new Date().toISOString();
+    if (data.type) {
+      storage.setWorkspaceType(id, data.type as WorkspaceType);
+    }
     if (isCloudActive) {
       try {
         let { error } = await supabase.from('workspaces').update({ ...data, updated_at: now }).eq('id', id);
@@ -786,8 +860,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           .select()
           .single();
         if (!error && cloudC) {
-          setBatchflowClients(prev => [...prev, cloudC as BatchflowClient]);
-          return cloudC as BatchflowClient;
+          const syncedC = cloudC as BatchflowClient;
+          setBatchflowClients(prev => [...prev, syncedC]);
+          const all = storage.getBatchflowClients();
+          storage.setBatchflowClients([...all.filter(c => c.id !== syncedC.id), syncedC]);
+          return syncedC;
         }
       } catch (err) {
         console.warn('Could not insert into batchflow_clients in cloud:', err);

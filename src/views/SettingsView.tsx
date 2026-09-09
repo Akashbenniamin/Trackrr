@@ -20,11 +20,77 @@ import Brightness4RoundedIcon from '@mui/icons-material/Brightness4Rounded';
 import LightModeRoundedIcon from '@mui/icons-material/LightModeRounded';
 import WbSunnyRoundedIcon from '@mui/icons-material/WbSunnyRounded';
 import AirRoundedIcon from '@mui/icons-material/AirRounded';
+import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
+import StorageRoundedIcon from '@mui/icons-material/StorageRounded';
 import { useApp } from '../contexts/AppContext';
 import { useAuth } from '../contexts/AuthContext';
+import { storage } from '../lib/storage';
 import type { WorkspaceType, ThemeStyle } from '../types';
 
 const WS_COLORS = ['#818CF8', '#34D399', '#F59E0B', '#F87171', '#A78BFA', '#60A5FA', '#FB7185', '#4ADE80'];
+
+const BATCHFLOW_SQL = `-- 1. Ensure type column exists on workspaces table
+alter table public.workspaces add column if not exists type text default 'freelance';
+
+-- 2. BatchFlow Clients Table
+create table if not exists public.batchflow_clients (
+  id text primary key default uuid_generate_v4()::text,
+  workspace_id text references public.workspaces(id) on delete cascade not null,
+  user_id uuid references auth.users(id) on delete cascade default auth.uid(),
+  name text not null,
+  color text default '#818CF8',
+  instagram_id text,
+  archived integer default 0,
+  created_at timestamptz default timezone('utc'::text, now()) not null
+);
+
+-- 3. BatchFlow Batches Table
+create table if not exists public.batchflow_batches (
+  id text primary key default uuid_generate_v4()::text,
+  workspace_id text references public.workspaces(id) on delete cascade not null,
+  user_id uuid references auth.users(id) on delete cascade default auth.uid(),
+  client_id text references public.batchflow_clients(id) on delete cascade not null,
+  name text not null,
+  shoot_date text not null,
+  script text default '',
+  archived integer default 0,
+  created_at timestamptz default timezone('utc'::text, now()) not null
+);
+
+-- 4. BatchFlow Videos Table
+create table if not exists public.batchflow_videos (
+  id text primary key default uuid_generate_v4()::text,
+  workspace_id text references public.workspaces(id) on delete cascade not null,
+  user_id uuid references auth.users(id) on delete cascade default auth.uid(),
+  batch_id text references public.batchflow_batches(id) on delete cascade not null,
+  name text not null,
+  script_number integer default 1,
+  status text default 'Pending',
+  waiting_date text,
+  edited_date text,
+  posted_date text,
+  created_at timestamptz default timezone('utc'::text, now()) not null
+);
+
+-- 5. Row Level Security
+alter table public.batchflow_clients enable row level security;
+alter table public.batchflow_batches enable row level security;
+alter table public.batchflow_videos enable row level security;
+
+drop policy if exists "Batchflow clients access policy" on public.batchflow_clients;
+create policy "Batchflow clients access policy" on public.batchflow_clients
+  for all using (user_id = auth.uid() or public.has_workspace_access(workspace_id, 'viewer'))
+  with check (user_id = auth.uid() or public.has_workspace_access(workspace_id, 'manager'));
+
+drop policy if exists "Batchflow batches access policy" on public.batchflow_batches;
+create policy "Batchflow batches access policy" on public.batchflow_batches
+  for all using (user_id = auth.uid() or public.has_workspace_access(workspace_id, 'viewer'))
+  with check (user_id = auth.uid() or public.has_workspace_access(workspace_id, 'manager'));
+
+drop policy if exists "Batchflow videos access policy" on public.batchflow_videos;
+create policy "Batchflow videos access policy" on public.batchflow_videos
+  for all using (user_id = auth.uid() or public.has_workspace_access(workspace_id, 'viewer'))
+  with check (user_id = auth.uid() or public.has_workspace_access(workspace_id, 'manager'));`;
 
 const THEMES: { id: ThemeStyle; name: string; tag: string; desc: string; bg: string; card: string; accent: string; isLight?: boolean; icon: React.ReactNode }[] = [
   // 4 Dark Themes
@@ -138,10 +204,12 @@ export default function SettingsView() {
 
   const handleSaveWs = async () => {
     if (!editWs?.name.trim()) return;
+    const targetType = editWs.type || 'freelance';
     if (editWs.id) {
-      await updateWorkspace(editWs.id, { name: editWs.name, color: editWs.color, type: editWs.type });
+      storage.setWorkspaceType(editWs.id, targetType);
+      await updateWorkspace(editWs.id, { name: editWs.name, color: editWs.color, type: targetType });
     } else {
-      await createWorkspace(editWs.name, editWs.color, editWs.type || 'freelance');
+      await createWorkspace(editWs.name, editWs.color, targetType);
     }
     setWsDialog(false);
     setEditWs(null);
@@ -595,6 +663,35 @@ export default function SettingsView() {
           </Box>
         </Card>
 
+        {/* Supabase Cloud Database Setup */}
+        <Card sx={{ p: 2.5 }}>
+          <Typography variant="h6" sx={{ fontWeight: 800, mb: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+            <StorageRoundedIcon sx={{ color: 'primary.main' }} />
+            Supabase Cloud Setup for BatchFlow
+          </Typography>
+          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2 }}>
+            Run this one-time SQL migration in your Supabase SQL editor to enable cloud backup for BatchFlow clients, batches, and videos.
+          </Typography>
+
+          <Alert severity="info" sx={{ mb: 2, fontSize: '0.8rem' }}>
+            Even without running this SQL, your BatchFlow workspace data is stored locally and safely persists across reloads. Running this SQL enables full cloud sync across devices.
+          </Alert>
+
+          <Button
+            variant="outlined"
+            color="primary"
+            size="medium"
+            startIcon={<ContentCopyRoundedIcon />}
+            onClick={() => {
+              navigator.clipboard.writeText(BATCHFLOW_SQL);
+              setToastMessage('BatchFlow SQL copied to clipboard! Paste into Supabase SQL editor and run.');
+            }}
+            sx={{ textTransform: 'none', fontWeight: 700, px: 2.5 }}
+          >
+            Copy BatchFlow SQL Migration
+          </Button>
+        </Card>
+
         {/* Workspace Dialog (Create / Edit) */}
         <Dialog open={wsDialog} onClose={() => { setWsDialog(false); setEditWs(null); }} maxWidth="xs" fullWidth>
           <DialogTitle sx={{ fontWeight: 800 }}>
@@ -610,52 +707,50 @@ export default function SettingsView() {
               placeholder="e.g. Acme Video Agency"
             />
 
-            {!editWs?.id && (
-              <Box>
-                <Typography variant="body2" sx={{ mb: 1, fontWeight: 700 }}>Workspace Type</Typography>
-                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
-                  <Box
-                    onClick={() => setEditWs(prev => prev ? { ...prev, type: 'freelance' } : null)}
-                    sx={{
-                      p: 1.5,
-                      borderRadius: 2,
-                      border: '2px solid',
-                      borderColor: editWs?.type === 'freelance' ? 'primary.main' : 'divider',
-                      bgcolor: editWs?.type === 'freelance' ? 'rgba(129,140,248,0.12)' : 'action.hover',
-                      cursor: 'pointer',
-                      textAlign: 'center',
-                      transition: 'all 0.15s ease',
-                    }}
-                  >
-                    <Typography variant="body2" sx={{ fontWeight: 800 }}>💼 Freelance</Typography>
-                    <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '0.68rem', mt: 0.25 }}>
-                      Video pricing, monthly salary & bills
-                    </Typography>
-                  </Box>
+            <Box>
+              <Typography variant="body2" sx={{ mb: 1, fontWeight: 700 }}>Workspace Type</Typography>
+              <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
+                <Box
+                  onClick={() => setEditWs(prev => prev ? { ...prev, type: 'freelance' } : null)}
+                  sx={{
+                    p: 1.5,
+                    borderRadius: 2,
+                    border: '2px solid',
+                    borderColor: editWs?.type === 'freelance' ? 'primary.main' : 'divider',
+                    bgcolor: editWs?.type === 'freelance' ? 'rgba(129,140,248,0.12)' : 'action.hover',
+                    cursor: 'pointer',
+                    textAlign: 'center',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <Typography variant="body2" sx={{ fontWeight: 800 }}>💼 Freelance</Typography>
+                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '0.68rem', mt: 0.25 }}>
+                    Video pricing, monthly salary & bills
+                  </Typography>
+                </Box>
 
-                  <Box
-                    onClick={() => setEditWs(prev => prev ? { ...prev, type: 'batchflow' } : null)}
-                    sx={{
-                      p: 1.5,
-                      borderRadius: 2,
-                      border: '2px solid',
-                      borderColor: editWs?.type === 'batchflow' ? '#F472B6' : 'divider',
-                      bgcolor: editWs?.type === 'batchflow' ? 'rgba(244,114,182,0.12)' : 'action.hover',
-                      cursor: 'pointer',
-                      textAlign: 'center',
-                      transition: 'all 0.15s ease',
-                    }}
-                  >
-                    <Typography variant="body2" sx={{ fontWeight: 800, color: editWs?.type === 'batchflow' ? '#F472B6' : 'inherit' }}>
-                      🎬 BatchFlow
-                    </Typography>
-                    <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '0.68rem', mt: 0.25 }}>
-                      Batches, script parser & pipeline
-                    </Typography>
-                  </Box>
+                <Box
+                  onClick={() => setEditWs(prev => prev ? { ...prev, type: 'batchflow' } : null)}
+                  sx={{
+                    p: 1.5,
+                    borderRadius: 2,
+                    border: '2px solid',
+                    borderColor: editWs?.type === 'batchflow' ? '#F472B6' : 'divider',
+                    bgcolor: editWs?.type === 'batchflow' ? 'rgba(244,114,182,0.12)' : 'action.hover',
+                    cursor: 'pointer',
+                    textAlign: 'center',
+                    transition: 'all 0.15s ease',
+                  }}
+                >
+                  <Typography variant="body2" sx={{ fontWeight: 800, color: editWs?.type === 'batchflow' ? '#F472B6' : 'inherit' }}>
+                    🎬 BatchFlow
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '0.68rem', mt: 0.25 }}>
+                    Batches, script parser & pipeline
+                  </Typography>
                 </Box>
               </Box>
-            )}
+            </Box>
 
             <Box>
               <Typography variant="body2" sx={{ mb: 1, fontWeight: 700 }}>Color Theme</Typography>
