@@ -17,20 +17,32 @@ import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
 import LogoutRoundedIcon from '@mui/icons-material/LogoutRounded';
 import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
 import GroupAddRoundedIcon from '@mui/icons-material/GroupAddRounded';
+import LayersRoundedIcon from '@mui/icons-material/LayersRounded';
+import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
+import ArchiveRoundedIcon from '@mui/icons-material/ArchiveRounded';
 import { useAuth } from '../contexts/AuthContext';
 import AuthDialog from './AuthDialog';
 import OfflineBanner from './OfflineBanner';
 import PendingInvitesBanner from './PendingInvitesBanner';
 import CollaboratorsDialog from './CollaboratorsDialog';
 import { useApp } from '../contexts/AppContext';
-import type { ViewName } from '../types';
+import type { ViewName, WorkspaceType } from '../types';
 
-const NAV_ITEMS: { view: ViewName; label: string; icon: React.ReactNode }[] = [
+const FREELANCE_NAV_ITEMS: { view: ViewName; label: string; icon: React.ReactNode }[] = [
   { view: 'dashboard', label: 'Home', icon: <DashboardRoundedIcon /> },
   { view: 'tasks', label: 'Tasks', icon: <VideoLibraryRoundedIcon /> },
   { view: 'analytics', label: 'Stats', icon: <BarChartRoundedIcon /> },
   { view: 'clients', label: 'Clients', icon: <PeopleRoundedIcon /> },
   { view: 'bills', label: 'Bills', icon: <ReceiptRoundedIcon /> },
+  { view: 'settings', label: 'Settings', icon: <SettingsRoundedIcon /> },
+];
+
+const BATCHFLOW_NAV_ITEMS: { view: ViewName; label: string; icon: React.ReactNode }[] = [
+  { view: 'dashboard', label: 'Overview', icon: <DashboardRoundedIcon /> },
+  { view: 'batches', label: 'Batches', icon: <LayersRoundedIcon /> },
+  { view: 'clients', label: 'Clients', icon: <PeopleRoundedIcon /> },
+  { view: 'search', label: 'Search', icon: <SearchRoundedIcon /> },
+  { view: 'archive', label: 'Archive', icon: <ArchiveRoundedIcon /> },
   { view: 'settings', label: 'Settings', icon: <SettingsRoundedIcon /> },
 ];
 
@@ -49,18 +61,22 @@ export default function Layout({ children, onAddTask }: LayoutProps) {
   } = useApp();
   const [wsDrawerOpen, setWsDrawerOpen] = useState(false);
   const [newWsName, setNewWsName] = useState('');
+  const [newWsType, setNewWsType] = useState<WorkspaceType>('freelance');
   const [collabDialogOpen, setCollabDialogOpen] = useState(false);
   const { user, signOut } = useAuth();
   const [authDialogOpen, setAuthDialogOpen] = useState(false);
   const [userMenuAnchor, setUserMenuAnchor] = useState<null | HTMLElement>(null);
 
-  const viewTitle = NAV_ITEMS.find(n => n.view === currentView)?.label ?? 'Dashboard';
+  const isBatchflow = activeWorkspace?.type === 'batchflow';
+  const navItems = isBatchflow ? BATCHFLOW_NAV_ITEMS : FREELANCE_NAV_ITEMS;
+  const viewTitle = navItems.find(n => n.view === currentView)?.label ?? (isBatchflow ? 'Overview' : 'Dashboard');
 
   const handleCreateWs = async () => {
     if (!newWsName.trim()) return;
-    const colors = ['#818CF8', '#34D399', '#F59E0B', '#F87171', '#A78BFA', '#60A5FA'];
-    await createWorkspace(newWsName.trim(), colors[workspaces.length % colors.length]);
+    const colors = ['#818CF8', '#34D399', '#F59E0B', '#F87171', '#A78BFA', '#60A5FA', '#FB7185', '#38BDF8'];
+    await createWorkspace(newWsName.trim(), colors[workspaces.length % colors.length], newWsType);
     setNewWsName('');
+    setNewWsType('freelance');
     setWsDrawerOpen(false);
   };
 
@@ -74,10 +90,19 @@ export default function Layout({ children, onAddTask }: LayoutProps) {
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
             <Tooltip title="Switch Workspace">
               <Chip
-                avatar={<Avatar sx={{ bgcolor: activeWorkspace?.color || '#818CF8', width: 22, height: 22, fontSize: '0.65rem' }}>
-                  {activeWorkspace?.name?.[0]?.toUpperCase() ?? 'W'}
-                </Avatar>}
-                label={activeWorkspace?.name ?? 'Workspace'}
+                avatar={
+                  <Avatar sx={{ bgcolor: activeWorkspace?.color || '#818CF8', width: 24, height: 24, fontSize: '0.7rem' }}>
+                    {isBatchflow ? '🎬' : (activeWorkspace?.name?.[0]?.toUpperCase() ?? 'W')}
+                  </Avatar>
+                }
+                label={
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                    <span>{activeWorkspace?.name ?? 'Workspace'}</span>
+                    <Typography component="span" sx={{ fontSize: '0.62rem', opacity: 0.6, fontWeight: 700, textTransform: 'uppercase' }}>
+                      {isBatchflow ? 'BatchFlow' : 'Tracker'}
+                    </Typography>
+                  </Box>
+                }
                 onClick={() => setWsDrawerOpen(true)}
                 size="small"
                 sx={{
@@ -87,7 +112,7 @@ export default function Layout({ children, onAddTask }: LayoutProps) {
                   fontWeight: 600,
                   cursor: 'pointer',
                   '&:hover': { bgcolor: 'rgba(255,255,255,0.1)' },
-                  maxWidth: 140,
+                  maxWidth: 180,
                   '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' },
                 }}
               />
@@ -115,7 +140,7 @@ export default function Layout({ children, onAddTask }: LayoutProps) {
           </Typography>
 
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            {currentView === 'tasks' && canEdit && (
+            {currentView === 'tasks' && !isBatchflow && canEdit && (
               <IconButton
                 onClick={onAddTask}
                 sx={{
@@ -171,7 +196,7 @@ export default function Layout({ children, onAddTask }: LayoutProps) {
                   onClose={() => setUserMenuAnchor(null)}
                   PaperProps={{
                     sx: {
-                      bgcolor: '#1E293B',
+                      bgcolor: 'background.paper',
                       border: '1px solid rgba(255,255,255,0.1)',
                       borderRadius: 2,
                       minWidth: 180,
@@ -180,7 +205,7 @@ export default function Layout({ children, onAddTask }: LayoutProps) {
                   }}
                 >
                   <Box sx={{ px: 2, py: 1 }}>
-                    <Typography variant="body2" sx={{ fontWeight: 600, color: '#F1F5F9' }}>
+                    <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary' }}>
                       {user.user_metadata?.full_name || user.email?.split('@')[0]}
                     </Typography>
                     <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', textOverflow: 'ellipsis', overflow: 'hidden' }}>
@@ -249,7 +274,7 @@ export default function Layout({ children, onAddTask }: LayoutProps) {
             left: 0,
             right: 0,
             zIndex: theme.zIndex.appBar,
-            bgcolor: 'rgba(8,12,20,0.95)',
+            bgcolor: theme.palette.background.paper,
             backdropFilter: 'blur(20px)',
             WebkitBackdropFilter: 'blur(20px)',
             borderTop: '1px solid rgba(255,255,255,0.07)',
@@ -257,13 +282,13 @@ export default function Layout({ children, onAddTask }: LayoutProps) {
             '& .MuiBottomNavigationAction-root': { color: 'text.secondary' },
           }}
         >
-          {NAV_ITEMS.map(n => (
+          {navItems.map(n => (
             <BottomNavigationAction key={n.view} value={n.view} label={n.label} icon={n.icon} />
           ))}
         </BottomNavigation>
       )}
 
-      {/* Desktop side nav (optional, top nav approach for simplicity) */}
+      {/* Desktop side nav */}
       {!isMobile && (
         <Box
           sx={{
@@ -272,7 +297,7 @@ export default function Layout({ children, onAddTask }: LayoutProps) {
             left: 0,
             width: 64,
             bottom: 0,
-            bgcolor: 'rgba(8,12,20,0.9)',
+            bgcolor: theme.palette.background.paper,
             borderRight: '1px solid rgba(255,255,255,0.06)',
             display: 'flex',
             flexDirection: 'column',
@@ -282,7 +307,7 @@ export default function Layout({ children, onAddTask }: LayoutProps) {
             zIndex: theme.zIndex.drawer,
           }}
         >
-          {NAV_ITEMS.map(n => (
+          {navItems.map(n => (
             <Tooltip key={n.view} title={n.label} placement="right">
               <IconButton
                 onClick={() => setCurrentView(n.view)}
@@ -307,7 +332,7 @@ export default function Layout({ children, onAddTask }: LayoutProps) {
         anchor="left"
         open={wsDrawerOpen}
         onClose={() => setWsDrawerOpen(false)}
-        PaperProps={{ sx: { width: 280, bgcolor: '#0F172A' } }}
+        PaperProps={{ sx: { width: 300, bgcolor: 'background.paper' } }}
       >
         <Box sx={{ p: 2 }}>
           <Typography variant="h6" sx={{ fontWeight: 700, mb: 2, display: 'flex', alignItems: 'center', gap: 1 }}>
@@ -315,29 +340,34 @@ export default function Layout({ children, onAddTask }: LayoutProps) {
             Workspaces
           </Typography>
           <List disablePadding>
-            {workspaces.map(ws => (
-              <ListItem key={ws.id} disablePadding sx={{ mb: 0.5 }}>
-                <ListItemButton
-                  selected={ws.id === activeWorkspace?.id}
-                  onClick={() => { switchWorkspace(ws.id); setWsDrawerOpen(false); }}
-                  sx={{
-                    borderRadius: 2,
-                    '&.Mui-selected': { bgcolor: 'rgba(129,140,248,0.15)', '&:hover': { bgcolor: 'rgba(129,140,248,0.2)' } },
-                  }}
-                >
-                  <ListItemAvatar sx={{ minWidth: 36 }}>
-                    <Avatar sx={{ width: 28, height: 28, bgcolor: ws.color, fontSize: '0.75rem' }}>
-                      {ws.name[0]?.toUpperCase()}
-                    </Avatar>
-                  </ListItemAvatar>
-                  <ListItemText
-                    primary={ws.name}
-                    primaryTypographyProps={{ fontWeight: 600, fontSize: '0.88rem' }}
-                  />
-                  {ws.id === activeWorkspace?.id && <CheckRoundedIcon sx={{ color: 'primary.main', fontSize: 18 }} />}
-                </ListItemButton>
-              </ListItem>
-            ))}
+            {workspaces.map(ws => {
+              const wsIsBatch = ws.type === 'batchflow';
+              return (
+                <ListItem key={ws.id} disablePadding sx={{ mb: 0.5 }}>
+                  <ListItemButton
+                    selected={ws.id === activeWorkspace?.id}
+                    onClick={() => { switchWorkspace(ws.id); setWsDrawerOpen(false); }}
+                    sx={{
+                      borderRadius: 2,
+                      '&.Mui-selected': { bgcolor: 'rgba(129,140,248,0.15)', '&:hover': { bgcolor: 'rgba(129,140,248,0.2)' } },
+                    }}
+                  >
+                    <ListItemAvatar sx={{ minWidth: 36 }}>
+                      <Avatar sx={{ width: 28, height: 28, bgcolor: ws.color, fontSize: '0.75rem' }}>
+                        {wsIsBatch ? '🎬' : (ws.name[0]?.toUpperCase() ?? 'W')}
+                      </Avatar>
+                    </ListItemAvatar>
+                    <ListItemText
+                      primary={ws.name}
+                      secondary={wsIsBatch ? '🎬 BatchFlow' : '💼 Freelance'}
+                      primaryTypographyProps={{ fontWeight: 600, fontSize: '0.88rem' }}
+                      secondaryTypographyProps={{ fontSize: '0.68rem', color: wsIsBatch ? '#F472B6' : 'text.secondary' }}
+                    />
+                    {ws.id === activeWorkspace?.id && <CheckRoundedIcon sx={{ color: 'primary.main', fontSize: 18 }} />}
+                  </ListItemButton>
+                </ListItem>
+              );
+            })}
           </List>
           {activeWorkspace && (
             <Button
@@ -363,12 +393,54 @@ export default function Layout({ children, onAddTask }: LayoutProps) {
           )}
 
           <Divider sx={{ my: 2, borderColor: 'rgba(255,255,255,0.07)' }} />
+
+          <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', mb: 1, display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            Create New Workspace
+          </Typography>
+
+          {/* Workspace Type Selector */}
+          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 0.75, mb: 1.25 }}>
+            <Box
+              onClick={() => setNewWsType('freelance')}
+              sx={{
+                p: 1,
+                borderRadius: 1.5,
+                border: '1px solid',
+                borderColor: newWsType === 'freelance' ? 'primary.main' : 'rgba(255,255,255,0.1)',
+                bgcolor: newWsType === 'freelance' ? 'rgba(129,140,248,0.12)' : 'rgba(255,255,255,0.03)',
+                cursor: 'pointer',
+                textAlign: 'center',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <Typography variant="body2" sx={{ fontSize: '0.78rem', fontWeight: 700 }}>💼 Freelance</Typography>
+              <Typography variant="caption" sx={{ fontSize: '0.62rem', color: 'text.secondary', display: 'block' }}>Tasks & Bills</Typography>
+            </Box>
+
+            <Box
+              onClick={() => setNewWsType('batchflow')}
+              sx={{
+                p: 1,
+                borderRadius: 1.5,
+                border: '1px solid',
+                borderColor: newWsType === 'batchflow' ? '#F472B6' : 'rgba(255,255,255,0.1)',
+                bgcolor: newWsType === 'batchflow' ? 'rgba(244,114,182,0.12)' : 'rgba(255,255,255,0.03)',
+                cursor: 'pointer',
+                textAlign: 'center',
+                transition: 'all 0.15s ease',
+              }}
+            >
+              <Typography variant="body2" sx={{ fontSize: '0.78rem', fontWeight: 700, color: newWsType === 'batchflow' ? '#F472B6' : 'inherit' }}>🎬 BatchFlow</Typography>
+              <Typography variant="caption" sx={{ fontSize: '0.62rem', color: 'text.secondary', display: 'block' }}>Batches & Scripts</Typography>
+            </Box>
+          </Box>
+
           <Box sx={{ display: 'flex', gap: 1 }}>
             <input
               value={newWsName}
               onChange={e => setNewWsName(e.target.value)}
               onKeyDown={e => e.key === 'Enter' && handleCreateWs()}
-              placeholder="New workspace name…"
+              placeholder={newWsType === 'batchflow' ? "e.g. Creator Studios..." : "e.g. My Freelancing..."}
               style={{
                 flex: 1, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
                 borderRadius: 10, padding: '8px 12px', color: '#F1F5F9', fontSize: '0.83rem', outline: 'none',

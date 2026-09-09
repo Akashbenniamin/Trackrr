@@ -1,4 +1,4 @@
-import type { Workspace, Client, Task, Payment, SalaryRate, Discount, AppSettings } from '../types';
+import type { Workspace, Client, Task, Payment, SalaryRate, Discount, AppSettings, BatchflowClient, BatchflowBatch, BatchflowVideo } from '../types';
 
 export function generateId(): string {
   try {
@@ -21,13 +21,17 @@ const STORAGE_KEYS = {
   SALARY_RATES: 'ft_salary_rates',
   DISCOUNTS: 'ft_discounts',
   SETTINGS: 'ft_settings',
+  BF_CLIENTS: 'ft_bf_clients',
+  BF_BATCHES: 'ft_bf_batches',
+  BF_VIDEOS: 'ft_bf_videos',
 };
 
 export const defaultSettings: AppSettings = {
   id: 1,
   active_workspace_id: null,
-  currency: 'USD',
+  currency: 'INR',
   theme_color: '#818CF8',
+  theme_style: 'default',
   show_completed: true,
 };
 
@@ -69,6 +73,15 @@ export const storage = {
   getDiscounts: (): Discount[] => getItem(STORAGE_KEYS.DISCOUNTS, []),
   setDiscounts: (data: Discount[]) => setItem(STORAGE_KEYS.DISCOUNTS, data),
 
+  getBatchflowClients: (): BatchflowClient[] => getItem(STORAGE_KEYS.BF_CLIENTS, []),
+  setBatchflowClients: (data: BatchflowClient[]) => setItem(STORAGE_KEYS.BF_CLIENTS, data),
+
+  getBatchflowBatches: (): BatchflowBatch[] => getItem(STORAGE_KEYS.BF_BATCHES, []),
+  setBatchflowBatches: (data: BatchflowBatch[]) => setItem(STORAGE_KEYS.BF_BATCHES, data),
+
+  getBatchflowVideos: (): BatchflowVideo[] => getItem(STORAGE_KEYS.BF_VIDEOS, []),
+  setBatchflowVideos: (data: BatchflowVideo[]) => setItem(STORAGE_KEYS.BF_VIDEOS, data),
+
   getSettings: (): AppSettings => getItem(STORAGE_KEYS.SETTINGS, defaultSettings),
   setSettings: (data: AppSettings) => setItem(STORAGE_KEYS.SETTINGS, data),
 
@@ -81,6 +94,7 @@ export const storage = {
         id: defaultWsId,
         name: 'My Workspace',
         color: '#818CF8',
+        type: 'freelance',
         created_at: now,
         updated_at: now,
       };
@@ -207,8 +221,9 @@ export const storage = {
       const initialSettings: AppSettings = {
         id: 1,
         active_workspace_id: defaultWsId,
-        currency: 'USD',
+        currency: 'INR',
         theme_color: '#818CF8',
+        theme_style: 'default',
         show_completed: true,
       };
 

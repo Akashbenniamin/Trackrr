@@ -1,100 +1,333 @@
-import React, { useState } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Box, Card, Typography, Button, Select, MenuItem, Divider, Fade,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField,
   Avatar, IconButton, Alert, List, ListItem,
-  ListItemAvatar, ListItemText,
+  ListItemAvatar, ListItemText, Chip, Snackbar,
 } from '@mui/material';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 import EditRoundedIcon from '@mui/icons-material/EditRounded';
 import WorkspacesRoundedIcon from '@mui/icons-material/WorkspacesRounded';
+import FileUploadRoundedIcon from '@mui/icons-material/FileUploadRounded';
+import FileDownloadRoundedIcon from '@mui/icons-material/FileDownloadRounded';
+import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
+import PaletteRoundedIcon from '@mui/icons-material/PaletteRounded';
+import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
+import DarkModeRoundedIcon from '@mui/icons-material/DarkModeRounded';
+import NightsStayRoundedIcon from '@mui/icons-material/NightsStayRounded';
+import Brightness4RoundedIcon from '@mui/icons-material/Brightness4Rounded';
 import { useApp } from '../contexts/AppContext';
 import { useAuth } from '../contexts/AuthContext';
+import type { WorkspaceType, ThemeStyle } from '../types';
 
 const WS_COLORS = ['#818CF8', '#34D399', '#F59E0B', '#F87171', '#A78BFA', '#60A5FA', '#FB7185', '#4ADE80'];
 
+const THEMES: { id: ThemeStyle; name: string; tag: string; desc: string; bg: string; card: string; accent: string; icon: React.ReactNode }[] = [
+  {
+    id: 'default',
+    name: 'Current (Default)',
+    tag: 'Navy Slate',
+    desc: 'Deep midnight navy with subtle borders and clear contrast',
+    bg: '#080C14',
+    card: '#111827',
+    accent: '#818CF8',
+    icon: <Brightness4RoundedIcon fontSize="small" />,
+  },
+  {
+    id: 'soft',
+    name: 'Soft',
+    tag: 'Warm Charcoal',
+    desc: 'Gentle charcoal and zinc tones engineered for low eyestrain',
+    bg: '#141822',
+    card: '#1D2330',
+    accent: '#38BDF8',
+    icon: <NightsStayRoundedIcon fontSize="small" />,
+  },
+  {
+    id: 'dark',
+    name: 'Dark',
+    tag: 'Pitch Black',
+    desc: 'Pure OLED black background with crisp high-contrast cards',
+    bg: '#000000',
+    card: '#0B0B0B',
+    accent: '#F43F5E',
+    icon: <DarkModeRoundedIcon fontSize="small" />,
+  },
+  {
+    id: 'smooth',
+    name: 'Smooth',
+    tag: 'Glassmorphism',
+    desc: 'Midnight violet glass with blurred surfaces & purple glows',
+    bg: '#0C0C1A',
+    card: '#151528',
+    accent: '#A78BFA',
+    icon: <AutoAwesomeRoundedIcon fontSize="small" />,
+  },
+];
+
 export default function SettingsView() {
   const { user } = useAuth();
-  const { settings, updateSettings, workspaces, activeWorkspace, createWorkspace, updateWorkspace, deleteWorkspace, switchWorkspace, tasks, clients, payments, isOnline } = useApp();
+  const {
+    settings, updateSettings, workspaces, activeWorkspace, createWorkspace,
+    updateWorkspace, deleteWorkspace, switchWorkspace, tasks, clients,
+    payments, discounts, salaryRates, batchflowClients, batchflowBatches,
+    batchflowVideos, importBackupData, isOnline,
+  } = useApp();
+
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [wsDialog, setWsDialog] = useState(false);
-  const [editWs, setEditWs] = useState<{ id?: string; name: string; color: string } | null>(null);
+  const [editWs, setEditWs] = useState<{ id?: string; name: string; color: string; type?: WorkspaceType } | null>(null);
   const [deleteConfirm, setDeleteConfirm] = useState<string | null>(null);
 
-  const totalTasks = tasks.length;
-  const totalClients = clients.length;
+  // Backup import dialog state
+  const [importDialog, setImportDialog] = useState<{
+    open: boolean;
+    fileName: string;
+    fileContent: any;
+    summary: string;
+  }>({
+    open: false,
+    fileName: '',
+    fileContent: null,
+    summary: '',
+  });
+
+  const [importing, setImporting] = useState(false);
+  const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  const isBatchflow = activeWorkspace?.type === 'batchflow';
 
   const handleSaveWs = async () => {
     if (!editWs?.name.trim()) return;
     if (editWs.id) {
       await updateWorkspace(editWs.id, { name: editWs.name, color: editWs.color });
     } else {
-      await createWorkspace(editWs.name, editWs.color);
+      await createWorkspace(editWs.name, editWs.color, editWs.type || 'freelance');
     }
     setWsDialog(false);
     setEditWs(null);
   };
 
+  const handleExportBackup = () => {
+    if (isBatchflow) {
+      const data = {
+        version: '2.0',
+        workspace_type: 'batchflow',
+        workspace_name: activeWorkspace?.name || 'BatchFlow',
+        exported_at: new Date().toISOString(),
+        clients: batchflowClients,
+        batches: batchflowBatches,
+        videos: batchflowVideos,
+        settings,
+      };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `batchflow_backup_${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+    } else {
+      const data = {
+        version: '2.0',
+        workspace_type: 'freelance',
+        workspace_name: activeWorkspace?.name || 'Freelance',
+        exported_at: new Date().toISOString(),
+        tasks,
+        clients,
+        payments,
+        discounts,
+        salaryRates,
+        settings,
+      };
+      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = `trackrr_backup_${new Date().toISOString().slice(0, 10)}.json`;
+      a.click();
+    }
+  };
+
+  const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+
+    const reader = new FileReader();
+    reader.onload = (event) => {
+      try {
+        const text = event.target?.result as string;
+        const parsed = JSON.parse(text);
+
+        // Summarize content
+        const summaryParts: string[] = [];
+        if (Array.isArray(parsed.tasks)) summaryParts.push(`${parsed.tasks.length} tasks`);
+        if (Array.isArray(parsed.clients)) summaryParts.push(`${parsed.clients.length} clients`);
+        if (Array.isArray(parsed.payments)) summaryParts.push(`${parsed.payments.length} payments`);
+        if (Array.isArray(parsed.discounts)) summaryParts.push(`${parsed.discounts.length} discounts`);
+        if (Array.isArray(parsed.batches)) summaryParts.push(`${parsed.batches.length} batches`);
+        if (Array.isArray(parsed.videos)) summaryParts.push(`${parsed.videos.length} videos`);
+
+        const summaryText = summaryParts.length > 0
+          ? `Detected: ${summaryParts.join(', ')}`
+          : 'Valid JSON backup file detected.';
+
+        setImportDialog({
+          open: true,
+          fileName: file.name,
+          fileContent: parsed,
+          summary: summaryText,
+        });
+      } catch (err) {
+        alert('Invalid JSON backup file. Please select a valid Trackrr or BatchFlow backup.');
+      }
+    };
+    reader.readAsText(file);
+    // Reset file input value so user can re-select same file if desired
+    e.target.value = '';
+  };
+
+  const handleConfirmImport = async () => {
+    if (!importDialog.fileContent) return;
+    setImporting(true);
+    try {
+      const res = await importBackupData(importDialog.fileContent);
+      setToastMessage(res.message);
+      setImportDialog({ open: false, fileName: '', fileContent: null, summary: '' });
+    } catch (err: any) {
+      alert(`Import failed: ${err?.message || 'Unknown error'}`);
+    } finally {
+      setImporting(false);
+    }
+  };
+
   return (
     <Fade in timeout={400}>
-      <Box sx={{ pb: 3 }}>
-        {/* App overview */}
-        <Card sx={{ p: 2, mb: 2 }}>
-          <Typography variant="h6" sx={{ fontWeight: 700, mb: 1.5 }}>Overview</Typography>
+      <Box sx={{ pb: 4, maxWidth: 900, mx: 'auto' }}>
+        {/* Workspace Overview Banner */}
+        <Card sx={{ p: 2.5, mb: 2.5 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+            <Box>
+              <Typography variant="h6" sx={{ fontWeight: 800 }}>Workspace Overview</Typography>
+              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                Active: <strong>{activeWorkspace?.name}</strong> ({isBatchflow ? '🎬 BatchFlow Workspace' : '💼 Freelance Workspace'})
+              </Typography>
+            </Box>
+            <Chip
+              label={isBatchflow ? 'BatchFlow Mode' : 'Freelance Mode'}
+              color={isBatchflow ? 'secondary' : 'primary'}
+              size="small"
+              sx={{ fontWeight: 700 }}
+            />
+          </Box>
+
           <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
-            {[
-              { label: 'Tasks', value: totalTasks, color: '#818CF8' },
-              { label: 'Clients', value: totalClients, color: '#34D399' },
-              { label: 'Payments', value: payments.length, color: '#FBBF24' },
-            ].map(s => (
-              <Box key={s.label} sx={{ flex: '1 1 calc(33% - 8px)', minWidth: 0, textAlign: 'center', p: 1, borderRadius: 2, bgcolor: `${s.color}15` }}>
-                <Typography variant="h5" sx={{ fontWeight: 800, color: s.color }}>{s.value}</Typography>
-                <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.7rem' }}>{s.label}</Typography>
-              </Box>
-            ))}
+            {isBatchflow ? (
+              [
+                { label: 'Batches', value: batchflowBatches.length, color: '#F472B6' },
+                { label: 'Clients', value: batchflowClients.length, color: '#38BDF8' },
+                { label: 'Videos', value: batchflowVideos.length, color: '#34D399' },
+              ].map(s => (
+                <Box key={s.label} sx={{ flex: '1 1 calc(33% - 10px)', minWidth: 100, textAlign: 'center', p: 1.5, borderRadius: 2, bgcolor: `${s.color}15`, border: `1px solid ${s.color}25` }}>
+                  <Typography variant="h5" sx={{ fontWeight: 800, color: s.color }}>{s.value}</Typography>
+                  <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.72rem', fontWeight: 600 }}>{s.label}</Typography>
+                </Box>
+              ))
+            ) : (
+              [
+                { label: 'Tasks', value: tasks.length, color: '#818CF8' },
+                { label: 'Clients', value: clients.length, color: '#34D399' },
+                { label: 'Payments', value: payments.length, color: '#FBBF24' },
+              ].map(s => (
+                <Box key={s.label} sx={{ flex: '1 1 calc(33% - 10px)', minWidth: 100, textAlign: 'center', p: 1.5, borderRadius: 2, bgcolor: `${s.color}15`, border: `1px solid ${s.color}25` }}>
+                  <Typography variant="h5" sx={{ fontWeight: 800, color: s.color }}>{s.value}</Typography>
+                  <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.72rem', fontWeight: 600 }}>{s.label}</Typography>
+                </Box>
+              ))
+            )}
           </Box>
         </Card>
 
-        {/* Preferences */}
-        <Card sx={{ mb: 2 }}>
-          <Box sx={{ p: 2, pb: 1 }}>
-            <Typography variant="h6" sx={{ fontWeight: 700, mb: 0.5 }}>Preferences</Typography>
+        {/* Theme & Visual Appearance */}
+        <Card sx={{ mb: 2.5, p: 2.5 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5 }}>
+            <PaletteRoundedIcon sx={{ color: 'primary.main', fontSize: 22 }} />
+            <Typography variant="h6" sx={{ fontWeight: 800 }}>Theme & Appearance</Typography>
           </Box>
-          <Divider sx={{ borderColor: 'rgba(255,255,255,0.06)' }} />
+          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2 }}>
+            Switch between 4 hand-crafted UI styles or customize your primary accent color
+          </Typography>
 
-          <Box sx={{ p: 2, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-            <Box>
-              <Typography variant="body2" sx={{ fontWeight: 600 }}>Currency</Typography>
-              <Typography variant="caption" sx={{ color: 'text.secondary' }}>Used across dashboard and bills</Typography>
-            </Box>
-            <Select
-              value={settings.currency}
-              onChange={e => updateSettings({ currency: e.target.value as 'USD' | 'INR' })}
-              size="small"
-              sx={{ minWidth: 100, fontSize: '0.85rem' }}
-            >
-              <MenuItem value="USD">USD ($)</MenuItem>
-              <MenuItem value="INR">INR (₹)</MenuItem>
-            </Select>
+          {/* Theme Style Cards */}
+          <Typography variant="body2" sx={{ fontWeight: 700, mb: 1.25 }}>Visual Style</Typography>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5, mb: 3 }}>
+            {THEMES.map(th => {
+              const isActive = (settings.theme_style || 'default') === th.id;
+              return (
+                <Box
+                  key={th.id}
+                  onClick={() => updateSettings({ theme_style: th.id })}
+                  sx={{
+                    p: 2,
+                    borderRadius: 2.5,
+                    border: '2px solid',
+                    borderColor: isActive ? 'primary.main' : 'rgba(255,255,255,0.08)',
+                    bgcolor: th.card,
+                    cursor: 'pointer',
+                    transition: 'all 0.2s ease',
+                    position: 'relative',
+                    overflow: 'hidden',
+                    boxShadow: isActive ? `0 0 16px ${th.accent}30` : 'none',
+                    '&:hover': {
+                      borderColor: isActive ? 'primary.main' : 'rgba(255,255,255,0.2)',
+                      transform: 'translateY(-2px)',
+                    },
+                  }}
+                >
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                      <Box sx={{ color: th.accent }}>{th.icon}</Box>
+                      <Typography variant="body1" sx={{ fontWeight: 700, fontSize: '0.92rem' }}>{th.name}</Typography>
+                    </Box>
+                    {isActive ? (
+                      <Chip label="Active" size="small" color="primary" sx={{ height: 20, fontSize: '0.65rem', fontWeight: 700 }} />
+                    ) : (
+                      <Chip label={th.tag} size="small" sx={{ height: 20, fontSize: '0.62rem', bgcolor: 'rgba(255,255,255,0.06)' }} />
+                    )}
+                  </Box>
+                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', lineHeight: 1.4, mb: 1.5 }}>
+                    {th.desc}
+                  </Typography>
+
+                  {/* Visual Preview Swatches */}
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, bgcolor: 'rgba(0,0,0,0.3)', px: 1, py: 0.5, borderRadius: 1.5 }}>
+                      <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: th.bg, border: '1px solid rgba(255,255,255,0.3)' }} />
+                      <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: th.card, border: '1px solid rgba(255,255,255,0.2)' }} />
+                      <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: th.accent }} />
+                    </Box>
+                  </Box>
+                </Box>
+              );
+            })}
           </Box>
 
+          <Divider sx={{ my: 2, borderColor: 'rgba(255,255,255,0.06)' }} />
 
-
-          <Divider sx={{ borderColor: 'rgba(255,255,255,0.06)' }} />
-          <Box sx={{ p: 2 }}>
-            <Typography variant="body2" sx={{ fontWeight: 600, mb: 1 }}>Accent Color</Typography>
-            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+          {/* Accent Color */}
+          <Box sx={{ mb: 2.5 }}>
+            <Typography variant="body2" sx={{ fontWeight: 700, mb: 1 }}>Accent Color</Typography>
+            <Box sx={{ display: 'flex', gap: 1.25, flexWrap: 'wrap' }}>
               {WS_COLORS.map(c => (
                 <Box
                   key={c}
                   onClick={() => updateSettings({ theme_color: c })}
                   sx={{
-                    width: 30,
-                    height: 30,
+                    width: 32,
+                    height: 32,
                     borderRadius: '50%',
                     bgcolor: c,
                     cursor: 'pointer',
                     border: settings.theme_color === c ? '3px solid #fff' : '3px solid transparent',
+                    boxShadow: settings.theme_color === c ? '0 0 10px rgba(255,255,255,0.5)' : 'none',
                     transition: 'transform 0.2s, border 0.2s',
                     '&:hover': { transform: 'scale(1.15)' },
                   }}
@@ -102,37 +335,69 @@ export default function SettingsView() {
               ))}
             </Box>
           </Box>
+
+          <Divider sx={{ my: 2, borderColor: 'rgba(255,255,255,0.06)' }} />
+
+          {/* Currency Preference */}
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Box>
+              <Typography variant="body2" sx={{ fontWeight: 700 }}>Currency Symbol</Typography>
+              <Typography variant="caption" sx={{ color: 'text.secondary' }}>Used across revenue, video rates, and bills</Typography>
+            </Box>
+            <Select
+              value={settings.currency || 'INR'}
+              onChange={e => updateSettings({ currency: e.target.value as 'USD' | 'INR' })}
+              size="small"
+              sx={{ minWidth: 120, fontSize: '0.85rem' }}
+            >
+              <MenuItem value="INR">INR (₹) - Default</MenuItem>
+              <MenuItem value="USD">USD ($)</MenuItem>
+            </Select>
+          </Box>
         </Card>
 
-        {/* Workspaces */}
-        <Card sx={{ mb: 2 }}>
-          <Box sx={{ p: 2, pb: 1, display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+        {/* Workspaces Management */}
+        <Card sx={{ mb: 2.5, p: 2.5 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <WorkspacesRoundedIcon sx={{ color: 'primary.main', fontSize: 20 }} />
-              <Typography variant="h6" sx={{ fontWeight: 700 }}>Workspaces</Typography>
+              <WorkspacesRoundedIcon sx={{ color: 'primary.main', fontSize: 22 }} />
+              <Typography variant="h6" sx={{ fontWeight: 800 }}>Workspaces</Typography>
             </Box>
             <Button
               size="small"
-              variant="outlined"
+              variant="contained"
               disabled={!isOnline}
               startIcon={<AddRoundedIcon />}
-              onClick={() => { setEditWs({ name: '', color: WS_COLORS[0] }); setWsDialog(true); }}
+              onClick={() => { setEditWs({ name: '', color: WS_COLORS[0], type: 'freelance' }); setWsDialog(true); }}
+              sx={{ textTransform: 'none', fontWeight: 700 }}
             >
-              New
+              New Workspace
             </Button>
           </Box>
-          <Divider sx={{ borderColor: 'rgba(255,255,255,0.06)' }} />
+
           <List disablePadding>
             {workspaces.map((ws, i) => {
               const isOwner = !ws.user_id || !user || ws.user_id === user.id;
+              const isWsBatch = ws.type === 'batchflow';
               return (
                 <React.Fragment key={ws.id}>
                   {i > 0 && <Divider sx={{ borderColor: 'rgba(255,255,255,0.04)' }} />}
                   <ListItem
+                    sx={{ px: 1, py: 1.25, borderRadius: 2 }}
                     secondaryAction={
-                      <Box sx={{ display: 'flex', gap: 0.5 }}>
+                      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                        {ws.id !== activeWorkspace?.id && (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => switchWorkspace(ws.id)}
+                            sx={{ fontSize: '0.75rem', py: 0.25, px: 1.5, textTransform: 'none', fontWeight: 600 }}
+                          >
+                            Switch
+                          </Button>
+                        )}
                         {isOwner && isOnline && (
-                          <IconButton size="small" onClick={() => { setEditWs({ id: ws.id, name: ws.name, color: ws.color }); setWsDialog(true); }}>
+                          <IconButton size="small" onClick={() => { setEditWs({ id: ws.id, name: ws.name, color: ws.color, type: ws.type }); setWsDialog(true); }}>
                             <EditRoundedIcon sx={{ fontSize: 16 }} />
                           </IconButton>
                         )}
@@ -144,74 +409,149 @@ export default function SettingsView() {
                       </Box>
                     }
                   >
-                  <ListItemAvatar sx={{ minWidth: 40 }}>
-                    <Avatar sx={{ width: 32, height: 32, bgcolor: ws.color, fontSize: '0.8rem', fontWeight: 700 }}>
-                      {ws.name?.[0]?.toUpperCase()}
-                    </Avatar>
-                  </ListItemAvatar>
-                  <ListItemText
-                    primary={ws.name}
-                    primaryTypographyProps={{ fontWeight: 600, fontSize: '0.9rem' }}
-                    secondary={ws.id === activeWorkspace?.id ? 'Active' : undefined}
-                    secondaryTypographyProps={{ fontSize: '0.72rem', color: 'primary.light' }}
-                  />
-                  {ws.id !== activeWorkspace?.id && (
-                    <Button size="small" variant="outlined" onClick={() => switchWorkspace(ws.id)} sx={{ mr: 5, fontSize: '0.72rem', py: 0.25 }}>
-                      Switch
-                    </Button>
-                  )}
-                </ListItem>
-              </React.Fragment>
-            );
-          })}
+                    <ListItemAvatar sx={{ minWidth: 44 }}>
+                      <Avatar sx={{ width: 34, height: 34, bgcolor: ws.color, fontSize: '0.85rem', fontWeight: 700 }}>
+                        {isWsBatch ? '🎬' : (ws.name?.[0]?.toUpperCase() || 'W')}
+                      </Avatar>
+                    </ListItemAvatar>
+                    <ListItemText
+                      primary={
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                          <Typography variant="body2" sx={{ fontWeight: 700, fontSize: '0.92rem' }}>{ws.name}</Typography>
+                          <Chip
+                            label={isWsBatch ? '🎬 BatchFlow' : '💼 Freelance'}
+                            size="small"
+                            sx={{
+                              height: 18,
+                              fontSize: '0.62rem',
+                              fontWeight: 700,
+                              bgcolor: isWsBatch ? 'rgba(244,114,182,0.15)' : 'rgba(129,140,248,0.15)',
+                              color: isWsBatch ? '#F472B6' : '#818CF8',
+                            }}
+                          />
+                        </Box>
+                      }
+                      secondary={ws.id === activeWorkspace?.id ? 'Currently Active' : undefined}
+                      secondaryTypographyProps={{ fontSize: '0.72rem', color: 'primary.light', fontWeight: 600 }}
+                    />
+                  </ListItem>
+                </React.Fragment>
+              );
+            })}
           </List>
         </Card>
 
-        {/* Data */}
-        <Card>
-          <Box sx={{ p: 2, pb: 1 }}>
-            <Typography variant="h6" sx={{ fontWeight: 700 }}>Data</Typography>
-          </Box>
-          <Divider sx={{ borderColor: 'rgba(255,255,255,0.06)' }} />
-          <Box sx={{ p: 2 }}>
-            <Alert severity="info" sx={{ mb: 2, fontSize: '0.8rem' }}>
-              All data is stored securely in the cloud and persists across devices.
-            </Alert>
+        {/* Data Backup & Restore */}
+        <Card sx={{ p: 2.5 }}>
+          <Typography variant="h6" sx={{ fontWeight: 800, mb: 0.5 }}>Backup & Data Management</Typography>
+          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2 }}>
+            Safely export your data to a JSON file or import a previous backup from Trackrr or BatchFlow.
+          </Typography>
+
+          <Alert severity="info" sx={{ mb: 2.5, fontSize: '0.8rem' }}>
+            Backups are stored offline on your device in standard JSON format. Importing merges data safely into your active workspace without duplicate ID conflicts.
+          </Alert>
+
+          <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
+            {/* Export Backup Button */}
+            <Button
+              variant="contained"
+              color="primary"
+              size="medium"
+              startIcon={<FileDownloadRoundedIcon />}
+              onClick={handleExportBackup}
+              sx={{ textTransform: 'none', fontWeight: 700, px: 2.5 }}
+            >
+              Export Backup (JSON)
+            </Button>
+
+            {/* Import Backup Button */}
             <Button
               variant="outlined"
-              color="error"
-              size="small"
-              onClick={() => {
-                if (window.confirm('Export workspace data as JSON?')) {
-                  const data = { tasks, clients, payments, settings };
-                  const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
-                  const a = document.createElement('a');
-                  a.href = URL.createObjectURL(blob);
-                  a.download = `workspace_backup_${new Date().toISOString().slice(0, 10)}.json`;
-                  a.click();
-                }
-              }}
+              color="inherit"
+              size="medium"
+              startIcon={<FileUploadRoundedIcon />}
+              onClick={() => fileInputRef.current?.click()}
+              sx={{ textTransform: 'none', fontWeight: 700, px: 2.5, borderColor: 'rgba(255,255,255,0.2)' }}
             >
-              Export Backup
+              Import Backup (JSON)
             </Button>
+
+            {/* Hidden file input */}
+            <input
+              type="file"
+              ref={fileInputRef}
+              accept=".json"
+              style={{ display: 'none' }}
+              onChange={handleFileSelect}
+            />
           </Box>
         </Card>
 
-        {/* Workspace dialog */}
+        {/* Workspace Dialog (Create / Edit) */}
         <Dialog open={wsDialog} onClose={() => { setWsDialog(false); setEditWs(null); }} maxWidth="xs" fullWidth>
-          <DialogTitle sx={{ fontWeight: 700 }}>
-            {editWs?.id ? 'Edit Workspace' : 'New Workspace'}
+          <DialogTitle sx={{ fontWeight: 800 }}>
+            {editWs?.id ? 'Edit Workspace' : 'Create New Workspace'}
           </DialogTitle>
-          <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+          <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, pt: 1.5 }}>
             <TextField
               label="Workspace Name"
               fullWidth
               value={editWs?.name ?? ''}
               onChange={e => setEditWs(prev => prev ? { ...prev, name: e.target.value } : null)}
               autoFocus
+              placeholder="e.g. Acme Video Agency"
             />
+
+            {!editWs?.id && (
+              <Box>
+                <Typography variant="body2" sx={{ mb: 1, fontWeight: 700 }}>Workspace Type</Typography>
+                <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
+                  <Box
+                    onClick={() => setEditWs(prev => prev ? { ...prev, type: 'freelance' } : null)}
+                    sx={{
+                      p: 1.5,
+                      borderRadius: 2,
+                      border: '2px solid',
+                      borderColor: editWs?.type === 'freelance' ? 'primary.main' : 'rgba(255,255,255,0.1)',
+                      bgcolor: editWs?.type === 'freelance' ? 'rgba(129,140,248,0.12)' : 'rgba(255,255,255,0.03)',
+                      cursor: 'pointer',
+                      textAlign: 'center',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    <Typography variant="body2" sx={{ fontWeight: 800 }}>💼 Freelance</Typography>
+                    <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '0.68rem', mt: 0.25 }}>
+                      Video pricing, monthly salary & bills
+                    </Typography>
+                  </Box>
+
+                  <Box
+                    onClick={() => setEditWs(prev => prev ? { ...prev, type: 'batchflow' } : null)}
+                    sx={{
+                      p: 1.5,
+                      borderRadius: 2,
+                      border: '2px solid',
+                      borderColor: editWs?.type === 'batchflow' ? '#F472B6' : 'rgba(255,255,255,0.1)',
+                      bgcolor: editWs?.type === 'batchflow' ? 'rgba(244,114,182,0.12)' : 'rgba(255,255,255,0.03)',
+                      cursor: 'pointer',
+                      textAlign: 'center',
+                      transition: 'all 0.15s ease',
+                    }}
+                  >
+                    <Typography variant="body2" sx={{ fontWeight: 800, color: editWs?.type === 'batchflow' ? '#F472B6' : 'inherit' }}>
+                      🎬 BatchFlow
+                    </Typography>
+                    <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '0.68rem', mt: 0.25 }}>
+                      Batches, script parser & pipeline
+                    </Typography>
+                  </Box>
+                </Box>
+              </Box>
+            )}
+
             <Box>
-              <Typography variant="body2" sx={{ mb: 1, color: 'text.secondary' }}>Color</Typography>
+              <Typography variant="body2" sx={{ mb: 1, fontWeight: 700 }}>Color Theme</Typography>
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                 {WS_COLORS.map(c => (
                   <Box
@@ -228,23 +568,23 @@ export default function SettingsView() {
               </Box>
             </Box>
           </DialogContent>
-          <DialogActions sx={{ px: 3, pb: 2 }}>
+          <DialogActions sx={{ px: 3, pb: 2.5 }}>
             <Button onClick={() => { setWsDialog(false); setEditWs(null); }}>Cancel</Button>
             <Button variant="contained" onClick={handleSaveWs} disabled={!editWs?.name.trim()}>
-              {editWs?.id ? 'Save' : 'Create'}
+              {editWs?.id ? 'Save Changes' : 'Create Workspace'}
             </Button>
           </DialogActions>
         </Dialog>
 
-        {/* Delete workspace confirm */}
+        {/* Delete Workspace Confirmation */}
         <Dialog open={!!deleteConfirm} onClose={() => setDeleteConfirm(null)} maxWidth="xs" fullWidth>
-          <DialogTitle sx={{ fontWeight: 700, color: '#F87171' }}>Delete Workspace?</DialogTitle>
+          <DialogTitle sx={{ fontWeight: 800, color: '#F87171' }}>Delete Workspace?</DialogTitle>
           <DialogContent>
             <Typography variant="body2" color="text.secondary">
-              This will permanently delete the workspace and all its tasks, clients, and payments.
+              This will permanently delete this workspace and all associated tasks, clients, batches, and records.
             </Typography>
           </DialogContent>
-          <DialogActions sx={{ px: 3, pb: 2 }}>
+          <DialogActions sx={{ px: 3, pb: 2.5 }}>
             <Button onClick={() => setDeleteConfirm(null)}>Cancel</Button>
             <Button color="error" variant="contained" onClick={async () => {
               if (deleteConfirm) { await deleteWorkspace(deleteConfirm); setDeleteConfirm(null); }
@@ -253,6 +593,44 @@ export default function SettingsView() {
             </Button>
           </DialogActions>
         </Dialog>
+
+        {/* Import Backup Confirmation Dialog */}
+        <Dialog open={importDialog.open} onClose={() => setImportDialog(prev => ({ ...prev, open: false }))} maxWidth="xs" fullWidth>
+          <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
+            <FileUploadRoundedIcon color="primary" />
+            Import Backup File
+          </DialogTitle>
+          <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+            <Typography variant="body2">
+              Ready to import data from:
+            </Typography>
+            <Box sx={{ p: 1.25, bgcolor: 'rgba(255,255,255,0.05)', borderRadius: 1.5, border: '1px solid rgba(255,255,255,0.1)' }}>
+              <Typography variant="body2" sx={{ fontWeight: 700 }}>{importDialog.fileName}</Typography>
+              <Typography variant="caption" sx={{ color: 'primary.light', display: 'block', mt: 0.5 }}>
+                {importDialog.summary}
+              </Typography>
+            </Box>
+            <Typography variant="caption" sx={{ color: 'text.secondary', lineHeight: 1.4 }}>
+              Items will be safely mapped to your active workspace (<strong>{activeWorkspace?.name}</strong>).
+            </Typography>
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 2.5 }}>
+            <Button onClick={() => setImportDialog(prev => ({ ...prev, open: false }))} disabled={importing}>
+              Cancel
+            </Button>
+            <Button variant="contained" color="primary" onClick={handleConfirmImport} disabled={importing} startIcon={<CheckCircleRoundedIcon />}>
+              {importing ? 'Importing…' : 'Confirm Import'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Toast Snackbar for Success Notification */}
+        <Snackbar
+          open={!!toastMessage}
+          autoHideDuration={4000}
+          onClose={() => setToastMessage(null)}
+          message={toastMessage}
+        />
       </Box>
     </Fade>
   );

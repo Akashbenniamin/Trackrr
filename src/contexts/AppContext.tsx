@@ -5,7 +5,8 @@ import { useAuth } from './AuthContext';
 import { useNetworkStatus } from '../lib/useNetworkStatus';
 import type {
   Workspace, Client, Task, Payment, AppSettings, ViewName, SalaryRate, Discount,
-  WorkspaceRole, WorkspaceMember, WorkspaceInvite,
+  WorkspaceRole, WorkspaceMember, WorkspaceInvite, WorkspaceType,
+  BatchflowClient, BatchflowBatch, BatchflowVideo, BatchflowVideoStatus,
 } from '../types';
 
 interface AppContextType {
@@ -16,6 +17,9 @@ interface AppContextType {
   payments: Payment[];
   salaryRates: SalaryRate[];
   discounts: Discount[];
+  batchflowClients: BatchflowClient[];
+  batchflowBatches: BatchflowBatch[];
+  batchflowVideos: BatchflowVideo[];
   settings: AppSettings;
   loading: boolean;
   currentView: ViewName;
@@ -27,7 +31,7 @@ interface AppContextType {
   workspaceInvites: WorkspaceInvite[];
   setCurrentView: (v: ViewName) => void;
   switchWorkspace: (id: string) => void;
-  createWorkspace: (name: string, color: string) => Promise<void>;
+  createWorkspace: (name: string, color: string, type?: WorkspaceType) => Promise<void>;
   updateWorkspace: (id: string, data: Partial<Workspace>) => Promise<void>;
   deleteWorkspace: (id: string) => Promise<void>;
   addTask: (data: Partial<Task>) => Promise<Task | null>;
@@ -45,6 +49,17 @@ interface AppContextType {
   addDiscount: (data: Partial<Discount>) => Promise<void>;
   updateDiscount: (id: string, data: Partial<Discount>) => Promise<void>;
   deleteDiscount: (id: string) => Promise<void>;
+  addBatchflowClient: (data: Partial<BatchflowClient>) => Promise<BatchflowClient | null>;
+  updateBatchflowClient: (id: string, data: Partial<BatchflowClient>) => Promise<void>;
+  deleteBatchflowClient: (id: string) => Promise<void>;
+  addBatchflowBatch: (data: { client_id: string; name: string; shoot_date: string; script?: string; videoCount?: number; namingMethod?: string }) => Promise<BatchflowBatch | null>;
+  updateBatchflowBatch: (id: string, data: Partial<BatchflowBatch>) => Promise<void>;
+  deleteBatchflowBatch: (id: string) => Promise<void>;
+  addBatchflowVideo: (data: Partial<BatchflowVideo>) => Promise<BatchflowVideo | null>;
+  updateBatchflowVideo: (id: string, data: Partial<BatchflowVideo>) => Promise<void>;
+  updateBatchflowVideoStatus: (id: string, status: BatchflowVideoStatus) => Promise<void>;
+  deleteBatchflowVideo: (id: string) => Promise<void>;
+  importBackupData: (data: any) => Promise<{ success: boolean; message: string }>;
   updateSettings: (data: Partial<AppSettings>) => Promise<void>;
   inviteCollaborator: (workspaceId: string, email: string, role: 'manager' | 'viewer') => Promise<{ error?: any }>;
   cancelInvite: (inviteId: string) => Promise<{ error?: any }>;
@@ -67,6 +82,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [payments, setPayments] = useState<Payment[]>([]);
   const [salaryRates, setSalaryRates] = useState<SalaryRate[]>([]);
   const [discounts, setDiscounts] = useState<Discount[]>([]);
+  const [batchflowClients, setBatchflowClients] = useState<BatchflowClient[]>([]);
+  const [batchflowBatches, setBatchflowBatches] = useState<BatchflowBatch[]>([]);
+  const [batchflowVideos, setBatchflowVideos] = useState<BatchflowVideo[]>([]);
   const [settings, setSettings] = useState<AppSettings>(defaultSettings);
   const [workspaceMembers, setWorkspaceMembers] = useState<WorkspaceMember[]>([]);
   const [pendingInvites, setPendingInvites] = useState<WorkspaceInvite[]>([]);
@@ -96,17 +114,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setActiveWorkspace(active);
 
     if (active) {
-      const allClients = storage.getClients().filter(c => c.workspace_id === active.id);
-      const allTasks = storage.getTasks().filter(t => t.workspace_id === active.id).sort((a, b) => a.order_index - b.order_index);
-      const allPayments = storage.getPayments().filter(p => p.workspace_id === active.id).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-      const allRates = storage.getSalaryRates().filter(sr => sr.workspace_id === active.id).sort((a, b) => a.effective_from.localeCompare(b.effective_from));
-      const allDiscounts = storage.getDiscounts().filter(d => d.workspace_id === active.id).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+      if (active.type === 'batchflow') {
+        const bfClients = storage.getBatchflowClients().filter(c => c.workspace_id === active.id);
+        const bfBatches = storage.getBatchflowBatches().filter(b => b.workspace_id === active.id);
+        const bfVideos = storage.getBatchflowVideos().filter(v => v.workspace_id === active.id);
+        setBatchflowClients(bfClients);
+        setBatchflowBatches(bfBatches);
+        setBatchflowVideos(bfVideos);
+      } else {
+        const allClients = storage.getClients().filter(c => c.workspace_id === active.id);
+        const allTasks = storage.getTasks().filter(t => t.workspace_id === active.id).sort((a, b) => a.order_index - b.order_index);
+        const allPayments = storage.getPayments().filter(p => p.workspace_id === active.id).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
+        const allRates = storage.getSalaryRates().filter(sr => sr.workspace_id === active.id).sort((a, b) => a.effective_from.localeCompare(b.effective_from));
+        const allDiscounts = storage.getDiscounts().filter(d => d.workspace_id === active.id).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
 
-      setClients(allClients);
-      setTasks(allTasks);
-      setPayments(allPayments);
-      setSalaryRates(allRates);
-      setDiscounts(allDiscounts);
+        setClients(allClients);
+        setTasks(allTasks);
+        setPayments(allPayments);
+        setSalaryRates(allRates);
+        setDiscounts(allDiscounts);
+      }
     }
   }, []);
 
@@ -176,39 +203,70 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           .eq('status', 'pending');
         setWorkspaceInvites((wsInvites as WorkspaceInvite[]) || []);
 
-        // Fetch workspace data in parallel
-        const [cRes, tRes, pRes, rRes, dRes] = await Promise.all([
-          supabase.from('clients').select('*').eq('workspace_id', active.id),
-          supabase.from('tasks').select('*').eq('workspace_id', active.id).order('order_index', { ascending: true }),
-          supabase.from('payments').select('*').eq('workspace_id', active.id).order('date', { ascending: false }),
-          supabase.from('salary_rates').select('*').eq('workspace_id', active.id).order('effective_from', { ascending: true }),
-          supabase.from('discounts').select('*').eq('workspace_id', active.id).order('date', { ascending: false }),
-        ]);
+        if (active.type === 'batchflow') {
+          try {
+            const [bfCRes, bfBRes, bfVRes] = await Promise.all([
+              supabase.from('batchflow_clients').select('*').eq('workspace_id', active.id).order('name', { ascending: true }),
+              supabase.from('batchflow_batches').select('*').eq('workspace_id', active.id).order('shoot_date', { ascending: false }),
+              supabase.from('batchflow_videos').select('*').eq('workspace_id', active.id).order('script_number', { ascending: true }),
+            ]);
 
-        const cl = (cRes.data as Client[]) || [];
-        const tk = (tRes.data as Task[]) || [];
-        const pm = (pRes.data as Payment[]) || [];
-        const sr = (rRes.data as SalaryRate[]) || [];
-        const ds = (dRes.data as Discount[]) || [];
+            const bfC = (bfCRes.data as BatchflowClient[]) || [];
+            const bfB = (bfBRes.data as BatchflowBatch[]) || [];
+            const bfV = (bfVRes.data as BatchflowVideo[]) || [];
 
-        setClients(cl);
-        setTasks(tk);
-        setPayments(pm);
-        setSalaryRates(sr);
-        setDiscounts(ds);
+            setBatchflowClients(bfC);
+            setBatchflowBatches(bfB);
+            setBatchflowVideos(bfV);
+            storage.setBatchflowClients(bfC);
+            storage.setBatchflowBatches(bfB);
+            storage.setBatchflowVideos(bfV);
+          } catch {
+            const bfC = storage.getBatchflowClients().filter(c => c.workspace_id === active.id);
+            const bfB = storage.getBatchflowBatches().filter(b => b.workspace_id === active.id);
+            const bfV = storage.getBatchflowVideos().filter(v => v.workspace_id === active.id);
+            setBatchflowClients(bfC);
+            setBatchflowBatches(bfB);
+            setBatchflowVideos(bfV);
+          }
+        } else {
+          // Fetch freelance workspace data in parallel
+          const [cRes, tRes, pRes, rRes, dRes] = await Promise.all([
+            supabase.from('clients').select('*').eq('workspace_id', active.id),
+            supabase.from('tasks').select('*').eq('workspace_id', active.id).order('order_index', { ascending: true }),
+            supabase.from('payments').select('*').eq('workspace_id', active.id).order('date', { ascending: false }),
+            supabase.from('salary_rates').select('*').eq('workspace_id', active.id).order('effective_from', { ascending: true }),
+            supabase.from('discounts').select('*').eq('workspace_id', active.id).order('date', { ascending: false }),
+          ]);
 
-        // Update local storage backup
-        storage.setClients(cl);
-        storage.setTasks(tk);
-        storage.setPayments(pm);
-        storage.setSalaryRates(sr);
-        storage.setDiscounts(ds);
+          const cl = (cRes.data as Client[]) || [];
+          const tk = (tRes.data as Task[]) || [];
+          const pm = (pRes.data as Payment[]) || [];
+          const sr = (rRes.data as SalaryRate[]) || [];
+          const ds = (dRes.data as Discount[]) || [];
+
+          setClients(cl);
+          setTasks(tk);
+          setPayments(pm);
+          setSalaryRates(sr);
+          setDiscounts(ds);
+
+          // Update local storage backup
+          storage.setClients(cl);
+          storage.setTasks(tk);
+          storage.setPayments(pm);
+          storage.setSalaryRates(sr);
+          storage.setDiscounts(ds);
+        }
       } else {
         setClients([]);
         setTasks([]);
         setPayments([]);
         setSalaryRates([]);
         setDiscounts([]);
+        setBatchflowClients([]);
+        setBatchflowBatches([]);
+        setBatchflowVideos([]);
         setWorkspaceMembers([]);
         setWorkspaceInvites([]);
       }
@@ -258,7 +316,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   };
 
   // Create Workspace
-  const createWorkspace = useCallback(async (name: string, color: string) => {
+  const createWorkspace = useCallback(async (name: string, color: string, type: WorkspaceType = 'freelance') => {
     if (!isOnline) {
       alert('Cannot create workspace while offline.');
       return;
@@ -269,6 +327,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       user_id: user?.id,
       name,
       color,
+      type,
       created_at: now,
       updated_at: now,
     };
@@ -625,12 +684,436 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         user_id: user.id,
         currency: updated.currency,
         theme_color: updated.theme_color,
+        theme_style: updated.theme_style,
         show_completed: updated.show_completed,
         active_workspace_id: updated.active_workspace_id,
         updated_at: new Date().toISOString(),
       }, { onConflict: 'user_id' });
     }
   }, [isCloudActive, isOnline, user]);
+
+  // BatchFlow: Add Client
+  const addBatchflowClient = useCallback(async (data: Partial<BatchflowClient>) => {
+    assertCanEdit();
+    if (!activeWorkspace) return null;
+    const now = new Date().toISOString();
+    const newClient: BatchflowClient = {
+      id: generateId(),
+      workspace_id: activeWorkspace.id,
+      user_id: user?.id,
+      name: data.name || 'New Client',
+      color: data.color || '#818CF8',
+      instagram_id: data.instagram_id,
+      archived: 0,
+      created_at: now,
+    };
+
+    if (isCloudActive) {
+      try {
+        const { data: cloudC, error } = await supabase
+          .from('batchflow_clients')
+          .insert([newClient])
+          .select()
+          .single();
+        if (!error && cloudC) {
+          setBatchflowClients(prev => [...prev, cloudC as BatchflowClient]);
+          return cloudC as BatchflowClient;
+        }
+      } catch (err) {
+        console.warn('Could not insert into batchflow_clients in cloud:', err);
+      }
+    }
+
+    const all = storage.getBatchflowClients();
+    storage.setBatchflowClients([...all, newClient]);
+    setBatchflowClients(prev => [...prev, newClient]);
+    return newClient;
+  }, [assertCanEdit, activeWorkspace, isCloudActive, user]);
+
+  const updateBatchflowClient = useCallback(async (id: string, data: Partial<BatchflowClient>) => {
+    assertCanEdit();
+    if (isCloudActive) {
+      try {
+        await supabase.from('batchflow_clients').update(data).eq('id', id);
+      } catch (err) {
+        console.warn('Could not update batchflow_clients in cloud:', err);
+      }
+    }
+    const all = storage.getBatchflowClients();
+    storage.setBatchflowClients(all.map(c => c.id === id ? { ...c, ...data } : c));
+    setBatchflowClients(prev => prev.map(c => c.id === id ? { ...c, ...data } : c));
+  }, [assertCanEdit, isCloudActive]);
+
+  const deleteBatchflowClient = useCallback(async (id: string) => {
+    assertCanEdit();
+    if (isCloudActive) {
+      try {
+        await supabase.from('batchflow_clients').delete().eq('id', id);
+      } catch (err) {
+        console.warn('Could not delete batchflow_clients in cloud:', err);
+      }
+    }
+    const all = storage.getBatchflowClients();
+    storage.setBatchflowClients(all.filter(c => c.id !== id));
+    setBatchflowClients(prev => prev.filter(c => c.id !== id));
+  }, [assertCanEdit, isCloudActive]);
+
+  // BatchFlow: Batches
+  const addBatchflowBatch = useCallback(async (data: {
+    client_id: string;
+    name: string;
+    shoot_date: string;
+    script?: string;
+    videoCount?: number;
+    namingMethod?: string;
+  }) => {
+    assertCanEdit();
+    if (!activeWorkspace) return null;
+    const now = new Date().toISOString();
+    const batchId = generateId();
+
+    const newBatch: BatchflowBatch = {
+      id: batchId,
+      workspace_id: activeWorkspace.id,
+      user_id: user?.id,
+      client_id: data.client_id,
+      name: data.name,
+      shoot_date: data.shoot_date,
+      script: data.script || '',
+      archived: 0,
+      created_at: now,
+    };
+
+    // Auto-generate videos
+    const client = batchflowClients.find(c => c.id === data.client_id);
+    const count = data.videoCount || 10;
+    const generatedVideos: BatchflowVideo[] = [];
+
+    // Find starting video number for this client
+    const existingClientVideos = batchflowVideos.filter(v => {
+      const b = batchflowBatches.find(batch => batch.id === v.batch_id);
+      return b && b.client_id === data.client_id;
+    });
+    let startNum = 1;
+    existingClientVideos.forEach(v => {
+      const match = v.name.match(/(\d+)(?!.*\d)/);
+      if (match) {
+        const num = parseInt(match[0]);
+        if (num >= startNum) startNum = num + 1;
+      }
+    });
+
+    for (let i = 0; i < count; i++) {
+      const currentNum = startNum + i;
+      const scriptNum = i + 1;
+      const videoName = data.namingMethod === 'ClientName'
+        ? `${client?.name || 'Video'} ${currentNum}`
+        : `Video ${currentNum}`;
+
+      generatedVideos.push({
+        id: generateId(),
+        workspace_id: activeWorkspace.id,
+        user_id: user?.id,
+        batch_id: batchId,
+        name: videoName,
+        script_number: scriptNum,
+        status: 'Pending',
+        waiting_date: now,
+        created_at: now,
+      });
+    }
+
+    if (isCloudActive) {
+      try {
+        await supabase.from('batchflow_batches').insert([newBatch]);
+        if (generatedVideos.length) {
+          await supabase.from('batchflow_videos').insert(generatedVideos);
+        }
+      } catch (err) {
+        console.warn('Could not insert batchflow cloud records:', err);
+      }
+    }
+
+    const allB = storage.getBatchflowBatches();
+    storage.setBatchflowBatches([...allB, newBatch]);
+    setBatchflowBatches(prev => [newBatch, ...prev]);
+
+    const allV = storage.getBatchflowVideos();
+    storage.setBatchflowVideos([...allV, ...generatedVideos]);
+    setBatchflowVideos(prev => [...prev, ...generatedVideos]);
+
+    return newBatch;
+  }, [assertCanEdit, activeWorkspace, user, batchflowClients, batchflowVideos, batchflowBatches, isCloudActive]);
+
+  const updateBatchflowBatch = useCallback(async (id: string, data: Partial<BatchflowBatch>) => {
+    assertCanEdit();
+    if (isCloudActive) {
+      try {
+        await supabase.from('batchflow_batches').update(data).eq('id', id);
+      } catch (err) {
+        console.warn('Could not update batchflow_batches:', err);
+      }
+    }
+    const all = storage.getBatchflowBatches();
+    storage.setBatchflowBatches(all.map(b => b.id === id ? { ...b, ...data } : b));
+    setBatchflowBatches(prev => prev.map(b => b.id === id ? { ...b, ...data } : b));
+  }, [assertCanEdit, isCloudActive]);
+
+  const deleteBatchflowBatch = useCallback(async (id: string) => {
+    assertCanEdit();
+    if (isCloudActive) {
+      try {
+        await supabase.from('batchflow_batches').delete().eq('id', id);
+        await supabase.from('batchflow_videos').delete().eq('batch_id', id);
+      } catch (err) {
+        console.warn('Could not delete batchflow_batches:', err);
+      }
+    }
+    const allB = storage.getBatchflowBatches();
+    storage.setBatchflowBatches(allB.filter(b => b.id !== id));
+    setBatchflowBatches(prev => prev.filter(b => b.id !== id));
+
+    const allV = storage.getBatchflowVideos();
+    storage.setBatchflowVideos(allV.filter(v => v.batch_id !== id));
+    setBatchflowVideos(prev => prev.filter(v => v.batch_id !== id));
+  }, [assertCanEdit, isCloudActive]);
+
+  // BatchFlow: Videos
+  const addBatchflowVideo = useCallback(async (data: Partial<BatchflowVideo>) => {
+    assertCanEdit();
+    if (!activeWorkspace || !data.batch_id) return null;
+    const now = new Date().toISOString();
+    const newVideo: BatchflowVideo = {
+      id: generateId(),
+      workspace_id: activeWorkspace.id,
+      user_id: user?.id,
+      batch_id: data.batch_id,
+      name: data.name || 'New Video',
+      script_number: data.script_number || 1,
+      status: data.status || 'Pending',
+      waiting_date: now,
+      created_at: now,
+    };
+
+    if (isCloudActive) {
+      try {
+        const { data: cloudV, error } = await supabase
+          .from('batchflow_videos')
+          .insert([newVideo])
+          .select()
+          .single();
+        if (!error && cloudV) {
+          setBatchflowVideos(prev => [...prev, cloudV as BatchflowVideo]);
+          return cloudV as BatchflowVideo;
+        }
+      } catch (err) {
+        console.warn('Could not insert batchflow_videos:', err);
+      }
+    }
+
+    const all = storage.getBatchflowVideos();
+    storage.setBatchflowVideos([...all, newVideo]);
+    setBatchflowVideos(prev => [...prev, newVideo]);
+    return newVideo;
+  }, [assertCanEdit, activeWorkspace, user, isCloudActive]);
+
+  const updateBatchflowVideo = useCallback(async (id: string, data: Partial<BatchflowVideo>) => {
+    assertCanEdit();
+    if (isCloudActive) {
+      try {
+        await supabase.from('batchflow_videos').update(data).eq('id', id);
+      } catch (err) {
+        console.warn('Could not update batchflow_videos:', err);
+      }
+    }
+    const all = storage.getBatchflowVideos();
+    storage.setBatchflowVideos(all.map(v => v.id === id ? { ...v, ...data } : v));
+    setBatchflowVideos(prev => prev.map(v => v.id === id ? { ...v, ...data } : v));
+  }, [assertCanEdit, isCloudActive]);
+
+  const updateBatchflowVideoStatus = useCallback(async (id: string, status: BatchflowVideoStatus) => {
+    assertCanEdit();
+    const now = new Date().toISOString();
+    const updates: Partial<BatchflowVideo> = { status };
+    if (status === 'Pending') updates.waiting_date = now;
+    if (status === 'Edited') updates.edited_date = now;
+    if (status === 'Posted') updates.posted_date = now;
+
+    if (isCloudActive) {
+      try {
+        await supabase.from('batchflow_videos').update(updates).eq('id', id);
+      } catch (err) {
+        console.warn('Could not update status in batchflow_videos:', err);
+      }
+    }
+    const all = storage.getBatchflowVideos();
+    storage.setBatchflowVideos(all.map(v => v.id === id ? { ...v, ...updates } : v));
+    setBatchflowVideos(prev => prev.map(v => v.id === id ? { ...v, ...updates } : v));
+  }, [assertCanEdit, isCloudActive]);
+
+  const deleteBatchflowVideo = useCallback(async (id: string) => {
+    assertCanEdit();
+    if (isCloudActive) {
+      try {
+        await supabase.from('batchflow_videos').delete().eq('id', id);
+      } catch (err) {
+        console.warn('Could not delete batchflow_videos:', err);
+      }
+    }
+    const all = storage.getBatchflowVideos();
+    storage.setBatchflowVideos(all.filter(v => v.id !== id));
+    setBatchflowVideos(prev => prev.filter(v => v.id !== id));
+  }, [assertCanEdit, isCloudActive]);
+
+  // Unified Backup Data Import
+  const importBackupData = useCallback(async (data: any): Promise<{ success: boolean; message: string }> => {
+    if (!activeWorkspace) return { success: false, message: 'No active workspace selected' };
+    const wsId = activeWorkspace.id;
+    const now = new Date().toISOString();
+    let importedCount = 0;
+
+    // 1. Check for Freelance Tracker backup structure
+    if (data.tasks || data.clients || data.payments || data.discounts || data.salaryRates) {
+      const clientMap = new Map<string, string>();
+      if (Array.isArray(data.clients) && data.clients.length) {
+        const mappedClients: Client[] = data.clients.map((c: any) => {
+          const newId = generateId();
+          clientMap.set(c.id, newId);
+          return {
+            ...c,
+            id: newId,
+            workspace_id: wsId,
+            user_id: user?.id,
+            created_at: c.created_at || now,
+            updated_at: now,
+          };
+        });
+        setClients(prev => [...prev, ...mappedClients]);
+        const allC = storage.getClients();
+        storage.setClients([...allC, ...mappedClients]);
+        if (isCloudActive) {
+          try { await supabase.from('clients').insert(mappedClients); } catch {}
+        }
+        importedCount += mappedClients.length;
+
+        if (Array.isArray(data.tasks) && data.tasks.length) {
+          const mappedTasks: Task[] = data.tasks.map((t: any) => ({
+            ...t,
+            id: generateId(),
+            workspace_id: wsId,
+            client_id: clientMap.get(t.client_id) || t.client_id || null,
+            user_id: user?.id,
+            created_at: t.created_at || now,
+            updated_at: now,
+          }));
+          setTasks(prev => [...prev, ...mappedTasks]);
+          const allT = storage.getTasks();
+          storage.setTasks([...allT, ...mappedTasks]);
+          if (isCloudActive) {
+            try { await supabase.from('tasks').insert(mappedTasks); } catch {}
+          }
+          importedCount += mappedTasks.length;
+        }
+
+        if (Array.isArray(data.payments) && data.payments.length) {
+          const mappedPayments: Payment[] = data.payments.map((p: any) => ({
+            ...p,
+            id: generateId(),
+            workspace_id: wsId,
+            client_id: clientMap.get(p.client_id) || p.client_id,
+            user_id: user?.id,
+            created_at: p.created_at || now,
+          }));
+          setPayments(prev => [...prev, ...mappedPayments]);
+          const allP = storage.getPayments();
+          storage.setPayments([...allP, ...mappedPayments]);
+          if (isCloudActive) {
+            try { await supabase.from('payments').insert(mappedPayments); } catch {}
+          }
+          importedCount += mappedPayments.length;
+        }
+      }
+    }
+
+    // 2. Check for BatchFlow backup structure
+    if (data.batches || data.videos) {
+      const clientMap = new Map<string, string>();
+      if (Array.isArray(data.clients) && data.clients.length) {
+        const mappedBfClients: BatchflowClient[] = data.clients.map((c: any) => {
+          const newId = generateId();
+          clientMap.set(c.id, newId);
+          return {
+            id: newId,
+            workspace_id: wsId,
+            user_id: user?.id,
+            name: c.name,
+            color: c.color || '#818CF8',
+            instagram_id: c.instagram_id || c.instagramId,
+            archived: c.archived || 0,
+            created_at: c.created_at || now,
+          };
+        });
+        setBatchflowClients(prev => [...prev, ...mappedBfClients]);
+        const allBfC = storage.getBatchflowClients();
+        storage.setBatchflowClients([...allBfC, ...mappedBfClients]);
+        if (isCloudActive) {
+          try { await supabase.from('batchflow_clients').insert(mappedBfClients); } catch {}
+        }
+        importedCount += mappedBfClients.length;
+      }
+
+      const batchMap = new Map<string, string>();
+      if (Array.isArray(data.batches) && data.batches.length) {
+        const mappedBatches: BatchflowBatch[] = data.batches.map((b: any) => {
+          const newId = generateId();
+          batchMap.set(b.id, newId);
+          return {
+            id: newId,
+            workspace_id: wsId,
+            user_id: user?.id,
+            client_id: clientMap.get(b.client_id) || b.client_id,
+            name: b.name,
+            shoot_date: b.shoot_date || b.shootDate || '',
+            script: b.script || '',
+            archived: b.archived || 0,
+            created_at: b.created_at || now,
+          };
+        });
+        setBatchflowBatches(prev => [...prev, ...mappedBatches]);
+        const allBfB = storage.getBatchflowBatches();
+        storage.setBatchflowBatches([...allBfB, ...mappedBatches]);
+        if (isCloudActive) {
+          try { await supabase.from('batchflow_batches').insert(mappedBatches); } catch {}
+        }
+        importedCount += mappedBatches.length;
+      }
+
+      if (Array.isArray(data.videos) && data.videos.length) {
+        const mappedVideos: BatchflowVideo[] = data.videos.map((v: any) => ({
+          id: generateId(),
+          workspace_id: wsId,
+          user_id: user?.id,
+          batch_id: batchMap.get(v.batch_id) || v.batch_id,
+          name: v.name,
+          script_number: v.script_number || v.scriptNumber || 1,
+          status: v.status || 'Pending',
+          waiting_date: v.waiting_date,
+          edited_date: v.edited_date,
+          posted_date: v.posted_date,
+          created_at: v.created_at || now,
+        }));
+        setBatchflowVideos(prev => [...prev, ...mappedVideos]);
+        const allBfV = storage.getBatchflowVideos();
+        storage.setBatchflowVideos([...allBfV, ...mappedVideos]);
+        if (isCloudActive) {
+          try { await supabase.from('batchflow_videos').insert(mappedVideos); } catch {}
+        }
+        importedCount += mappedVideos.length;
+      }
+    }
+
+    return { success: true, message: `Successfully imported ${importedCount} items into current workspace.` };
+  }, [activeWorkspace, user, isCloudActive]);
 
   // Collaboration: Invite collaborator
   const inviteCollaborator = useCallback(async (
@@ -755,6 +1238,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addDiscount,
         updateDiscount,
         deleteDiscount,
+        batchflowClients,
+        batchflowBatches,
+        batchflowVideos,
+        addBatchflowClient,
+        updateBatchflowClient,
+        deleteBatchflowClient,
+        addBatchflowBatch,
+        updateBatchflowBatch,
+        deleteBatchflowBatch,
+        addBatchflowVideo,
+        updateBatchflowVideo,
+        updateBatchflowVideoStatus,
+        deleteBatchflowVideo,
+        importBackupData,
         updateSettings,
         inviteCollaborator,
         cancelInvite,

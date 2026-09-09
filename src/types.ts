@@ -1,10 +1,13 @@
 export type WorkspaceRole = 'owner' | 'manager' | 'viewer';
 
+export type WorkspaceType = 'freelance' | 'batchflow';
+
 export interface Workspace {
   id: string;
   user_id?: string;
   name: string;
   color: string;
+  type?: WorkspaceType;
   created_at: string;
   updated_at: string;
 }
@@ -96,15 +99,67 @@ export interface Payment {
   created_at: string;
 }
 
+// BatchFlow Types
+export interface BatchflowClient {
+  id: string;
+  workspace_id: string;
+  user_id?: string;
+  name: string;
+  color: string;
+  instagram_id?: string;
+  archived: number;
+  created_at: string;
+}
+
+export interface BatchflowBatch {
+  id: string;
+  workspace_id: string;
+  user_id?: string;
+  client_id: string;
+  name: string;
+  shoot_date: string;
+  script?: string;
+  archived: number;
+  created_at: string;
+}
+
+export type BatchflowVideoStatus = 'Pending' | 'Edited' | 'Posted';
+
+export interface BatchflowVideo {
+  id: string;
+  workspace_id: string;
+  user_id?: string;
+  batch_id: string;
+  name: string;
+  script_number: number;
+  status: BatchflowVideoStatus;
+  waiting_date?: string | null;
+  edited_date?: string | null;
+  posted_date?: string | null;
+  created_at: string;
+}
+
+export type ThemeStyle = 'default' | 'soft' | 'dark' | 'smooth';
+
 export interface AppSettings {
   id: number;
   active_workspace_id: string | null;
-  currency: 'USD' | 'INR';
+  currency: 'INR' | 'USD';
   theme_color: string;
+  theme_style?: ThemeStyle;
   show_completed: boolean;
 }
 
-export type ViewName = 'dashboard' | 'tasks' | 'analytics' | 'clients' | 'bills' | 'settings';
+export type ViewName =
+  | 'dashboard'
+  | 'tasks'
+  | 'analytics'
+  | 'clients'
+  | 'bills'
+  | 'settings'
+  | 'batches'
+  | 'search'
+  | 'archive';
 
 export const PAYMENT_METHODS = ['Cash', 'UPI', 'Bank Transfer', 'Card', 'PayPal', 'Other'] as const;
 

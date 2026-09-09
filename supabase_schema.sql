@@ -13,9 +13,12 @@ create table if not exists public.workspaces (
   user_id uuid references auth.users(id) on delete cascade default auth.uid(),
   name text not null,
   color text default '#818CF8',
+  type text default 'freelance',
   created_at timestamptz default timezone('utc'::text, now()) not null,
   updated_at timestamptz default timezone('utc'::text, now()) not null
 );
+
+alter table public.workspaces add column if not exists type text default 'freelance';
 
 -- 3. Workspace Members Table
 create table if not exists public.workspace_members (
@@ -244,3 +247,67 @@ create policy "Payments access policy" on public.payments
 drop policy if exists "Users can manage own settings" on public.settings;
 create policy "Users can manage own settings" on public.settings
   for all using (auth.uid() = user_id) with check (auth.uid() = user_id);
+
+-- ================================================================
+-- BatchFlow Workspace Integration Tables & RLS Policies
+-- ================================================================
+
+-- 11. BatchFlow Clients Table
+create table if not exists public.batchflow_clients (
+  id text primary key default uuid_generate_v4()::text,
+  workspace_id text references public.workspaces(id) on delete cascade not null,
+  user_id uuid references auth.users(id) on delete cascade default auth.uid(),
+  name text not null,
+  color text default '#818CF8',
+  instagram_id text default '',
+  archived integer default 0,
+  created_at timestamptz default timezone('utc'::text, now()) not null
+);
+
+-- 12. BatchFlow Batches Table
+create table if not exists public.batchflow_batches (
+  id text primary key default uuid_generate_v4()::text,
+  workspace_id text references public.workspaces(id) on delete cascade not null,
+  user_id uuid references auth.users(id) on delete cascade default auth.uid(),
+  client_id text references public.batchflow_clients(id) on delete cascade not null,
+  name text not null,
+  shoot_date text not null,
+  script text default '',
+  archived integer default 0,
+  created_at timestamptz default timezone('utc'::text, now()) not null
+);
+
+-- 13. BatchFlow Videos Table
+create table if not exists public.batchflow_videos (
+  id text primary key default uuid_generate_v4()::text,
+  workspace_id text references public.workspaces(id) on delete cascade not null,
+  user_id uuid references auth.users(id) on delete cascade default auth.uid(),
+  batch_id text references public.batchflow_batches(id) on delete cascade not null,
+  name text not null,
+  script_number integer default 1,
+  status text default 'Pending',
+  waiting_date text,
+  edited_date text,
+  posted_date text,
+  created_at timestamptz default timezone('utc'::text, now()) not null
+);
+
+alter table public.batchflow_clients enable row level security;
+alter table public.batchflow_batches enable row level security;
+alter table public.batchflow_videos enable row level security;
+
+drop policy if exists "Batchflow clients access policy" on public.batchflow_clients;
+create policy "Batchflow clients access policy" on public.batchflow_clients
+  for all using (user_id = auth.uid() or public.has_workspace_access(workspace_id, 'viewer'))
+  with check (user_id = auth.uid() or public.has_workspace_access(workspace_id, 'manager'));
+
+drop policy if exists "Batchflow batches access policy" on public.batchflow_batches;
+create policy "Batchflow batches access policy" on public.batchflow_batches
+  for all using (user_id = auth.uid() or public.has_workspace_access(workspace_id, 'viewer'))
+  with check (user_id = auth.uid() or public.has_workspace_access(workspace_id, 'manager'));
+
+drop policy if exists "Batchflow videos access policy" on public.batchflow_videos;
+create policy "Batchflow videos access policy" on public.batchflow_videos
+  for all using (user_id = auth.uid() or public.has_workspace_access(workspace_id, 'viewer'))
+  with check (user_id = auth.uid() or public.has_workspace_access(workspace_id, 'manager'));
+
