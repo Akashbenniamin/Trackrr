@@ -69,7 +69,12 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     if (!configured) {
       return { error: new Error('Supabase is not configured yet. Please add your credentials to .env') };
     }
-    const redirectUrl = window.location.origin + window.location.pathname;
+    const origin = window.location.origin;
+    let pathname = window.location.pathname;
+    if (!pathname.endsWith('/')) {
+      pathname += '/';
+    }
+    const redirectUrl = `${origin}${pathname}`;
     const { error } = await supabase.auth.signInWithOAuth({
       provider: 'google',
       options: {
