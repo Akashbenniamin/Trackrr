@@ -22,6 +22,7 @@ import WbSunnyRoundedIcon from '@mui/icons-material/WbSunnyRounded';
 import AirRoundedIcon from '@mui/icons-material/AirRounded';
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
 import StorageRoundedIcon from '@mui/icons-material/StorageRounded';
+import DataObjectRoundedIcon from '@mui/icons-material/DataObjectRounded';
 import { useApp } from '../contexts/AppContext';
 import { useAuth } from '../contexts/AuthContext';
 import { storage } from '../lib/storage';
@@ -197,6 +198,10 @@ export default function SettingsView() {
     summary: '',
   });
 
+  const [pasteDialogOpen, setPasteDialogOpen] = useState(false);
+  const [rawJsonInput, setRawJsonInput] = useState('');
+  const [targetWorkspaceId, setTargetWorkspaceId] = useState<string>(activeWorkspace?.id || '');
+
   const [importing, setImporting] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
@@ -216,41 +221,92 @@ export default function SettingsView() {
   };
 
   const handleExportBackup = () => {
-    if (isBatchflow) {
-      const data = {
-        version: '2.0',
+    const isBf = activeWorkspace?.type === 'batchflow';
+    const now = new Date().toISOString();
+
+    if (isBf) {
+      // Export Batchflow Data for current workspace
+      const currentClients = batchflowClients.filter(c => c.workspace_id === activeWorkspace?.id);
+      const currentBatches = batchflowBatches.filter(b => b.workspace_id === activeWorkspace?.id);
+      const currentVideos = batchflowVideos.filter(v => v.workspace_id === activeWorkspace?.id);
+
+      const backupData = {
+        version: '1.0',
         workspace_type: 'batchflow',
-        workspace_name: activeWorkspace?.name || 'BatchFlow',
-        exported_at: new Date().toISOString(),
-        clients: batchflowClients,
-        batches: batchflowBatches,
-        videos: batchflowVideos,
-        settings,
+        workspace_name: activeWorkspace?.name,
+        exported_at: now,
+        clients: currentClients,
+        batches: currentBatches,
+        videos: currentVideos,
       };
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+
+      const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
+      a.href = url;
       a.download = `batchflow_backup_${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
+      URL.revokeObjectURL(url);
     } else {
-      const data = {
-        version: '2.0',
+      // Export Freelance Tracker Data
+      const currentClients = clients.filter(c => c.workspace_id === activeWorkspace?.id);
+      const currentTasks = tasks.filter(t => t.workspace_id === activeWorkspace?.id);
+      const currentPayments = payments.filter(p => p.workspace_id === activeWorkspace?.id);
+      const currentDiscounts = discounts.filter(d => d.workspace_id === activeWorkspace?.id);
+
+      const backupData = {
+        version: '1.0',
         workspace_type: 'freelance',
-        workspace_name: activeWorkspace?.name || 'Freelance',
-        exported_at: new Date().toISOString(),
-        tasks,
-        clients,
-        payments,
-        discounts,
+        workspace_name: activeWorkspace?.name,
+        exported_at: now,
+        clients: currentClients,
+        tasks: currentTasks,
+        payments: currentPayments,
+        discounts: currentDiscounts,
         salaryRates,
-        settings,
       };
-      const blob = new Blob([JSON.stringify(data, null, 2)], { type: 'application/json' });
+
+      const blob = new Blob([JSON.stringify(backupData, null, 2)], { type: 'application/json' });
+      const url = URL.createObjectURL(blob);
       const a = document.createElement('a');
-      a.href = URL.createObjectURL(blob);
+      a.href = url;
       a.download = `trackrr_backup_${new Date().toISOString().slice(0, 10)}.json`;
       a.click();
+      URL.revokeObjectURL(url);
     }
+  };
+
+  const processJsonData = (parsed: any, sourceName: string) => {
+    const summaryParts: string[] = [];
+    if (Array.isArray(parsed.tasks)) summaryParts.push(`${parsed.tasks.length} tasks`);
+    if (Array.isArray(parsed.clients)) summaryParts.push(`${parsed.clients.length} clients`);
+    if (Array.isArray(parsed.payments)) summaryParts.push(`${parsed.payments.length} payments`);
+    if (Array.isArray(parsed.discounts)) summaryParts.push(`${parsed.discounts.length} discounts`);
+    if (Array.isArray(parsed.batches)) summaryParts.push(`${parsed.batches.length} batches`);
+    if (Array.isArray(parsed.videos)) summaryParts.push(`${parsed.videos.length} videos`);
+
+    const summaryText = summaryParts.length > 0
+      ? `Detected: ${summaryParts.join(', ')}`
+      : 'Valid JSON backup detected.';
+
+    // Auto-detect best target workspace
+    const hasBatchflowData = Boolean(
+      (Array.isArray(parsed.batches) && parsed.batches.length) ||
+      (Array.isArray(parsed.videos) && parsed.videos.length)
+    );
+    if (hasBatchflowData && activeWorkspace?.type !== 'batchflow') {
+      const bfWs = workspaces.find(w => w.type === 'batchflow');
+      setTargetWorkspaceId(bfWs ? bfWs.id : (activeWorkspace?.id || ''));
+    } else {
+      setTargetWorkspaceId(activeWorkspace?.id || '');
+    }
+
+    setImportDialog({
+      open: true,
+      fileName: sourceName,
+      fileContent: parsed,
+      summary: summaryText,
+    });
   };
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -262,26 +318,7 @@ export default function SettingsView() {
       try {
         const text = event.target?.result as string;
         const parsed = JSON.parse(text);
-
-        // Summarize content
-        const summaryParts: string[] = [];
-        if (Array.isArray(parsed.tasks)) summaryParts.push(`${parsed.tasks.length} tasks`);
-        if (Array.isArray(parsed.clients)) summaryParts.push(`${parsed.clients.length} clients`);
-        if (Array.isArray(parsed.payments)) summaryParts.push(`${parsed.payments.length} payments`);
-        if (Array.isArray(parsed.discounts)) summaryParts.push(`${parsed.discounts.length} discounts`);
-        if (Array.isArray(parsed.batches)) summaryParts.push(`${parsed.batches.length} batches`);
-        if (Array.isArray(parsed.videos)) summaryParts.push(`${parsed.videos.length} videos`);
-
-        const summaryText = summaryParts.length > 0
-          ? `Detected: ${summaryParts.join(', ')}`
-          : 'Valid JSON backup file detected.';
-
-        setImportDialog({
-          open: true,
-          fileName: file.name,
-          fileContent: parsed,
-          summary: summaryText,
-        });
+        processJsonData(parsed, file.name);
       } catch {
         alert('Invalid JSON backup file. Please select a valid Trackrr or BatchFlow backup.');
       }
@@ -290,10 +327,25 @@ export default function SettingsView() {
     e.target.value = '';
   };
 
+  const handlePasteJsonSubmit = () => {
+    if (!rawJsonInput.trim()) return;
+    try {
+      const parsed = JSON.parse(rawJsonInput.trim());
+      processJsonData(parsed, 'Pasted Raw JSON');
+      setPasteDialogOpen(false);
+      setRawJsonInput('');
+    } catch (err: any) {
+      alert(`Invalid JSON: ${err?.message || 'Check JSON syntax'}`);
+    }
+  };
+
   const handleConfirmImport = async () => {
     if (!importDialog.fileContent) return;
     setImporting(true);
     try {
+      if (targetWorkspaceId && targetWorkspaceId !== activeWorkspace?.id) {
+        await switchWorkspace(targetWorkspaceId);
+      }
       const res = await importBackupData(importDialog.fileContent);
       setToastMessage(res.message);
       setImportDialog({ open: false, fileName: '', fileContent: null, summary: '' });
@@ -647,9 +699,21 @@ export default function SettingsView() {
               size="medium"
               startIcon={<FileUploadRoundedIcon />}
               onClick={() => fileInputRef.current?.click()}
-              sx={{ textTransform: 'none', fontWeight: 700, px: 2.5, borderColor: 'divider' }}
+              sx={{ textTransform: 'none', fontWeight: 700, px: 2.5, borderColor: 'divider', borderRadius: 1 }}
             >
               Import Backup (JSON)
+            </Button>
+
+            {/* Paste Raw JSON Button */}
+            <Button
+              variant="outlined"
+              color="inherit"
+              size="medium"
+              startIcon={<DataObjectRoundedIcon />}
+              onClick={() => { setRawJsonInput(''); setPasteDialogOpen(true); }}
+              sx={{ textTransform: 'none', fontWeight: 700, px: 2.5, borderColor: 'divider', borderRadius: 1 }}
+            >
+              Paste JSON
             </Button>
 
             {/* Hidden file input */}
@@ -800,7 +864,7 @@ export default function SettingsView() {
         <Dialog open={importDialog.open} onClose={() => setImportDialog(prev => ({ ...prev, open: false }))} maxWidth="xs" fullWidth>
           <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
             <FileUploadRoundedIcon color="primary" />
-            Import Backup File
+            Import Backup
           </DialogTitle>
           <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
             <Typography variant="body2">
@@ -812,8 +876,27 @@ export default function SettingsView() {
                 {importDialog.summary}
               </Typography>
             </Box>
+
+            <Box>
+              <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 0.75 }}>
+                Target Workspace
+              </Typography>
+              <Select
+                value={targetWorkspaceId}
+                onChange={e => setTargetWorkspaceId(e.target.value)}
+                size="small"
+                fullWidth
+              >
+                {workspaces.map(w => (
+                  <MenuItem key={w.id} value={w.id}>
+                    {w.name} ({w.type === 'batchflow' ? 'BatchFlow' : 'Freelance'})
+                  </MenuItem>
+                ))}
+              </Select>
+            </Box>
+
             <Typography variant="caption" sx={{ color: 'text.secondary', lineHeight: 1.4 }}>
-              Items will be safely mapped to your active workspace (<strong>{activeWorkspace?.name}</strong>).
+              Items will be safely mapped into the selected workspace without conflicting existing IDs.
             </Typography>
           </DialogContent>
           <DialogActions sx={{ px: 3, pb: 2.5 }}>
@@ -822,6 +905,39 @@ export default function SettingsView() {
             </Button>
             <Button variant="contained" color="primary" onClick={handleConfirmImport} disabled={importing} startIcon={<CheckCircleRoundedIcon />}>
               {importing ? 'Importing…' : 'Confirm Import'}
+            </Button>
+          </DialogActions>
+        </Dialog>
+
+        {/* Paste Raw JSON Dialog */}
+        <Dialog open={pasteDialogOpen} onClose={() => setPasteDialogOpen(false)} maxWidth="sm" fullWidth>
+          <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
+            <DataObjectRoundedIcon color="primary" />
+            Paste JSON Backup
+          </DialogTitle>
+          <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, pt: 1 }}>
+            <Typography variant="body2" sx={{ color: 'text.secondary' }}>
+              Paste your raw JSON export from the old BatchFlow app or Trackrr below:
+            </Typography>
+            <TextField
+              multiline
+              rows={8}
+              placeholder='{"clients": [...], "batches": [...], "videos": [...]}'
+              value={rawJsonInput}
+              onChange={e => setRawJsonInput(e.target.value)}
+              fullWidth
+              autoFocus
+            />
+          </DialogContent>
+          <DialogActions sx={{ px: 3, pb: 2.5 }}>
+            <Button onClick={() => setPasteDialogOpen(false)}>Cancel</Button>
+            <Button
+              variant="contained"
+              onClick={handlePasteJsonSubmit}
+              disabled={!rawJsonInput.trim()}
+              startIcon={<CheckCircleRoundedIcon />}
+            >
+              Process JSON
             </Button>
           </DialogActions>
         </Dialog>

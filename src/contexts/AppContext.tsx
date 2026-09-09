@@ -1119,8 +1119,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     const now = new Date().toISOString();
     let importedCount = 0;
 
+    const hasBatchflowData = Boolean(
+      (Array.isArray(data.batches) && data.batches.length) ||
+      (Array.isArray(data.videos) && data.videos.length)
+    );
+    const hasFreelanceData = Boolean(
+      (Array.isArray(data.tasks) && data.tasks.length) ||
+      (Array.isArray(data.payments) && data.payments.length) ||
+      (Array.isArray(data.discounts) && data.discounts.length) ||
+      (Array.isArray(data.salaryRates) && data.salaryRates.length)
+    );
+
+    // If active workspace is batchflow, prioritize batchflow import; otherwise if hasBatchflowData
+    const isBatchflowImport = hasBatchflowData || (!hasFreelanceData && activeWorkspace.type === 'batchflow');
+    const isFreelanceImport = hasFreelanceData || (!hasBatchflowData && activeWorkspace.type !== 'batchflow' && Array.isArray(data.clients));
+
     // 1. Check for Freelance Tracker backup structure
-    if (data.tasks || data.clients || data.payments || data.discounts || data.salaryRates) {
+    if (isFreelanceImport) {
       const clientMap = new Map<string, string>();
       if (Array.isArray(data.clients) && data.clients.length) {
         const mappedClients: Client[] = data.clients.map((c: any) => {
@@ -1183,22 +1198,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     // 2. Check for BatchFlow backup structure
-    if (data.batches || data.videos) {
+    if (isBatchflowImport) {
       const clientMap = new Map<string, string>();
+      const mappedBfClients: BatchflowClient[] = [];
       if (Array.isArray(data.clients) && data.clients.length) {
-        const mappedBfClients: BatchflowClient[] = data.clients.map((c: any) => {
+        data.clients.forEach((c: any) => {
           const newId = generateId();
           clientMap.set(c.id, newId);
-          return {
+          mappedBfClients.push({
             id: newId,
             workspace_id: wsId,
             user_id: user?.id,
             name: c.name,
             color: c.color || '#818CF8',
-            instagram_id: c.instagram_id || c.instagramId,
+            instagram_id: c.instagram_id || c.instagramId || '',
             archived: c.archived || 0,
             created_at: c.created_at || now,
-          };
+          });
         });
         setBatchflowClients(prev => [...prev, ...mappedBfClients]);
         const allBfC = storage.getBatchflowClients();
@@ -1210,11 +1226,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
 
       const batchMap = new Map<string, string>();
+      const mappedBatches: BatchflowBatch[] = [];
       if (Array.isArray(data.batches) && data.batches.length) {
-        const mappedBatches: BatchflowBatch[] = data.batches.map((b: any) => {
+        data.batches.forEach((b: any) => {
           const newId = generateId();
           batchMap.set(b.id, newId);
-          return {
+          mappedBatches.push({
             id: newId,
             workspace_id: wsId,
             user_id: user?.id,
@@ -1224,8 +1241,35 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             script: b.script || '',
             archived: b.archived || 0,
             created_at: b.created_at || now,
-          };
+          });
         });
+      }
+
+      // Check for orphaned videos that reference a batch not in data.batches (e.g. Fonify batch)
+      if (Array.isArray(data.videos) && data.videos.length) {
+        data.videos.forEach((v: any) => {
+          if (v.batch_id && !batchMap.has(v.batch_id)) {
+            const newBatchId = generateId();
+            batchMap.set(v.batch_id, newBatchId);
+            const matchedClient = Array.isArray(data.clients)
+              ? data.clients.find((c: any) => v.name?.toLowerCase().startsWith(c.name?.toLowerCase()))
+              : null;
+            mappedBatches.push({
+              id: newBatchId,
+              workspace_id: wsId,
+              user_id: user?.id,
+              client_id: (matchedClient && clientMap.get(matchedClient.id)) || (mappedBfClients[0]?.id || ''),
+              name: matchedClient ? `${matchedClient.name} Batch` : 'Imported Batch',
+              shoot_date: v.created_at ? String(v.created_at).slice(0, 10) : '',
+              script: '',
+              archived: 0,
+              created_at: v.created_at || now,
+            });
+          }
+        });
+      }
+
+      if (mappedBatches.length > 0) {
         setBatchflowBatches(prev => [...prev, ...mappedBatches]);
         const allBfB = storage.getBatchflowBatches();
         storage.setBatchflowBatches([...allBfB, ...mappedBatches]);
@@ -1242,7 +1286,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           user_id: user?.id,
           batch_id: batchMap.get(v.batch_id) || v.batch_id,
           name: v.name,
-          script_number: v.script_number || v.scriptNumber || 1,
+          script_number: v.script_number ?? v.scriptNumber ?? 1,
           status: v.status || 'Pending',
           waiting_date: v.waiting_date,
           edited_date: v.edited_date,
