@@ -2,6 +2,7 @@ import { createTheme } from '@mui/material/styles';
 import type { ThemeStyle } from './types';
 
 interface ThemePaletteConfig {
+  mode?: 'dark' | 'light';
   bgDefault: string;
   bgPaper: string;
   bgDialog: string;
@@ -10,12 +11,14 @@ interface ThemePaletteConfig {
   divider: string;
   textPrimary: string;
   textSecondary: string;
+  textDisabled: string;
   cardBorder: string;
   backdropBlur?: boolean;
 }
 
 const THEME_CONFIGS: Record<ThemeStyle, ThemePaletteConfig> = {
   default: {
+    mode: 'dark',
     bgDefault: '#080C14',
     bgPaper: '#111827',
     bgDialog: '#1E293B',
@@ -24,9 +27,11 @@ const THEME_CONFIGS: Record<ThemeStyle, ThemePaletteConfig> = {
     divider: 'rgba(255, 255, 255, 0.07)',
     textPrimary: '#F1F5F9',
     textSecondary: '#94A3B8',
+    textDisabled: '#475569',
     cardBorder: '1px solid rgba(255, 255, 255, 0.06)',
   },
   soft: {
+    mode: 'dark',
     bgDefault: '#141822',
     bgPaper: '#1D2330',
     bgDialog: '#242C3C',
@@ -35,9 +40,11 @@ const THEME_CONFIGS: Record<ThemeStyle, ThemePaletteConfig> = {
     divider: 'rgba(255, 255, 255, 0.08)',
     textPrimary: '#E2E8F0',
     textSecondary: '#94A3B8',
+    textDisabled: '#64748B',
     cardBorder: '1px solid rgba(255, 255, 255, 0.08)',
   },
   dark: {
+    mode: 'dark',
     bgDefault: '#000000',
     bgPaper: '#0B0B0B',
     bgDialog: '#141414',
@@ -46,9 +53,11 @@ const THEME_CONFIGS: Record<ThemeStyle, ThemePaletteConfig> = {
     divider: 'rgba(255, 255, 255, 0.12)',
     textPrimary: '#FFFFFF',
     textSecondary: '#A1A1AA',
+    textDisabled: '#52525B',
     cardBorder: '1px solid rgba(255, 255, 255, 0.14)',
   },
   smooth: {
+    mode: 'dark',
     bgDefault: '#0C0C1A',
     bgPaper: '#151528',
     bgDialog: '#1B1B33',
@@ -57,41 +66,82 @@ const THEME_CONFIGS: Record<ThemeStyle, ThemePaletteConfig> = {
     divider: 'rgba(167, 139, 250, 0.15)',
     textPrimary: '#F8FAFC',
     textSecondary: '#C4B5FD',
+    textDisabled: '#7C3AED',
     cardBorder: '1px solid rgba(167, 139, 250, 0.2)',
     backdropBlur: true,
+  },
+  light: {
+    mode: 'light',
+    bgDefault: '#F8FAFC',
+    bgPaper: '#FFFFFF',
+    bgDialog: '#FFFFFF',
+    bgDrawer: '#F1F5F9',
+    bgAppBar: 'rgba(255, 255, 255, 0.92)',
+    divider: 'rgba(0, 0, 0, 0.08)',
+    textPrimary: '#0F172A',
+    textSecondary: '#64748B',
+    textDisabled: '#94A3B8',
+    cardBorder: '1px solid rgba(0, 0, 0, 0.08)',
+  },
+  'warm-light': {
+    mode: 'light',
+    bgDefault: '#FAF7F2',
+    bgPaper: '#FFFFFF',
+    bgDialog: '#FFFFFF',
+    bgDrawer: '#F4EFE6',
+    bgAppBar: 'rgba(250, 247, 242, 0.94)',
+    divider: 'rgba(68, 64, 60, 0.1)',
+    textPrimary: '#1C1917',
+    textSecondary: '#78716C',
+    textDisabled: '#A8A29E',
+    cardBorder: '1px solid rgba(68, 64, 60, 0.1)',
+  },
+  'cool-light': {
+    mode: 'light',
+    bgDefault: '#F0F9FF',
+    bgPaper: '#FFFFFF',
+    bgDialog: '#FFFFFF',
+    bgDrawer: '#E0F2FE',
+    bgAppBar: 'rgba(240, 249, 255, 0.94)',
+    divider: 'rgba(14, 116, 144, 0.12)',
+    textPrimary: '#0C4A6E',
+    textSecondary: '#0284C7',
+    textDisabled: '#7DD3FC',
+    cardBorder: '1px solid rgba(14, 116, 144, 0.14)',
   },
 };
 
 export function getAppTheme(themeStyle: ThemeStyle = 'default', accentColor = '#818CF8') {
   const cfg = THEME_CONFIGS[themeStyle] || THEME_CONFIGS.default;
+  const isLight = cfg.mode === 'light';
 
   return createTheme({
     palette: {
-      mode: 'dark',
+      mode: cfg.mode || 'dark',
       primary: {
         main: accentColor,
-        light: '#A5B4FC',
-        dark: '#6366F1',
+        light: isLight ? '#818CF8' : '#A5B4FC',
+        dark: isLight ? '#4338CA' : '#6366F1',
         contrastText: '#ffffff',
       },
       secondary: {
-        main: '#34D399',
+        main: isLight ? '#059669' : '#34D399',
         light: '#6EE7B7',
         dark: '#10B981',
-        contrastText: '#000000',
+        contrastText: isLight ? '#ffffff' : '#000000',
       },
       background: {
         default: cfg.bgDefault,
         paper: cfg.bgPaper,
       },
-      error: { main: '#F87171' },
-      warning: { main: '#FBBF24' },
-      success: { main: '#34D399' },
-      info: { main: '#60A5FA' },
+      error: { main: '#EF4444' },
+      warning: { main: '#F59E0B' },
+      success: { main: '#10B981' },
+      info: { main: '#3B82F6' },
       text: {
         primary: cfg.textPrimary,
         secondary: cfg.textSecondary,
-        disabled: '#475569',
+        disabled: cfg.textDisabled,
       },
       divider: cfg.divider,
     },
@@ -112,13 +162,14 @@ export function getAppTheme(themeStyle: ThemeStyle = 'default', accentColor = '#
         styleOverrides: {
           body: {
             background: cfg.bgDefault,
+            color: cfg.textPrimary,
             overscrollBehavior: 'none',
             WebkitTapHighlightColor: 'transparent',
           },
           '::-webkit-scrollbar': { width: 5, height: 5 },
           '::-webkit-scrollbar-track': { background: 'transparent' },
           '::-webkit-scrollbar-thumb': {
-            background: 'rgba(148,163,184,0.2)',
+            background: isLight ? 'rgba(0,0,0,0.15)' : 'rgba(148,163,184,0.2)',
             borderRadius: 3,
           },
         },
@@ -131,11 +182,18 @@ export function getAppTheme(themeStyle: ThemeStyle = 'default', accentColor = '#
             border: cfg.cardBorder,
             borderRadius: themeStyle === 'smooth' ? 18 : 16,
             backdropFilter: cfg.backdropBlur ? 'blur(16px)' : 'none',
+            boxShadow: isLight ? '0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.06)' : 'none',
           },
         },
       },
       MuiPaper: {
-        styleOverrides: { root: { backgroundImage: 'none' } },
+        styleOverrides: {
+          root: {
+            backgroundImage: 'none',
+            backgroundColor: cfg.bgPaper,
+            color: cfg.textPrimary,
+          },
+        },
       },
       MuiButton: {
         styleOverrides: {
@@ -167,6 +225,7 @@ export function getAppTheme(themeStyle: ThemeStyle = 'default', accentColor = '#
             backgroundImage: 'none',
             backgroundColor: cfg.bgDialog,
             border: cfg.cardBorder,
+            boxShadow: isLight ? '0 20px 25px -5px rgba(0,0,0,0.1), 0 10px 10px -5px rgba(0,0,0,0.04)' : '0 25px 50px -12px rgba(0,0,0,0.7)',
           },
         },
       },
@@ -175,6 +234,7 @@ export function getAppTheme(themeStyle: ThemeStyle = 'default', accentColor = '#
           root: {
             minWidth: 'auto',
             padding: '6px 4px',
+            color: cfg.textSecondary,
             '&.Mui-selected': { color: accentColor },
           },
           label: {
@@ -191,7 +251,8 @@ export function getAppTheme(themeStyle: ThemeStyle = 'default', accentColor = '#
             backdropFilter: 'blur(20px)',
             WebkitBackdropFilter: 'blur(20px)',
             borderBottom: cfg.cardBorder,
-            boxShadow: 'none',
+            boxShadow: isLight ? '0 1px 3px rgba(0,0,0,0.04)' : 'none',
+            color: cfg.textPrimary,
           },
         },
       },
@@ -201,6 +262,7 @@ export function getAppTheme(themeStyle: ThemeStyle = 'default', accentColor = '#
             backgroundImage: 'none',
             backgroundColor: cfg.bgDrawer,
             borderRight: cfg.cardBorder,
+            color: cfg.textPrimary,
           },
         },
       },
@@ -225,7 +287,9 @@ export function getAppTheme(themeStyle: ThemeStyle = 'default', accentColor = '#
             borderRadius: 8,
             fontSize: '0.75rem',
             backgroundColor: cfg.bgDialog,
+            color: cfg.textPrimary,
             border: cfg.cardBorder,
+            boxShadow: '0 4px 12px rgba(0,0,0,0.15)',
           },
         },
       },

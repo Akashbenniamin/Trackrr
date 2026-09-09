@@ -139,7 +139,7 @@ export interface BatchflowVideo {
   created_at: string;
 }
 
-export type ThemeStyle = 'default' | 'soft' | 'dark' | 'smooth';
+export type ThemeStyle = 'default' | 'soft' | 'dark' | 'smooth' | 'light' | 'warm-light' | 'cool-light';
 
 export interface AppSettings {
   id: number;

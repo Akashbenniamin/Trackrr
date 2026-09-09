@@ -106,12 +106,13 @@ export default function Layout({ children, onAddTask }: LayoutProps) {
                 onClick={() => setWsDrawerOpen(true)}
                 size="small"
                 sx={{
-                  bgcolor: 'rgba(255,255,255,0.05)',
-                  border: '1px solid rgba(255,255,255,0.1)',
+                  bgcolor: 'action.hover',
+                  border: '1px solid',
+                  borderColor: 'divider',
                   color: 'text.primary',
                   fontWeight: 600,
                   cursor: 'pointer',
-                  '&:hover': { bgcolor: 'rgba(255,255,255,0.1)' },
+                  '&:hover': { bgcolor: 'action.selected' },
                   maxWidth: 180,
                   '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' },
                 }}
@@ -406,8 +407,8 @@ export default function Layout({ children, onAddTask }: LayoutProps) {
                 p: 1,
                 borderRadius: 1.5,
                 border: '1px solid',
-                borderColor: newWsType === 'freelance' ? 'primary.main' : 'rgba(255,255,255,0.1)',
-                bgcolor: newWsType === 'freelance' ? 'rgba(129,140,248,0.12)' : 'rgba(255,255,255,0.03)',
+                borderColor: newWsType === 'freelance' ? 'primary.main' : 'divider',
+                bgcolor: newWsType === 'freelance' ? 'rgba(129,140,248,0.12)' : 'action.hover',
                 cursor: 'pointer',
                 textAlign: 'center',
                 transition: 'all 0.15s ease',
@@ -423,8 +424,8 @@ export default function Layout({ children, onAddTask }: LayoutProps) {
                 p: 1,
                 borderRadius: 1.5,
                 border: '1px solid',
-                borderColor: newWsType === 'batchflow' ? '#F472B6' : 'rgba(255,255,255,0.1)',
-                bgcolor: newWsType === 'batchflow' ? 'rgba(244,114,182,0.12)' : 'rgba(255,255,255,0.03)',
+                borderColor: newWsType === 'batchflow' ? '#F472B6' : 'divider',
+                bgcolor: newWsType === 'batchflow' ? 'rgba(244,114,182,0.12)' : 'action.hover',
                 cursor: 'pointer',
                 textAlign: 'center',
                 transition: 'all 0.15s ease',
@@ -442,8 +443,14 @@ export default function Layout({ children, onAddTask }: LayoutProps) {
               onKeyDown={e => e.key === 'Enter' && handleCreateWs()}
               placeholder={newWsType === 'batchflow' ? "e.g. Creator Studios..." : "e.g. My Freelancing..."}
               style={{
-                flex: 1, background: 'rgba(255,255,255,0.05)', border: '1px solid rgba(255,255,255,0.1)',
-                borderRadius: 10, padding: '8px 12px', color: '#F1F5F9', fontSize: '0.83rem', outline: 'none',
+                flex: 1,
+                background: theme.palette.mode === 'light' ? '#FFFFFF' : 'rgba(255,255,255,0.05)',
+                border: `1px solid ${theme.palette.divider}`,
+                borderRadius: 10,
+                padding: '8px 12px',
+                color: theme.palette.text.primary,
+                fontSize: '0.83rem',
+                outline: 'none',
               }}
             />
             <Button variant="contained" size="small" onClick={handleCreateWs} sx={{ minWidth: 36, px: 1 }}>

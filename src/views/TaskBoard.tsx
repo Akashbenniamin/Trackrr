@@ -16,9 +16,6 @@ import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded';
 import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded';
 import CalendarMonthRoundedIcon from '@mui/icons-material/CalendarMonthRounded';
-import CurrencyRupeeRoundedIcon from '@mui/icons-material/CurrencyRupeeRounded';
-import AttachMoneyRoundedIcon from '@mui/icons-material/AttachMoneyRounded';
-import CheckCircleOutlineRoundedIcon from '@mui/icons-material/CheckCircleOutlineRounded';
 import AccountBalanceWalletRoundedIcon from '@mui/icons-material/AccountBalanceWalletRounded';
 import { format, startOfMonth, endOfMonth } from 'date-fns';
 import { useApp } from '../contexts/AppContext';
@@ -621,7 +618,7 @@ function PaymentsSection() {
 }
 
 export default function TaskBoard() {
-  const { tasks, clients, salaryRates, deleteTask, loading, canEdit, settings } = useApp();
+  const { tasks, clients, salaryRates, deleteTask, loading, canEdit } = useApp();
   const [activeTab, setActiveTab] = useState<'tasks' | 'payments'>('tasks');
   const [viewMode, setViewMode] = usePersistedState<'grid' | 'list'>('tb_viewMode', 'grid');
   const [searchQuery, setSearchQuery] = useState('');
@@ -631,8 +628,6 @@ export default function TaskBoard() {
   const [compMonth, setCompMonth] = usePersistedState<string>('tb_compMonth', '');
   const [compClient, setCompClient] = usePersistedState<string>('tb_compClient', '');
   const [compSort, setCompSort] = usePersistedState<SortKey>('tb_compSort', 'date_desc');
-
-  const cur = (v: number) => formatCurrency(v, settings.currency);
 
   const monthOptions = useMemo(() => {
     const months = new Set<string>();
@@ -691,17 +686,6 @@ export default function TaskBoard() {
     return sorted.map(x => x.t);
   }, [tasks, clients, salaryRates, compClient, compMonth, compSort, searchQuery]);
 
-  const totalVideosCount = useMemo(() => {
-    return allFilteredTasks.reduce((sum, t) => sum + (t.videos ?? 0), 0);
-  }, [allFilteredTasks]);
-
-  const totalRevenue = useMemo(() => {
-    return allFilteredTasks.reduce((sum, t) => {
-      const client = clients.find(c => c.id === t.client_id);
-      return sum + calcTaskRevenueFull(t, client, salaryRates, tasks);
-    }, 0);
-  }, [allFilteredTasks, clients, salaryRates, tasks]);
-
   if (loading) {
     return (
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: '1fr 1fr 1fr' }, gap: 2 }}>
@@ -713,53 +697,6 @@ export default function TaskBoard() {
   return (
     <Fade in timeout={400}>
       <Box sx={{ pb: 4 }}>
-        {/* Top KPI Header Strip */}
-        <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', sm: '1fr 1fr 1fr 1fr' }, gap: 1.5, mb: 3 }}>
-          <Card sx={{ p: 2, bgcolor: 'background.paper', borderRadius: 2.5, border: '1px solid rgba(129,140,248,0.15)' }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, color: 'primary.main', mb: 0.5 }}>
-              <VideoLibraryRoundedIcon fontSize="small" />
-              <Typography variant="caption" sx={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                Total Videos
-              </Typography>
-            </Box>
-            <Typography variant="h5" sx={{ fontWeight: 800 }}>{totalVideosCount}</Typography>
-            <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.7rem' }}>delivered in filtered view</Typography>
-          </Card>
-
-          <Card sx={{ p: 2, bgcolor: 'background.paper', borderRadius: 2.5, border: '1px solid rgba(52,211,153,0.15)' }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, color: '#34D399', mb: 0.5 }}>
-              <CheckCircleOutlineRoundedIcon fontSize="small" />
-              <Typography variant="caption" sx={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                Tasks Count
-              </Typography>
-            </Box>
-            <Typography variant="h5" sx={{ fontWeight: 800, color: '#34D399' }}>{allFilteredTasks.length}</Typography>
-            <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.7rem' }}>active & completed</Typography>
-          </Card>
-
-          <Card sx={{ p: 2, bgcolor: 'background.paper', borderRadius: 2.5, border: '1px solid rgba(245,158,11,0.15)' }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, color: '#F59E0B', mb: 0.5 }}>
-              {settings.currency === 'INR' ? <CurrencyRupeeRoundedIcon fontSize="small" /> : <AttachMoneyRoundedIcon fontSize="small" />}
-              <Typography variant="caption" sx={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                Earned Revenue
-              </Typography>
-            </Box>
-            <Typography variant="h5" sx={{ fontWeight: 800, color: '#F59E0B' }}>{cur(totalRevenue)}</Typography>
-            <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.7rem' }}>per video & monthly rates</Typography>
-          </Card>
-
-          <Card sx={{ p: 2, bgcolor: 'background.paper', borderRadius: 2.5, border: '1px solid rgba(167,139,250,0.15)' }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, color: '#A78BFA', mb: 0.5 }}>
-              <PaymentsRoundedIcon fontSize="small" />
-              <Typography variant="caption" sx={{ fontWeight: 700, textTransform: 'uppercase', letterSpacing: '0.04em' }}>
-                Active Clients
-              </Typography>
-            </Box>
-            <Typography variant="h5" sx={{ fontWeight: 800, color: '#A78BFA' }}>{clients.length}</Typography>
-            <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.7rem' }}>in current workspace</Typography>
-          </Card>
-        </Box>
-
         {/* Section Navigation Tabs & Primary Actions */}
         <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1.5, mb: 2.5 }}>
           <ToggleButtonGroup

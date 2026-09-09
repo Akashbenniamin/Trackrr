@@ -17,13 +17,17 @@ import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
 import DarkModeRoundedIcon from '@mui/icons-material/DarkModeRounded';
 import NightsStayRoundedIcon from '@mui/icons-material/NightsStayRounded';
 import Brightness4RoundedIcon from '@mui/icons-material/Brightness4Rounded';
+import LightModeRoundedIcon from '@mui/icons-material/LightModeRounded';
+import WbSunnyRoundedIcon from '@mui/icons-material/WbSunnyRounded';
+import AirRoundedIcon from '@mui/icons-material/AirRounded';
 import { useApp } from '../contexts/AppContext';
 import { useAuth } from '../contexts/AuthContext';
 import type { WorkspaceType, ThemeStyle } from '../types';
 
 const WS_COLORS = ['#818CF8', '#34D399', '#F59E0B', '#F87171', '#A78BFA', '#60A5FA', '#FB7185', '#4ADE80'];
 
-const THEMES: { id: ThemeStyle; name: string; tag: string; desc: string; bg: string; card: string; accent: string; icon: React.ReactNode }[] = [
+const THEMES: { id: ThemeStyle; name: string; tag: string; desc: string; bg: string; card: string; accent: string; isLight?: boolean; icon: React.ReactNode }[] = [
+  // 4 Dark Themes
   {
     id: 'default',
     name: 'Current (Default)',
@@ -36,7 +40,7 @@ const THEMES: { id: ThemeStyle; name: string; tag: string; desc: string; bg: str
   },
   {
     id: 'soft',
-    name: 'Soft',
+    name: 'Soft Dark',
     tag: 'Warm Charcoal',
     desc: 'Gentle charcoal and zinc tones engineered for low eyestrain',
     bg: '#141822',
@@ -46,8 +50,8 @@ const THEMES: { id: ThemeStyle; name: string; tag: string; desc: string; bg: str
   },
   {
     id: 'dark',
-    name: 'Dark',
-    tag: 'Pitch Black',
+    name: 'Pitch Black',
+    tag: 'OLED Pure Black',
     desc: 'Pure OLED black background with crisp high-contrast cards',
     bg: '#000000',
     card: '#0B0B0B',
@@ -56,13 +60,47 @@ const THEMES: { id: ThemeStyle; name: string; tag: string; desc: string; bg: str
   },
   {
     id: 'smooth',
-    name: 'Smooth',
+    name: 'Smooth Violet',
     tag: 'Glassmorphism',
     desc: 'Midnight violet glass with blurred surfaces & purple glows',
     bg: '#0C0C1A',
     card: '#151528',
     accent: '#A78BFA',
     icon: <AutoAwesomeRoundedIcon fontSize="small" />,
+  },
+  // 3 Light Themes
+  {
+    id: 'light',
+    name: 'Pure Light',
+    tag: 'Clean Minimal',
+    desc: 'Crisp white canvas with soft slate borders and clean typography',
+    bg: '#F8FAFC',
+    card: '#FFFFFF',
+    accent: '#4F46E5',
+    isLight: true,
+    icon: <LightModeRoundedIcon fontSize="small" />,
+  },
+  {
+    id: 'warm-light',
+    name: 'Warm Sand',
+    tag: 'Paper & Ivory',
+    desc: 'Gentle warm cream palette inspired by fine paper for easy reading',
+    bg: '#FAF7F2',
+    card: '#FFFFFF',
+    accent: '#D97706',
+    isLight: true,
+    icon: <WbSunnyRoundedIcon fontSize="small" />,
+  },
+  {
+    id: 'cool-light',
+    name: 'Nordic Sky',
+    tag: 'Fresh Sky Blue',
+    desc: 'Crisp arctic sky and ice-tinted surfaces with modern blue accents',
+    bg: '#F0F9FF',
+    card: '#FFFFFF',
+    accent: '#0284C7',
+    isLight: true,
+    icon: <AirRoundedIcon fontSize="small" />,
   },
 ];
 
@@ -72,7 +110,7 @@ export default function SettingsView() {
     settings, updateSettings, workspaces, activeWorkspace, createWorkspace,
     updateWorkspace, deleteWorkspace, switchWorkspace, tasks, clients,
     payments, discounts, salaryRates, batchflowClients, batchflowBatches,
-    batchflowVideos, importBackupData, isOnline,
+    batchflowVideos, importBackupData,
   } = useApp();
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
@@ -176,12 +214,11 @@ export default function SettingsView() {
           fileContent: parsed,
           summary: summaryText,
         });
-      } catch (err) {
+      } catch {
         alert('Invalid JSON backup file. Please select a valid Trackrr or BatchFlow backup.');
       }
     };
     reader.readAsText(file);
-    // Reset file input value so user can re-select same file if desired
     e.target.value = '';
   };
 
@@ -197,6 +234,69 @@ export default function SettingsView() {
     } finally {
       setImporting(false);
     }
+  };
+
+  const renderThemeCard = (th: typeof THEMES[0]) => {
+    const isActive = (settings.theme_style || 'default') === th.id;
+    return (
+      <Box
+        key={th.id}
+        onClick={() => updateSettings({ theme_style: th.id })}
+        sx={{
+          p: 2,
+          borderRadius: 2.5,
+          border: '2px solid',
+          borderColor: isActive ? 'primary.main' : (th.isLight ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.08)'),
+          bgcolor: th.card,
+          color: th.isLight ? '#0F172A' : '#F1F5F9',
+          cursor: 'pointer',
+          transition: 'all 0.2s ease',
+          position: 'relative',
+          overflow: 'hidden',
+          boxShadow: isActive ? `0 0 16px ${th.accent}30` : (th.isLight ? '0 2px 6px rgba(0,0,0,0.06)' : 'none'),
+          '&:hover': {
+            borderColor: isActive ? 'primary.main' : (th.isLight ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.2)'),
+            transform: 'translateY(-2px)',
+          },
+        }}
+      >
+        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Box sx={{ color: th.accent }}>{th.icon}</Box>
+            <Typography variant="body1" sx={{ fontWeight: 700, fontSize: '0.92rem', color: th.isLight ? '#0F172A' : '#F1F5F9' }}>
+              {th.name}
+            </Typography>
+          </Box>
+          {isActive ? (
+            <Chip label="Active" size="small" color="primary" sx={{ height: 20, fontSize: '0.65rem', fontWeight: 700 }} />
+          ) : (
+            <Chip
+              label={th.tag}
+              size="small"
+              sx={{
+                height: 20,
+                fontSize: '0.62rem',
+                fontWeight: 600,
+                bgcolor: th.isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)',
+                color: th.isLight ? '#475569' : '#94A3B8',
+              }}
+            />
+          )}
+        </Box>
+        <Typography variant="caption" sx={{ color: th.isLight ? '#64748B' : '#94A3B8', display: 'block', lineHeight: 1.4, mb: 1.5 }}>
+          {th.desc}
+        </Typography>
+
+        {/* Visual Preview Swatches */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, bgcolor: th.isLight ? 'rgba(0,0,0,0.06)' : 'rgba(0,0,0,0.3)', px: 1, py: 0.5, borderRadius: 1.5 }}>
+            <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: th.bg, border: '1px solid rgba(0,0,0,0.15)' }} />
+            <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: th.card, border: '1px solid rgba(0,0,0,0.15)' }} />
+            <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: th.accent }} />
+          </Box>
+        </Box>
+      </Box>
+    );
   };
 
   return (
@@ -252,65 +352,27 @@ export default function SettingsView() {
             <PaletteRoundedIcon sx={{ color: 'primary.main', fontSize: 22 }} />
             <Typography variant="h6" sx={{ fontWeight: 800 }}>Theme & Appearance</Typography>
           </Box>
-          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2 }}>
-            Switch between 4 hand-crafted UI styles or customize your primary accent color
+          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2.5 }}>
+            Choose from 7 crafted themes (4 Dark, 3 Light) or customize your primary accent color
           </Typography>
 
-          {/* Theme Style Cards */}
-          <Typography variant="body2" sx={{ fontWeight: 700, mb: 1.25 }}>Visual Style</Typography>
+          {/* Dark Themes */}
+          <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            🌙 Dark Themes
+          </Typography>
           <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5, mb: 3 }}>
-            {THEMES.map(th => {
-              const isActive = (settings.theme_style || 'default') === th.id;
-              return (
-                <Box
-                  key={th.id}
-                  onClick={() => updateSettings({ theme_style: th.id })}
-                  sx={{
-                    p: 2,
-                    borderRadius: 2.5,
-                    border: '2px solid',
-                    borderColor: isActive ? 'primary.main' : 'rgba(255,255,255,0.08)',
-                    bgcolor: th.card,
-                    cursor: 'pointer',
-                    transition: 'all 0.2s ease',
-                    position: 'relative',
-                    overflow: 'hidden',
-                    boxShadow: isActive ? `0 0 16px ${th.accent}30` : 'none',
-                    '&:hover': {
-                      borderColor: isActive ? 'primary.main' : 'rgba(255,255,255,0.2)',
-                      transform: 'translateY(-2px)',
-                    },
-                  }}
-                >
-                  <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                      <Box sx={{ color: th.accent }}>{th.icon}</Box>
-                      <Typography variant="body1" sx={{ fontWeight: 700, fontSize: '0.92rem' }}>{th.name}</Typography>
-                    </Box>
-                    {isActive ? (
-                      <Chip label="Active" size="small" color="primary" sx={{ height: 20, fontSize: '0.65rem', fontWeight: 700 }} />
-                    ) : (
-                      <Chip label={th.tag} size="small" sx={{ height: 20, fontSize: '0.62rem', bgcolor: 'rgba(255,255,255,0.06)' }} />
-                    )}
-                  </Box>
-                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', lineHeight: 1.4, mb: 1.5 }}>
-                    {th.desc}
-                  </Typography>
-
-                  {/* Visual Preview Swatches */}
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, bgcolor: 'rgba(0,0,0,0.3)', px: 1, py: 0.5, borderRadius: 1.5 }}>
-                      <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: th.bg, border: '1px solid rgba(255,255,255,0.3)' }} />
-                      <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: th.card, border: '1px solid rgba(255,255,255,0.2)' }} />
-                      <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: th.accent }} />
-                    </Box>
-                  </Box>
-                </Box>
-              );
-            })}
+            {THEMES.filter(t => !t.isLight).map(th => renderThemeCard(th))}
           </Box>
 
-          <Divider sx={{ my: 2, borderColor: 'rgba(255,255,255,0.06)' }} />
+          {/* Light Themes */}
+          <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+            ☀️ Light Themes (New)
+          </Typography>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5, mb: 3 }}>
+            {THEMES.filter(t => t.isLight).map(th => renderThemeCard(th))}
+          </Box>
+
+          <Divider sx={{ my: 2.5, borderColor: 'divider' }} />
 
           {/* Accent Color */}
           <Box sx={{ mb: 2.5 }}>
@@ -327,7 +389,7 @@ export default function SettingsView() {
                     bgcolor: c,
                     cursor: 'pointer',
                     border: settings.theme_color === c ? '3px solid #fff' : '3px solid transparent',
-                    boxShadow: settings.theme_color === c ? '0 0 10px rgba(255,255,255,0.5)' : 'none',
+                    boxShadow: settings.theme_color === c ? '0 0 10px rgba(0,0,0,0.3)' : 'none',
                     transition: 'transform 0.2s, border 0.2s',
                     '&:hover': { transform: 'scale(1.15)' },
                   }}
@@ -336,7 +398,7 @@ export default function SettingsView() {
             </Box>
           </Box>
 
-          <Divider sx={{ my: 2, borderColor: 'rgba(255,255,255,0.06)' }} />
+          <Divider sx={{ my: 2, borderColor: 'divider' }} />
 
           {/* Currency Preference */}
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
@@ -348,7 +410,7 @@ export default function SettingsView() {
               value={settings.currency || 'INR'}
               onChange={e => updateSettings({ currency: e.target.value as 'USD' | 'INR' })}
               size="small"
-              sx={{ minWidth: 120, fontSize: '0.85rem' }}
+              sx={{ minWidth: 130, fontSize: '0.85rem' }}
             >
               <MenuItem value="INR">INR (₹) - Default</MenuItem>
               <MenuItem value="USD">USD ($)</MenuItem>
@@ -361,12 +423,11 @@ export default function SettingsView() {
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
               <WorkspacesRoundedIcon sx={{ color: 'primary.main', fontSize: 22 }} />
-              <Typography variant="h6" sx={{ fontWeight: 800 }}>Workspaces</Typography>
+              <Typography variant="h6" sx={{ fontWeight: 800 }}>Workspaces ({workspaces.length})</Typography>
             </Box>
             <Button
               size="small"
               variant="contained"
-              disabled={!isOnline}
               startIcon={<AddRoundedIcon />}
               onClick={() => { setEditWs({ name: '', color: WS_COLORS[0], type: 'freelance' }); setWsDialog(true); }}
               sx={{ textTransform: 'none', fontWeight: 700 }}
@@ -381,7 +442,7 @@ export default function SettingsView() {
               const isWsBatch = ws.type === 'batchflow';
               return (
                 <React.Fragment key={ws.id}>
-                  {i > 0 && <Divider sx={{ borderColor: 'rgba(255,255,255,0.04)' }} />}
+                  {i > 0 && <Divider sx={{ borderColor: 'divider' }} />}
                   <ListItem
                     sx={{ px: 1, py: 1.25, borderRadius: 2 }}
                     secondaryAction={
@@ -396,12 +457,12 @@ export default function SettingsView() {
                             Switch
                           </Button>
                         )}
-                        {isOwner && isOnline && (
+                        {isOwner && (
                           <IconButton size="small" onClick={() => { setEditWs({ id: ws.id, name: ws.name, color: ws.color, type: ws.type }); setWsDialog(true); }}>
                             <EditRoundedIcon sx={{ fontSize: 16 }} />
                           </IconButton>
                         )}
-                        {isOwner && isOnline && workspaces.length > 1 && (
+                        {isOwner && workspaces.length > 1 && (
                           <IconButton size="small" onClick={() => setDeleteConfirm(ws.id)}>
                             <DeleteOutlineRoundedIcon sx={{ fontSize: 16, color: '#F87171' }} />
                           </IconButton>
@@ -472,7 +533,7 @@ export default function SettingsView() {
               size="medium"
               startIcon={<FileUploadRoundedIcon />}
               onClick={() => fileInputRef.current?.click()}
-              sx={{ textTransform: 'none', fontWeight: 700, px: 2.5, borderColor: 'rgba(255,255,255,0.2)' }}
+              sx={{ textTransform: 'none', fontWeight: 700, px: 2.5, borderColor: 'divider' }}
             >
               Import Backup (JSON)
             </Button>
@@ -513,8 +574,8 @@ export default function SettingsView() {
                       p: 1.5,
                       borderRadius: 2,
                       border: '2px solid',
-                      borderColor: editWs?.type === 'freelance' ? 'primary.main' : 'rgba(255,255,255,0.1)',
-                      bgcolor: editWs?.type === 'freelance' ? 'rgba(129,140,248,0.12)' : 'rgba(255,255,255,0.03)',
+                      borderColor: editWs?.type === 'freelance' ? 'primary.main' : 'divider',
+                      bgcolor: editWs?.type === 'freelance' ? 'rgba(129,140,248,0.12)' : 'action.hover',
                       cursor: 'pointer',
                       textAlign: 'center',
                       transition: 'all 0.15s ease',
@@ -532,8 +593,8 @@ export default function SettingsView() {
                       p: 1.5,
                       borderRadius: 2,
                       border: '2px solid',
-                      borderColor: editWs?.type === 'batchflow' ? '#F472B6' : 'rgba(255,255,255,0.1)',
-                      bgcolor: editWs?.type === 'batchflow' ? 'rgba(244,114,182,0.12)' : 'rgba(255,255,255,0.03)',
+                      borderColor: editWs?.type === 'batchflow' ? '#F472B6' : 'divider',
+                      bgcolor: editWs?.type === 'batchflow' ? 'rgba(244,114,182,0.12)' : 'action.hover',
                       cursor: 'pointer',
                       textAlign: 'center',
                       transition: 'all 0.15s ease',
@@ -604,7 +665,7 @@ export default function SettingsView() {
             <Typography variant="body2">
               Ready to import data from:
             </Typography>
-            <Box sx={{ p: 1.25, bgcolor: 'rgba(255,255,255,0.05)', borderRadius: 1.5, border: '1px solid rgba(255,255,255,0.1)' }}>
+            <Box sx={{ p: 1.25, bgcolor: 'action.hover', borderRadius: 1.5, border: '1px solid', borderColor: 'divider' }}>
               <Typography variant="body2" sx={{ fontWeight: 700 }}>{importDialog.fileName}</Typography>
               <Typography variant="caption" sx={{ color: 'primary.light', display: 'block', mt: 0.5 }}>
                 {importDialog.summary}

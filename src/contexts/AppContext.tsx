@@ -155,8 +155,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
       let activeWsList = (cloudWs as Workspace[]) || [];
 
+      // Preserve local workspace metadata (such as type) and local-only workspaces
+      const localWorkspaces = storage.getWorkspaces();
+      const localWsMap = new Map(localWorkspaces.map(w => [w.id, w]));
+      const cloudIds = new Set(activeWsList.map(w => w.id));
+
+      activeWsList = activeWsList.map(w => ({
+        ...w,
+        type: w.type || localWsMap.get(w.id)?.type || 'freelance',
+      }));
+
+      // Keep any locally created workspace not yet present in the cloud
+      for (const loc of localWorkspaces) {
+        if (!cloudIds.has(loc.id)) {
+          activeWsList.push(loc);
+        }
+      }
+
       // Initial auto-migration: if user logged in and cloud is empty, migrate local data
-      if (activeWsList.length === 0) {
+      if ((cloudWs as Workspace[] || []).length === 0) {
         const localWs = storage.getWorkspaces();
         if (localWs.length > 0) {
           const wsToUpload = localWs.map(w => ({ ...w, user_id: user?.id }));
@@ -317,13 +334,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   // Create Workspace
   const createWorkspace = useCallback(async (name: string, color: string, type: WorkspaceType = 'freelance') => {
-    if (!isOnline) {
-      alert('Cannot create workspace while offline.');
-      return;
-    }
     const now = new Date().toISOString();
+    const wsId = generateId();
     const newWs: Workspace = {
-      id: generateId(),
+      id: wsId,
       user_id: user?.id,
       name,
       color,
@@ -332,20 +346,41 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       updated_at: now,
     };
 
+    // 1. Immediately update local storage and state so workspace appears everywhere instantly
+    const all = storage.getWorkspaces();
+    const updated = [...all.filter(w => w.id !== wsId), newWs];
+    storage.setWorkspaces(updated);
+    setWorkspaces(updated);
+
+    // 2. If cloud is connected, attempt sync (with graceful fallback if table lacks type column)
     if (isCloudActive) {
-      const { data, error } = await supabase.from('workspaces').insert([newWs]).select().single();
-      if (!error && data) {
-        await switchWorkspace(data.id);
-        return;
+      try {
+        let { data, error } = await supabase.from('workspaces').insert([newWs]).select().single();
+
+        // If error is about unknown column 'type', retry without the type field for legacy cloud tables
+        if (error && (error.message?.includes('type') || error.code === 'PGRST204' || error.code === '42703')) {
+          const { type: _t, ...wsNoType } = newWs;
+          const retry = await supabase.from('workspaces').insert([wsNoType]).select().single();
+          data = retry.data;
+          error = retry.error;
+        }
+
+        if (!error && data) {
+          const syncedWs: Workspace = { ...newWs, ...data, type: newWs.type };
+          const refreshed = storage.getWorkspaces().map(w => w.id === wsId ? syncedWs : w);
+          storage.setWorkspaces(refreshed);
+          setWorkspaces(refreshed);
+        } else if (error) {
+          console.warn('Workspace saved locally; cloud sync failed:', error);
+        }
+      } catch (err) {
+        console.warn('Network error syncing workspace to cloud:', err);
       }
     }
 
-    const all = storage.getWorkspaces();
-    const updated = [...all, newWs];
-    storage.setWorkspaces(updated);
-    setWorkspaces(updated);
-    await switchWorkspace(newWs.id);
-  }, [isOnline, isCloudActive, user, switchWorkspace]);
+    // 3. Switch to new workspace
+    await switchWorkspace(wsId);
+  }, [isCloudActive, user, switchWorkspace]);
 
   // Update Workspace
   const updateWorkspace = useCallback(async (id: string, data: Partial<Workspace>) => {
