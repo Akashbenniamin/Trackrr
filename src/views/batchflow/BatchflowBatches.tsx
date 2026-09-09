@@ -88,7 +88,7 @@ function FormattedScriptViewer({ text }: { text: string }) {
           variant="outlined"
           startIcon={copiedSection === 'full' ? <CheckRoundedIcon /> : <ContentCopyRoundedIcon />}
           onClick={() => handleCopy(text, 'full')}
-          sx={{ textTransform: 'none', fontSize: '0.75rem', borderRadius: 2 }}
+          sx={{ textTransform: 'none', fontSize: '0.75rem', borderRadius: 1 }}
         >
           {copiedSection === 'full' ? 'Copied Full Script!' : 'Copy Entire Script'}
         </Button>
@@ -105,7 +105,7 @@ function FormattedScriptViewer({ text }: { text: string }) {
             key={sIdx}
             elevation={0}
             sx={{
-              borderRadius: 2.5,
+              borderRadius: 1,
               overflow: 'hidden',
               border: '1px solid rgba(255,255,255,0.08)',
               bgcolor: 'rgba(255,255,255,0.02)',
@@ -221,6 +221,31 @@ export default function BatchflowBatches() {
 
   const [scriptEditOpen, setScriptEditOpen] = useState(false);
   const [scriptDraft, setScriptDraft] = useState('');
+
+  const [editBatchOpen, setEditBatchOpen] = useState(false);
+  const [editingBatch, setEditingBatch] = useState<{ id: string; name: string; shoot_date: string; client_id: string } | null>(null);
+
+  const handleOpenEditBatch = (b?: typeof selectedBatch) => {
+    const target = b || selectedBatch;
+    if (!target) return;
+    setEditingBatch({
+      id: target.id,
+      name: target.name,
+      shoot_date: target.shoot_date || '',
+      client_id: target.client_id,
+    });
+    setEditBatchOpen(true);
+  };
+
+  const handleSaveEditBatch = async () => {
+    if (!editingBatch || !editingBatch.name.trim()) return;
+    await updateBatchflowBatch(editingBatch.id, {
+      name: editingBatch.name.trim(),
+      shoot_date: editingBatch.shoot_date,
+      client_id: editingBatch.client_id,
+    });
+    setEditBatchOpen(false);
+  };
 
   const [editVideoOpen, setEditVideoOpen] = useState(false);
   const [editingVideo, setEditingVideo] = useState<{ id: string; name: string; script_number: number } | null>(null);
@@ -357,7 +382,7 @@ export default function BatchflowBatches() {
               });
               setNewBatchOpen(true);
             }}
-            sx={{ borderRadius: 2.5, px: 2.5 }}
+            sx={{ borderRadius: 1, px: 2.5 }}
           >
             New Batch
           </Button>
@@ -382,9 +407,13 @@ export default function BatchflowBatches() {
                   <Box
                     key={b.id}
                     onClick={() => setSelectedBatchId(b.id)}
+                    onDoubleClick={() => {
+                      if (canEdit) handleOpenEditBatch(b);
+                    }}
+                    title={canEdit ? 'Double-click to edit batch' : undefined}
                     sx={{
                       p: 1.5,
-                      borderRadius: 2,
+                      borderRadius: 1,
                       cursor: 'pointer',
                       bgcolor: isSelected ? 'rgba(129,140,248,0.12)' : 'rgba(255,255,255,0.03)',
                       border: isSelected ? '1px solid rgba(129,140,248,0.4)' : '1px solid rgba(255,255,255,0.05)',
@@ -420,7 +449,18 @@ export default function BatchflowBatches() {
           {selectedBatch ? (
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }} ref={reportRef}>
               {/* Batch Banner Card */}
-              <Card sx={{ p: 2.5, borderLeft: `6px solid ${selectedClient?.color || '#818CF8'}` }}>
+              <Card
+                onDoubleClick={() => {
+                  if (canEdit) handleOpenEditBatch();
+                }}
+                title={canEdit ? 'Double-click to edit batch' : undefined}
+                sx={{
+                  p: 2.5,
+                  borderRadius: 1,
+                  borderLeft: `6px solid ${selectedClient?.color || '#818CF8'}`,
+                  cursor: canEdit ? 'pointer' : 'default',
+                }}
+              >
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: 1.5 }}>
                   <Box>
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
@@ -437,13 +477,13 @@ export default function BatchflowBatches() {
                   </Box>
 
                   {/* Export & Actions */}
-                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
                     <Button
                       size="small"
                       variant="outlined"
                       startIcon={<DownloadRoundedIcon />}
                       onClick={handleExportPNG}
-                      sx={{ textTransform: 'none', borderRadius: 2 }}
+                      sx={{ textTransform: 'none', borderRadius: 1 }}
                     >
                       PNG Report
                     </Button>
@@ -452,24 +492,35 @@ export default function BatchflowBatches() {
                       variant="outlined"
                       startIcon={<PictureAsPdfRoundedIcon />}
                       onClick={handleExportPDF}
-                      sx={{ textTransform: 'none', borderRadius: 2 }}
+                      sx={{ textTransform: 'none', borderRadius: 1 }}
                     >
                       PDF
                     </Button>
                     {canEdit && (
-                      <Tooltip title="Delete Batch">
-                        <IconButton
-                          size="small"
-                          onClick={async () => {
-                            if (window.confirm(`Delete batch "${selectedBatch.name}"?`)) {
-                              await deleteBatchflowBatch(selectedBatch.id);
-                            }
-                          }}
-                          sx={{ color: '#F87171' }}
-                        >
-                          <DeleteOutlineRoundedIcon fontSize="small" />
-                        </IconButton>
-                      </Tooltip>
+                      <>
+                        <Tooltip title="Edit Batch">
+                          <IconButton
+                            size="small"
+                            onClick={() => handleOpenEditBatch()}
+                            sx={{ color: 'text.secondary' }}
+                          >
+                            <EditRoundedIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                        <Tooltip title="Delete Batch">
+                          <IconButton
+                            size="small"
+                            onClick={async () => {
+                              if (window.confirm(`Delete batch "${selectedBatch.name}"?`)) {
+                                await deleteBatchflowBatch(selectedBatch.id);
+                              }
+                            }}
+                            sx={{ color: '#F87171' }}
+                          >
+                            <DeleteOutlineRoundedIcon fontSize="small" />
+                          </IconButton>
+                        </Tooltip>
+                      </>
                     )}
                   </Box>
                 </Box>
@@ -498,7 +549,7 @@ export default function BatchflowBatches() {
               </Card>
 
               {/* View Switcher Tabs (Videos vs Script) */}
-              <Card sx={{ p: 1 }}>
+              <Card sx={{ p: 1, borderRadius: 1 }}>
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', px: 1, flexWrap: 'wrap', gap: 1 }}>
                   <Tabs value={activeTab} onChange={(_, v) => setActiveTab(v)}>
                     <Tab label={`Videos (${currentBatchVideos.length})`} value="videos" icon={<MovieRoundedIcon sx={{ fontSize: 18 }} />} iconPosition="start" />
@@ -527,7 +578,7 @@ export default function BatchflowBatches() {
                             setNewVideoName(`${selectedClient?.name || 'Video'} ${currentBatchVideos.length + 1}`);
                             setAddVideoOpen(true);
                           }}
-                          sx={{ textTransform: 'none', borderRadius: 2, height: 32 }}
+                          sx={{ textTransform: 'none', borderRadius: 1, height: 32 }}
                         >
                           Add Video
                         </Button>
@@ -544,7 +595,7 @@ export default function BatchflowBatches() {
                         setScriptDraft(selectedBatch.script || '');
                         setScriptEditOpen(true);
                       }}
-                      sx={{ textTransform: 'none', borderRadius: 2, height: 32 }}
+                      sx={{ textTransform: 'none', borderRadius: 1, height: 32 }}
                     >
                       Edit Script
                     </Button>
@@ -561,9 +612,17 @@ export default function BatchflowBatches() {
                     return (
                       <Card
                         key={v.id}
+                        onDoubleClick={() => {
+                          if (canEdit) {
+                            setEditingVideo({ id: v.id, name: v.name, script_number: v.script_number });
+                            setEditVideoOpen(true);
+                          }
+                        }}
+                        title={canEdit ? 'Double-click to edit video' : undefined}
                         sx={{
                           p: 1.75,
-                          borderRadius: 2.5,
+                          borderRadius: 1,
+                          cursor: canEdit ? 'pointer' : 'default',
                           display: 'flex',
                           alignItems: 'center',
                           justifyContent: 'space-between',
@@ -579,7 +638,7 @@ export default function BatchflowBatches() {
                             sx={{
                               width: 32,
                               height: 32,
-                              borderRadius: 1.5,
+                              borderRadius: 1,
                               bgcolor: 'rgba(255,255,255,0.06)',
                               color: 'text.secondary',
                               display: 'flex',
@@ -618,7 +677,7 @@ export default function BatchflowBatches() {
                                 letterSpacing: '0.05em',
                                 px: 1.75,
                                 py: 0.5,
-                                borderRadius: 2,
+                                borderRadius: 1,
                                 bgcolor: st.bg,
                                 color: st.text,
                                 border: `1px solid ${st.border}`,
@@ -789,6 +848,53 @@ script 2
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setScriptEditOpen(false)}>Cancel</Button>
           <Button variant="contained" onClick={handleSaveScript}>Save Script</Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Edit Batch Dialog */}
+      <Dialog open={editBatchOpen} onClose={() => setEditBatchOpen(false)} maxWidth="sm" fullWidth>
+        <DialogTitle sx={{ fontWeight: 800 }}>Edit Shoot Batch</DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+          <FormControl fullWidth size="small">
+            <InputLabel>Client</InputLabel>
+            <Select
+              label="Client"
+              value={editingBatch?.client_id || ''}
+              onChange={e => setEditingBatch(prev => prev ? { ...prev, client_id: e.target.value } : null)}
+            >
+              {activeClients.map(c => (
+                <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>
+              ))}
+            </Select>
+          </FormControl>
+
+          <TextField
+            label="Batch Name"
+            placeholder="e.g. April 2026 Shoot"
+            fullWidth
+            value={editingBatch?.name || ''}
+            onChange={e => setEditingBatch(prev => prev ? { ...prev, name: e.target.value } : null)}
+            autoFocus
+          />
+
+          <TextField
+            label="Shoot Date"
+            type="date"
+            fullWidth
+            value={editingBatch?.shoot_date || ''}
+            onChange={e => setEditingBatch(prev => prev ? { ...prev, shoot_date: e.target.value } : null)}
+            InputLabelProps={{ shrink: true }}
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2 }}>
+          <Button onClick={() => setEditBatchOpen(false)}>Cancel</Button>
+          <Button
+            variant="contained"
+            onClick={handleSaveEditBatch}
+            disabled={!editingBatch?.name.trim()}
+          >
+            Save Batch
+          </Button>
         </DialogActions>
       </Dialog>
 

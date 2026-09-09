@@ -74,7 +74,7 @@ export default function BatchflowSearch({
                     key={c.id}
                     sx={{
                       p: 1.5,
-                      borderRadius: 2,
+                      borderRadius: 1,
                       bgcolor: 'rgba(255,255,255,0.03)',
                       borderLeft: `4px solid ${c.color || '#818CF8'}`,
                     }}
@@ -115,7 +115,7 @@ export default function BatchflowSearch({
                     }}
                     sx={{
                       p: 1.5,
-                      borderRadius: 2,
+                      borderRadius: 1,
                       bgcolor: 'rgba(255,255,255,0.03)',
                       border: '1px solid rgba(255,255,255,0.05)',
                       cursor: (onSelectBatch || onNavigate) ? 'pointer' : 'default',
@@ -127,7 +127,7 @@ export default function BatchflowSearch({
                       Shoot Date: {b.shoot_date || 'N/A'}
                     </Typography>
                     {b.script && b.script.toLowerCase().includes(q) && (
-                      <Box sx={{ mt: 1, p: 1, borderRadius: 1.5, bgcolor: 'rgba(129,140,248,0.1)', display: 'flex', alignItems: 'flex-start', gap: 0.5 }}>
+                      <Box sx={{ mt: 1, p: 1, borderRadius: 1, bgcolor: 'rgba(129,140,248,0.1)', display: 'flex', alignItems: 'flex-start', gap: 0.5 }}>
                         <DescriptionRoundedIcon sx={{ fontSize: 14, color: 'primary.light', mt: 0.25 }} />
                         <Typography variant="caption" sx={{ color: 'text.secondary', fontStyle: 'italic', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
                           "{b.script}"
@@ -160,7 +160,7 @@ export default function BatchflowSearch({
                     key={v.id}
                     sx={{
                       p: 1.5,
-                      borderRadius: 2,
+                      borderRadius: 1,
                       bgcolor: 'rgba(255,255,255,0.03)',
                       display: 'flex',
                       justifyContent: 'space-between',

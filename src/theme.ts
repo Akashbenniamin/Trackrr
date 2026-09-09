@@ -154,7 +154,7 @@ export function getAppTheme(themeStyle: ThemeStyle = 'default', accentColor = 'a
       },
       divider: cfg.divider,
     },
-    shape: { borderRadius: themeStyle === 'smooth' ? 18 : 16 },
+    shape: { borderRadius: themeStyle === 'smooth' ? 10 : 8 },
     typography: {
       fontFamily: '"Roboto", "Helvetica", "Arial", sans-serif',
       h1: { fontSize: '2rem', fontWeight: 700, letterSpacing: '-0.02em' },
@@ -189,7 +189,7 @@ export function getAppTheme(themeStyle: ThemeStyle = 'default', accentColor = 'a
             backgroundImage: 'none',
             backgroundColor: cfg.bgPaper,
             border: cfg.cardBorder,
-            borderRadius: themeStyle === 'smooth' ? 18 : 16,
+            borderRadius: themeStyle === 'smooth' ? 10 : 8,
             backdropFilter: cfg.backdropBlur ? 'blur(16px)' : 'none',
             boxShadow: isLight ? '0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.06)' : 'none',
           },
@@ -201,12 +201,13 @@ export function getAppTheme(themeStyle: ThemeStyle = 'default', accentColor = 'a
             backgroundImage: 'none',
             backgroundColor: cfg.bgPaper,
             color: cfg.textPrimary,
+            borderRadius: themeStyle === 'smooth' ? 10 : 8,
           },
         },
       },
       MuiButton: {
         styleOverrides: {
-          root: { textTransform: 'none', fontWeight: 600, borderRadius: themeStyle === 'smooth' ? 14 : 12 },
+          root: { textTransform: 'none', fontWeight: 600, borderRadius: themeStyle === 'smooth' ? 9 : 8 },
           contained: {
             boxShadow: `0 4px 14px ${accentColor}35`,
             '&:hover': { boxShadow: `0 6px 20px ${accentColor}50` },
@@ -214,14 +215,14 @@ export function getAppTheme(themeStyle: ThemeStyle = 'default', accentColor = 'a
         },
       },
       MuiChip: {
-        styleOverrides: { root: { borderRadius: 8, fontWeight: 500 } },
+        styleOverrides: { root: { borderRadius: 6, fontWeight: 500 } },
       },
       MuiTextField: {
         defaultProps: { variant: 'outlined', size: 'small' },
         styleOverrides: {
           root: {
             '& .MuiOutlinedInput-root': {
-              borderRadius: 12,
+              borderRadius: 8,
               '& fieldset': { borderColor: cfg.divider },
             },
           },
@@ -230,7 +231,7 @@ export function getAppTheme(themeStyle: ThemeStyle = 'default', accentColor = 'a
       MuiDialog: {
         styleOverrides: {
           paper: {
-            borderRadius: 20,
+            borderRadius: 12,
             backgroundImage: 'none',
             backgroundColor: cfg.bgDialog,
             border: cfg.cardBorder,

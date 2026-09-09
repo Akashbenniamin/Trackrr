@@ -15,7 +15,7 @@ function StatCard({ label, value, icon, color, subLabel, progress, onClick }: {
   subLabel?: string; progress?: number; onClick?: () => void;
 }) {
   return (
-    <ButtonBase onClick={onClick} sx={{ borderRadius: 2, display: 'block', width: '100%', textAlign: 'left' }}>
+    <ButtonBase onClick={onClick} sx={{ borderRadius: 1, display: 'block', width: '100%', textAlign: 'left' }}>
       <Card sx={{
         p: 0, transition: 'transform 0.2s ease, box-shadow 0.2s ease',
         '&:hover': { transform: 'translateY(-2px)', boxShadow: `0 8px 32px ${color}22` },
@@ -140,11 +140,11 @@ export default function BatchflowDashboard({ onNavigate }: { onNavigate?: (view:
                     contentStyle={{
                       backgroundColor: '#1E293B',
                       border: '1px solid rgba(255,255,255,0.1)',
-                      borderRadius: 12,
+                      borderRadius: 8,
                     }}
                     cursor={{ fill: 'rgba(255,255,255,0.04)' }}
                   />
-                  <Bar dataKey="count" radius={[8, 8, 0, 0]}>
+                  <Bar dataKey="count" radius={[4, 4, 0, 0]}>
                     {chartData.map((entry, idx) => (
                       <Cell key={`cell-${idx}`} fill={entry.color} />
                     ))}
@@ -184,16 +184,16 @@ export default function BatchflowDashboard({ onNavigate }: { onNavigate?: (view:
                       value={pct}
                       sx={{
                         height: 8,
-                        borderRadius: 4,
+                        borderRadius: 1.5,
                         bgcolor: 'rgba(255,255,255,0.06)',
-                        '& .MuiLinearProgress-bar': { bgcolor: item.color, borderRadius: 4 },
+                        '& .MuiLinearProgress-bar': { bgcolor: item.color, borderRadius: 1.5 },
                       }}
                     />
                   </Box>
                 );
               })}
 
-              <Box sx={{ mt: 'auto', p: 2, borderRadius: 2, bgcolor: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
+              <Box sx={{ mt: 'auto', p: 2, borderRadius: 1, bgcolor: 'rgba(255,255,255,0.03)', border: '1px solid rgba(255,255,255,0.06)' }}>
                 <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.5 }}>
                   Overall Completion
                 </Typography>
@@ -208,35 +208,23 @@ export default function BatchflowDashboard({ onNavigate }: { onNavigate?: (view:
 
       {/* Recent Batches Quick Strip */}
       <Box sx={{ mt: 3 }}>
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
-          <Typography variant="h6" sx={{ fontWeight: 700 }}>
-            Recent Batches
-          </Typography>
-          {onNavigate && (
-            <Chip
-              label="View All Batches"
-              size="small"
-              onClick={() => onNavigate('batches')}
-              sx={{ cursor: 'pointer', fontWeight: 600, bgcolor: 'rgba(129,140,248,0.15)', color: 'primary.light' }}
-            />
-          )}
-        </Box>
+        <Typography variant="h6" sx={{ fontWeight: 700, mb: 1.5 }}>
+          Recent Batches
+        </Typography>
         <Grid container spacing={2}>
-          {activeBatches.slice(0, 3).map(b => {
-            const client = batchflowClients.find(c => c.id === b.client_id);
+          {activeBatches.slice(0, 4).map(b => {
+            const client = activeClients.find(c => c.id === b.client_id);
             const bVideos = activeVideos.filter(v => v.batch_id === b.id);
             const bPosted = bVideos.filter(v => v.status === 'Posted').length;
             const progress = bVideos.length > 0 ? Math.round((bPosted / bVideos.length) * 100) : 0;
 
             return (
-              <Grid size={{ xs: 12, md: 4 }} key={b.id}>
+              <Grid size={{ xs: 12, sm: 6, md: 3 }} key={b.id}>
                 <Card
-                  onClick={() => onNavigate && onNavigate('batches')}
+                  onClick={() => onNavigate?.('batches')}
                   sx={{
-                    p: 2,
-                    cursor: 'pointer',
-                    borderLeft: `4px solid ${client?.color || '#818CF8'}`,
-                    '&:hover': { bgcolor: 'rgba(255,255,255,0.04)' },
+                    p: 2, cursor: 'pointer', borderLeft: `4px solid ${client?.color || '#818CF8'}`,
+                    transition: 'transform 0.15s ease', '&:hover': { transform: 'translateY(-2px)' },
                   }}
                 >
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
@@ -251,9 +239,9 @@ export default function BatchflowDashboard({ onNavigate }: { onNavigate?: (view:
                     value={progress}
                     sx={{
                       height: 6,
-                      borderRadius: 3,
+                      borderRadius: 1.5,
                       bgcolor: 'rgba(255,255,255,0.06)',
-                      '& .MuiLinearProgress-bar': { bgcolor: client?.color || 'primary.main', borderRadius: 3 },
+                      '& .MuiLinearProgress-bar': { bgcolor: client?.color || 'primary.main', borderRadius: 1.5 },
                     }}
                   />
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5 }}>

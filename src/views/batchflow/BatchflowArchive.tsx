@@ -47,7 +47,7 @@ export default function BatchflowArchive() {
                   key={c.id}
                   sx={{
                     p: 1.5,
-                    borderRadius: 2,
+                    borderRadius: 1,
                     bgcolor: 'rgba(255,255,255,0.03)',
                     border: '1px solid rgba(255,255,255,0.06)',
                     display: 'flex',
@@ -110,7 +110,7 @@ export default function BatchflowArchive() {
                   key={b.id}
                   sx={{
                     p: 1.5,
-                    borderRadius: 2,
+                    borderRadius: 1,
                     bgcolor: 'rgba(255,255,255,0.03)',
                     border: '1px solid rgba(255,255,255,0.06)',
                     display: 'flex',

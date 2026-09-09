@@ -29,7 +29,7 @@ function StatCard({ label, value, icon, color, subLabel, progress, onClick }: {
   subLabel?: string; progress?: number; onClick?: () => void;
 }) {
   return (
-    <ButtonBase onClick={onClick} sx={{ borderRadius: 2, display: 'block', width: '100%', textAlign: 'left' }}>
+    <ButtonBase onClick={onClick} sx={{ borderRadius: 1, display: 'block', width: '100%', textAlign: 'left' }}>
       <Card sx={{
         p: 0, transition: 'transform 0.2s ease, box-shadow 0.2s ease',
         '&:hover': { transform: 'translateY(-2px)', boxShadow: `0 8px 32px ${color}22` },
@@ -196,7 +196,7 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (v: ViewName) =
   const CustomTooltip = ({ active, payload, label }: any) => {
     if (!active || !payload?.length) return null;
     return (
-      <Box sx={{ bgcolor: '#1E293B', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 2, p: 1.5 }}>
+      <Box sx={{ bgcolor: '#1E293B', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 1, p: 1.5 }}>
         <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.5 }}>{label}</Typography>
         <Typography variant="caption" sx={{ color: activeMetric.color, fontWeight: 700, display: 'block' }}>
           {activeMetric.label}: {isCurrency ? cur(payload[0].value) : payload[0].value}
@@ -209,7 +209,7 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (v: ViewName) =
     return (
       <Box sx={{ pt: 1 }}>
         <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mb: 2 }}>
-          {[1, 2, 3, 4, 5].map(i => <Box key={i} sx={{ flex: '1 1 calc(33% - 6px)', minWidth: 0 }}><Skeleton variant="rounded" height={96} sx={{ borderRadius: 2 }} /></Box>)}
+          {[1, 2, 3, 4, 5].map(i => <Box key={i} sx={{ flex: '1 1 calc(33% - 6px)', minWidth: 0 }}><Skeleton variant="rounded" height={96} sx={{ borderRadius: 1 }} /></Box>)}
         </Box>
       </Box>
     );
@@ -355,7 +355,7 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (v: ViewName) =
                 onClick={() => setMetric(m.key)}
                 sx={{
                   display: 'flex', alignItems: 'center', gap: 0.5, cursor: 'pointer',
-                  px: 1.25, py: 0.4, borderRadius: 3,
+                  px: 1.25, py: 0.4, borderRadius: 1,
                   bgcolor: metric === m.key ? `${m.color}22` : 'rgba(255,255,255,0.04)',
                   border: `1px solid ${metric === m.key ? m.color : 'transparent'}`,
                   transition: 'all 0.15s ease',

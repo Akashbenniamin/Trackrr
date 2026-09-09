@@ -81,7 +81,7 @@ export default function BatchflowClients() {
             variant="contained"
             startIcon={<AddRoundedIcon />}
             onClick={handleOpenAdd}
-            sx={{ borderRadius: 2.5, px: 2.5 }}
+            sx={{ borderRadius: 1, px: 2.5 }}
           >
             Add Client
           </Button>
@@ -119,9 +119,12 @@ export default function BatchflowClients() {
           return (
             <Grid size={{ xs: 12, md: 6, lg: 4 }} key={c.id}>
               <Card
+                onDoubleClick={() => canEdit && handleOpenEdit(c)}
+                title={canEdit ? 'Double-click to edit client' : undefined}
                 sx={{
                   p: 2.5,
-                  borderRadius: 3,
+                  borderRadius: 1,
+                  cursor: canEdit ? 'pointer' : 'default',
                   borderLeft: `4px solid ${c.color || '#818CF8'}`,
                   display: 'flex',
                   flexDirection: 'column',
@@ -178,7 +181,7 @@ export default function BatchflowClients() {
                 </Box>
 
                 {/* Batch & Video Stats */}
-                <Box sx={{ display: 'flex', gap: 2, bgcolor: 'rgba(255,255,255,0.03)', p: 1.5, borderRadius: 2 }}>
+                <Box sx={{ display: 'flex', gap: 2, bgcolor: 'rgba(255,255,255,0.03)', p: 1.5, borderRadius: 1 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                     <LayersRoundedIcon sx={{ fontSize: 18, color: c.color || 'primary.main' }} />
                     <Box>
@@ -213,9 +216,9 @@ export default function BatchflowClients() {
                     value={progress}
                     sx={{
                       height: 6,
-                      borderRadius: 3,
+                      borderRadius: 1.5,
                       bgcolor: 'rgba(255,255,255,0.06)',
-                      '& .MuiLinearProgress-bar': { bgcolor: c.color || '#10B981', borderRadius: 3 },
+                      '& .MuiLinearProgress-bar': { bgcolor: c.color || '#10B981', borderRadius: 1.5 },
                     }}
                   />
                 </Box>

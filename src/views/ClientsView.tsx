@@ -136,7 +136,25 @@ export default function ClientsView() {
             }
 
             return (
-              <Card key={client.id} sx={{ mb: 1.5, overflow: 'hidden', borderLeft: `4px solid ${client.color}` }}>
+              <Card
+                key={client.id}
+                onDoubleClick={() => {
+                  if (canEdit) {
+                    setSelectedClient(client);
+                    setDialogOpen(true);
+                  }
+                }}
+                title={canEdit ? 'Double-click to edit client' : undefined}
+                sx={{
+                  mb: 1.5,
+                  overflow: 'hidden',
+                  borderLeft: `4px solid ${client.color}`,
+                  cursor: canEdit ? 'pointer' : 'default',
+                  borderRadius: 1,
+                  transition: 'transform 0.15s ease, box-shadow 0.15s ease',
+                  '&:hover': { transform: 'translateX(2px)' },
+                }}
+              >
                 <Box sx={{ p: 1.5 }}>
                   <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
                     <Avatar sx={{ bgcolor: client.color, width: 44, height: 44, fontSize: '1.1rem', fontWeight: 700 }}>

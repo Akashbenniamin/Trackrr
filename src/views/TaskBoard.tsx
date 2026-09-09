@@ -144,9 +144,10 @@ function TaskGridCard({ task, onEdit, onDelete }: {
   return (
     <Card
       onDoubleClick={() => canEdit && onEdit(task)}
+      title={canEdit ? 'Double-click to edit task' : undefined}
       sx={{
         p: 2,
-        borderRadius: 2.5,
+        borderRadius: 1,
         border: '1px solid',
         borderColor: client ? `${client.color}35` : 'rgba(255,255,255,0.08)',
         bgcolor: 'background.paper',
@@ -246,7 +247,7 @@ function TaskGridCard({ task, onEdit, onDelete }: {
         </Box>
 
         {rev > 0 && (
-          <Box sx={{ px: 1.25, py: 0.4, borderRadius: 1.5, bgcolor: 'primary.main', color: '#fff', fontWeight: 800, fontSize: '0.82rem' }}>
+          <Box sx={{ px: 1.25, py: 0.4, borderRadius: 1, bgcolor: 'primary.main', color: '#fff', fontWeight: 800, fontSize: '0.82rem' }}>
             {cur(rev)}
           </Box>
         )}
@@ -270,10 +271,11 @@ function TaskListRow({ task, onEdit, onDelete }: {
   return (
     <Card
       onDoubleClick={() => canEdit && onEdit(task)}
+      title={canEdit ? 'Double-click to edit task' : undefined}
       sx={{
         mb: 1,
         p: 1.5,
-        borderRadius: 2,
+        borderRadius: 1,
         border: '1px solid rgba(255,255,255,0.06)',
         borderLeft: `4px solid ${client?.color || '#818CF8'}`,
         bgcolor: 'background.paper',
@@ -428,8 +430,9 @@ function PaymentsSection() {
                   <Box
                     key={item.type + item.id}
                     onDoubleClick={() => canEdit && setEditItem({ type: item.type, id: item.id })}
+                    title={canEdit ? 'Double-click to edit entry' : undefined}
                     sx={{
-                      display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 1.5, borderRadius: 2,
+                      display: 'flex', justifyContent: 'space-between', alignItems: 'center', p: 1.5, borderRadius: 1,
                       bgcolor: isDisc ? 'rgba(167,139,250,0.06)' : 'rgba(255,255,255,0.03)',
                       border: '1px solid',
                       borderColor: isDisc ? 'rgba(167,139,250,0.2)' : 'rgba(255,255,255,0.06)',
@@ -689,7 +692,7 @@ export default function TaskBoard() {
   if (loading) {
     return (
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr', md: '1fr 1fr 1fr' }, gap: 2 }}>
-        {[1, 2, 3, 4, 5, 6].map(i => <Skeleton key={i} variant="rounded" height={160} sx={{ borderRadius: 2 }} />)}
+        {[1, 2, 3, 4, 5, 6].map(i => <Skeleton key={i} variant="rounded" height={160} sx={{ borderRadius: 1 }} />)}
       </Box>
     );
   }
@@ -704,12 +707,12 @@ export default function TaskBoard() {
             exclusive
             onChange={(_, v) => v && setActiveTab(v)}
             size="small"
-            sx={{ bgcolor: 'rgba(255,255,255,0.04)', p: 0.5, borderRadius: 2 }}
+            sx={{ bgcolor: 'rgba(255,255,255,0.04)', p: 0.5, borderRadius: 1 }}
           >
             <ToggleButton
               value="tasks"
               sx={{
-                borderRadius: 1.5, px: 2, py: 0.75, textTransform: 'none', fontWeight: 700, fontSize: '0.85rem',
+                borderRadius: 1, px: 2, py: 0.75, textTransform: 'none', fontWeight: 700, fontSize: '0.85rem',
                 '&.Mui-selected': { bgcolor: 'primary.main', color: '#fff' },
               }}
             >
@@ -720,7 +723,7 @@ export default function TaskBoard() {
             <ToggleButton
               value="payments"
               sx={{
-                borderRadius: 1.5, px: 2, py: 0.75, textTransform: 'none', fontWeight: 700, fontSize: '0.85rem',
+                borderRadius: 1, px: 2, py: 0.75, textTransform: 'none', fontWeight: 700, fontSize: '0.85rem',
                 '&.Mui-selected': { bgcolor: 'primary.main', color: '#fff' },
               }}
             >
@@ -735,7 +738,7 @@ export default function TaskBoard() {
               size="medium"
               startIcon={<AddRoundedIcon />}
               onClick={() => { setEditTask(null); setDialogOpen(true); }}
-              sx={{ textTransform: 'none', fontWeight: 700, px: 2.5, borderRadius: 2 }}
+              sx={{ textTransform: 'none', fontWeight: 700, px: 2.5, borderRadius: 1 }}
             >
               Add New Task
             </Button>
@@ -746,7 +749,7 @@ export default function TaskBoard() {
         {activeTab === 'tasks' && (
           <Box>
             {/* Filter & Search Bar */}
-            <Card sx={{ p: 1.5, mb: 2.5, bgcolor: 'background.paper', borderRadius: 2 }}>
+            <Card sx={{ p: 1.5, mb: 2.5, bgcolor: 'background.paper', borderRadius: 1 }}>
               <Box sx={{ display: 'flex', gap: 1.25, flexWrap: 'wrap', alignItems: 'center' }}>
                 {/* Search Bar */}
                 <TextField
@@ -818,7 +821,7 @@ export default function TaskBoard() {
 
             {/* Tasks Render: Grid or List */}
             {allFilteredTasks.length === 0 ? (
-              <Card sx={{ py: 8, textAlign: 'center', bgcolor: 'background.paper', borderRadius: 2 }}>
+              <Card sx={{ py: 8, textAlign: 'center', bgcolor: 'background.paper', borderRadius: 1 }}>
                 <VideoLibraryRoundedIcon sx={{ fontSize: 44, color: 'text.disabled', mb: 1.5, opacity: 0.5 }} />
                 <Typography variant="body1" sx={{ fontWeight: 700, color: 'text.secondary' }}>No tasks found</Typography>
                 <Typography variant="caption" sx={{ color: 'text.disabled', display: 'block', mt: 0.5 }}>
