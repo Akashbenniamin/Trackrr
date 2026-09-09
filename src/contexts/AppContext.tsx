@@ -1,8 +1,9 @@
-import React, { createContext, useContext, useEffect, useState, useCallback } from 'react';
+import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
 import { storage, generateId } from '../lib/storage';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { useAuth } from './AuthContext';
 import { useNetworkStatus } from '../lib/useNetworkStatus';
+import { usePersistedState } from '../lib/usePersistedState';
 import type {
   Workspace, Client, Task, Payment, AppSettings, ViewName, SalaryRate, Discount,
   WorkspaceRole, WorkspaceMember, WorkspaceInvite, WorkspaceType,
@@ -94,7 +95,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   const [pendingInvites, setPendingInvites] = useState<WorkspaceInvite[]>([]);
   const [workspaceInvites, setWorkspaceInvites] = useState<WorkspaceInvite[]>([]);
   const [loading, setLoading] = useState(true);
-  const [currentView, setCurrentView] = useState<ViewName>('dashboard');
+  const [currentView, setCurrentView] = usePersistedState<ViewName>('trackrr_current_view', 'dashboard');
 
   // Compute active role
   const currentRole: WorkspaceRole = (() => {
@@ -371,19 +372,24 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
   }, [isCloudActive, isOnline, user, settings.active_workspace_id, loadLocalCache]);
 
+  const hasInitializedRef = useRef(false);
+
   // Initial load on mount or user/auth change
   useEffect(() => {
     (async () => {
-      setLoading(true);
+      if (!hasInitializedRef.current) {
+        setLoading(true);
+      }
       try {
         storage.initStorage();
         loadLocalCache();
         await fetchAll();
       } finally {
+        hasInitializedRef.current = true;
         setLoading(false);
       }
     })();
-  }, [user, fetchAll, loadLocalCache]);
+  }, [user?.id, fetchAll, loadLocalCache]);
 
   // Workspace Switch
   const switchWorkspace = useCallback(async (id: string) => {

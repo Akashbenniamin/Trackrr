@@ -27,6 +27,21 @@ const STATUS_COLORS: Record<BatchflowVideoStatus, { bg: string; text: string; bo
   Posted: { bg: 'rgba(16, 185, 129, 0.15)', text: '#10B981', border: 'rgba(16, 185, 129, 0.4)' },
 };
 
+function hexToRgb(hex: string): [number, number, number] {
+  const clean = (hex || '#818CF8').replace('#', '');
+  if (clean.length === 3) {
+    return [
+      parseInt(clean[0] + clean[0], 16) || 0,
+      parseInt(clean[1] + clean[1], 16) || 0,
+      parseInt(clean[2] + clean[2], 16) || 0,
+    ];
+  }
+  const r = parseInt(clean.substring(0, 2), 16) || 0;
+  const g = parseInt(clean.substring(2, 4), 16) || 0;
+  const b = parseInt(clean.substring(4, 6), 16) || 0;
+  return [r, g, b];
+}
+
 // Formatted Script Parser Component
 function FormattedScriptViewer({ text }: { text: string }) {
   const [copiedSection, setCopiedSection] = useState<string | null>(null);
@@ -315,44 +330,220 @@ export default function BatchflowBatches() {
 
   const handleExportPDF = () => {
     if (!selectedBatch) return;
-    const doc = new jsPDF();
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(20);
-    doc.text(selectedBatch.name, 14, 20);
+    const doc = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4',
+    });
 
-    doc.setFontSize(11);
-    doc.setFont('helvetica', 'normal');
-    doc.text(`Client: ${selectedClient?.name || 'N/A'}`, 14, 28);
-    doc.text(`Shoot Date: ${selectedBatch.shoot_date || 'N/A'}`, 14, 34);
+    const pageWidth = 210;
+    const pageHeight = 297;
+    const margin = 14;
+    const contentWidth = pageWidth - margin * 2; // 182mm
 
     const pCount = currentBatchVideos.filter(v => v.status === 'Pending').length;
     const eCount = currentBatchVideos.filter(v => v.status === 'Edited').length;
     const postedCount = currentBatchVideos.filter(v => v.status === 'Posted').length;
-    doc.text(`Total Videos: ${currentBatchVideos.length} | Pending: ${pCount} | Edited: ${eCount} | Posted: ${postedCount}`, 14, 42);
+    const totalCount = currentBatchVideos.length;
 
-    doc.line(14, 46, 196, 46);
+    const clientColorHex = selectedClient?.color || '#6366F1';
+    const [cr, cg, cb] = hexToRgb(clientColorHex);
 
-    let y = 54;
+    // --- Top Dark Header Banner ---
+    doc.setFillColor(15, 23, 42); // #0F172A
+    doc.rect(0, 0, pageWidth, 38, 'F');
+
+    // Top accent bar
+    doc.setFillColor(cr, cg, cb);
+    doc.rect(0, 0, pageWidth, 3.5, 'F');
+
+    // Header Subtitle / Tag
     doc.setFont('helvetica', 'bold');
-    doc.text('Script #', 14, y);
-    doc.text('Video Title', 40, y);
-    doc.text('Status', 140, y);
-    doc.line(14, y + 2, 196, y + 2);
-    y += 8;
+    doc.setFontSize(8.5);
+    doc.setTextColor(148, 163, 184); // #94A3B8
+    doc.text('BATCHFLOW PRODUCTION REPORT', margin, 12);
 
+    // Batch Name Title
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(16);
+    doc.setTextColor(255, 255, 255);
+    const titleText = doc.splitTextToSize(selectedBatch.name, 115)[0] || selectedBatch.name;
+    doc.text(titleText, margin, 21);
+
+    // Client pill / tag on right
+    const clientName = selectedClient?.name || 'Unassigned Client';
+    doc.setFontSize(8.5);
+    doc.setFont('helvetica', 'bold');
+    const clientTag = `CLIENT: ${clientName.toUpperCase()}`;
+    const tagWidth = doc.getTextWidth(clientTag) + 8;
+    const tagX = pageWidth - margin - tagWidth;
+    doc.setFillColor(30, 41, 59); // #1E293B
+    doc.roundedRect(tagX, 11, tagWidth, 7, 1.5, 1.5, 'F');
+    doc.setTextColor(cr, cg, cb);
+    doc.text(clientTag, tagX + 4, 15.7);
+
+    // Shoot Date on header right
     doc.setFont('helvetica', 'normal');
-    sortedVideos.forEach(v => {
-      if (y > 280) {
-        doc.addPage();
-        y = 20;
-      }
-      doc.text(String(v.script_number || '-'), 14, y);
-      doc.text(v.name || 'Untitled', 40, y);
-      doc.text(v.status, 140, y);
-      y += 7;
+    doc.setFontSize(8);
+    doc.setTextColor(148, 163, 184);
+    const shootDateStr = selectedBatch.shoot_date ? `Shoot Date: ${selectedBatch.shoot_date}` : 'Shoot Date: Not specified';
+    doc.text(shootDateStr, pageWidth - margin, 26, { align: 'right' });
+
+    // Subtitle / generated timestamp
+    const dateStr = `Exported on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+    doc.text(dateStr, margin, 29);
+
+    // --- Executive KPI Metric Cards (4 cards) ---
+    const cardY = 44;
+    const cardGap = 3.5;
+    const cardWidth = (contentWidth - cardGap * 3) / 4; // ~42.8mm
+    const cardHeight = 22;
+
+    const kpis = [
+      { label: 'TOTAL VIDEOS', val: totalCount, pct: '100%', bg: [248, 250, 252], border: [226, 232, 240], text: [15, 23, 42] },
+      { label: 'PENDING EDIT', val: pCount, pct: totalCount > 0 ? `${Math.round((pCount / totalCount) * 100)}%` : '0%', bg: [254, 243, 199], border: [253, 230, 138], text: [180, 83, 9] },
+      { label: 'EDITED', val: eCount, pct: totalCount > 0 ? `${Math.round((eCount / totalCount) * 100)}%` : '0%', bg: [219, 234, 254], border: [191, 219, 254], text: [29, 78, 216] },
+      { label: 'POSTED', val: postedCount, pct: totalCount > 0 ? `${Math.round((postedCount / totalCount) * 100)}%` : '0%', bg: [209, 250, 229], border: [167, 243, 208], text: [4, 120, 87] },
+    ];
+
+    kpis.forEach((kpi, i) => {
+      const kX = margin + i * (cardWidth + cardGap);
+      // Card background
+      doc.setFillColor(kpi.bg[0], kpi.bg[1], kpi.bg[2]);
+      doc.setDrawColor(kpi.border[0], kpi.border[1], kpi.border[2]);
+      doc.setLineWidth(0.3);
+      doc.roundedRect(kX, cardY, cardWidth, cardHeight, 2, 2, 'FD');
+
+      // Caption
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(6.5);
+      doc.setTextColor(100, 116, 139); // #64748B
+      doc.text(kpi.label, kX + 3.5, cardY + 5.5);
+
+      // Number
+      doc.setFontSize(13);
+      doc.setTextColor(kpi.text[0], kpi.text[1], kpi.text[2]);
+      doc.text(String(kpi.val), kX + 3.5, cardY + 13);
+
+      // Percentage Pill / Subtext
+      doc.setFontSize(6.5);
+      doc.setFont('helvetica', 'normal');
+      doc.setTextColor(100, 116, 139);
+      doc.text(`${kpi.pct} of batch`, kX + 3.5, cardY + 18.5);
     });
 
-    doc.save(`${selectedBatch.name}_Report.pdf`);
+    // --- Table Section ---
+    let curY = 72;
+
+    const drawTableHeader = (yPos: number) => {
+      doc.setFillColor(30, 41, 59); // #1E293B
+      doc.rect(margin, yPos, contentWidth, 8, 'F');
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.setTextColor(241, 245, 249); // #F1F5F9
+      doc.text('#', margin + 4, yPos + 5.2);
+      doc.text('VIDEO TITLE', margin + 18, yPos + 5.2);
+      doc.text('STATUS', margin + 120, yPos + 5.2);
+      doc.text('PIPELINE DATE', margin + 152, yPos + 5.2);
+    };
+
+    drawTableHeader(curY);
+    curY += 8;
+
+    sortedVideos.forEach((v, index) => {
+      const rowHeight = 9.5;
+      if (curY + rowHeight > pageHeight - 20) {
+        doc.addPage();
+        curY = 20;
+        drawTableHeader(curY);
+        curY += 8;
+      }
+
+      // Alternating row background
+      if (index % 2 === 0) {
+        doc.setFillColor(255, 255, 255);
+      } else {
+        doc.setFillColor(248, 250, 252); // #F8FAFC
+      }
+      doc.setDrawColor(241, 245, 249);
+      doc.setLineWidth(0.2);
+      doc.rect(margin, curY, contentWidth, rowHeight, 'FD');
+
+      // Script #
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(71, 85, 105);
+      doc.text(String(v.script_number ?? '-'), margin + 4, curY + 6);
+
+      // Video Title
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(15, 23, 42);
+      const title = v.name || `Video #${v.script_number || index + 1}`;
+      const truncatedTitle = doc.splitTextToSize(title, 96)[0];
+      doc.text(truncatedTitle, margin + 18, curY + 6);
+
+      // Status Pill
+      const pillX = margin + 120;
+      const pillY = curY + 2;
+      const pillW = 24;
+      const pillH = 5.5;
+
+      if (v.status === 'Posted') {
+        doc.setFillColor(209, 250, 229);
+        doc.setDrawColor(167, 243, 208);
+        doc.roundedRect(pillX, pillY, pillW, pillH, 1.5, 1.5, 'FD');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7);
+        doc.setTextColor(4, 120, 87);
+        doc.text('POSTED', pillX + pillW / 2, pillY + 3.8, { align: 'center' });
+      } else if (v.status === 'Edited') {
+        doc.setFillColor(219, 234, 254);
+        doc.setDrawColor(191, 219, 254);
+        doc.roundedRect(pillX, pillY, pillW, pillH, 1.5, 1.5, 'FD');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7);
+        doc.setTextColor(29, 78, 216);
+        doc.text('EDITED', pillX + pillW / 2, pillY + 3.8, { align: 'center' });
+      } else {
+        doc.setFillColor(254, 243, 199);
+        doc.setDrawColor(253, 230, 138);
+        doc.roundedRect(pillX, pillY, pillW, pillH, 1.5, 1.5, 'FD');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7);
+        doc.setTextColor(180, 83, 9);
+        doc.text('PENDING', pillX + pillW / 2, pillY + 3.8, { align: 'center' });
+      }
+
+      // Date / Details
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(100, 116, 139);
+      const dateText = v.status === 'Posted' && v.posted_date ? new Date(v.posted_date).toLocaleDateString() :
+                       v.status === 'Edited' && v.edited_date ? new Date(v.edited_date).toLocaleDateString() :
+                       selectedBatch.shoot_date ? `Shoot: ${selectedBatch.shoot_date}` : '-';
+      doc.text(dateText, margin + 152, curY + 6);
+
+      curY += rowHeight;
+    });
+
+    // Footer for all pages
+    const totalPages = doc.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.3);
+      doc.line(margin, pageHeight - 12, pageWidth - margin, pageHeight - 12);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(148, 163, 184);
+      doc.text('Trackrr Studio • Content Batch Management & Production Workflow', margin, pageHeight - 7);
+      doc.text(`Page ${p} of ${totalPages}`, pageWidth - margin, pageHeight - 7, { align: 'right' });
+    }
+
+    doc.save(`${selectedBatch.name.replace(/[^a-zA-Z0-9_-]/g, '_')}_Report.pdf`);
   };
 
   return (
@@ -477,12 +668,13 @@ export default function BatchflowBatches() {
                   </Box>
 
                   {/* Export & Actions */}
-                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+                  <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }} onDoubleClick={(e) => e.stopPropagation()}>
                     <Button
                       size="small"
                       variant="outlined"
                       startIcon={<DownloadRoundedIcon />}
                       onClick={handleExportPNG}
+                      onDoubleClick={(e) => e.stopPropagation()}
                       sx={{ textTransform: 'none', borderRadius: 1 }}
                     >
                       PNG Report
@@ -492,6 +684,7 @@ export default function BatchflowBatches() {
                       variant="outlined"
                       startIcon={<PictureAsPdfRoundedIcon />}
                       onClick={handleExportPDF}
+                      onDoubleClick={(e) => e.stopPropagation()}
                       sx={{ textTransform: 'none', borderRadius: 1 }}
                     >
                       PDF
@@ -502,6 +695,7 @@ export default function BatchflowBatches() {
                           <IconButton
                             size="small"
                             onClick={() => handleOpenEditBatch()}
+                            onDoubleClick={(e) => e.stopPropagation()}
                             sx={{ color: 'text.secondary' }}
                           >
                             <EditRoundedIcon fontSize="small" />
@@ -515,6 +709,7 @@ export default function BatchflowBatches() {
                                 await deleteBatchflowBatch(selectedBatch.id);
                               }
                             }}
+                            onDoubleClick={(e) => e.stopPropagation()}
                             sx={{ color: '#F87171' }}
                           >
                             <DeleteOutlineRoundedIcon fontSize="small" />
@@ -664,11 +859,15 @@ export default function BatchflowBatches() {
                         </Box>
 
                         {/* Status Toggle Button & Actions */}
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }} onDoubleClick={(e) => e.stopPropagation()}>
                           <Tooltip title="Click to cycle status: Pending -> Edited -> Posted">
                             <Button
                               size="small"
-                              onClick={() => handleCycleStatus(v)}
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleCycleStatus(v);
+                              }}
+                              onDoubleClick={(e) => e.stopPropagation()}
                               disabled={!canEdit}
                               sx={{
                                 textTransform: 'uppercase',
@@ -689,27 +888,31 @@ export default function BatchflowBatches() {
                           </Tooltip>
 
                           {canEdit && (
-                            <>
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }} onDoubleClick={(e) => e.stopPropagation()}>
                               <IconButton
                                 size="small"
-                                onClick={() => {
+                                onClick={(e) => {
+                                  e.stopPropagation();
                                   setEditingVideo({ id: v.id, name: v.name, script_number: v.script_number });
                                   setEditVideoOpen(true);
                                 }}
+                                onDoubleClick={(e) => e.stopPropagation()}
                               >
                                 <EditRoundedIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
                               </IconButton>
                               <IconButton
                                 size="small"
-                                onClick={async () => {
+                                onClick={async (e) => {
+                                  e.stopPropagation();
                                   if (window.confirm(`Delete video "${v.name}"?`)) {
                                     await deleteBatchflowVideo(v.id);
                                   }
                                 }}
+                                onDoubleClick={(e) => e.stopPropagation()}
                               >
                                 <DeleteOutlineRoundedIcon sx={{ fontSize: 16, color: '#F87171' }} />
                               </IconButton>
-                            </>
+                            </Box>
                           )}
                         </Box>
                       </Card>

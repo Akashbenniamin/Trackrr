@@ -117,7 +117,7 @@ export default function BatchflowClients() {
           const progress = clientVideos.length > 0 ? Math.round((postedVideos / clientVideos.length) * 100) : 0;
 
           return (
-            <Grid size={{ xs: 12, md: 6, lg: 4 }} key={c.id}>
+            <Grid size={{ xs: 12, md: 6, lg: 4 }} key={c.id} sx={{ display: 'flex' }}>
               <Card
                 onDoubleClick={() => canEdit && handleOpenEdit(c)}
                 title={canEdit ? 'Double-click to edit client' : undefined}
@@ -128,6 +128,10 @@ export default function BatchflowClients() {
                   borderLeft: `4px solid ${c.color || '#818CF8'}`,
                   display: 'flex',
                   flexDirection: 'column',
+                  justifyContent: 'space-between',
+                  width: '100%',
+                  height: '100%',
+                  minHeight: 235,
                   gap: 1.5,
                   position: 'relative',
                   transition: 'transform 0.15s ease, box-shadow 0.15s ease',
@@ -136,16 +140,18 @@ export default function BatchflowClients() {
               >
                 {/* Card Header */}
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                  <Box sx={{ minWidth: 0 }}>
-                    <Typography variant="h6" noWrap sx={{ fontWeight: 800, fontSize: '1.1rem' }}>
+                  <Box sx={{ minWidth: 0, minHeight: 44, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+                    <Typography variant="h6" noWrap sx={{ fontWeight: 800, fontSize: '1.1rem', lineHeight: 1.2 }}>
                       {c.name}
                     </Typography>
-                    {c.instagram_id && (
+                    {c.instagram_id ? (
                       <Box
                         component="a"
                         href={`https://instagram.com/${c.instagram_id.replace('@', '')}`}
                         target="_blank"
                         rel="noreferrer"
+                        onClick={(e) => e.stopPropagation()}
+                        onDoubleClick={(e) => e.stopPropagation()}
                         sx={{
                           display: 'inline-flex',
                           alignItems: 'center',
@@ -161,18 +167,22 @@ export default function BatchflowClients() {
                         <InstagramIcon sx={{ fontSize: 14 }} />
                         {c.instagram_id.startsWith('@') ? c.instagram_id : `@${c.instagram_id}`}
                       </Box>
+                    ) : (
+                      <Typography variant="caption" sx={{ color: 'text.disabled', mt: 0.5, fontSize: '0.72rem', display: 'block' }}>
+                        No social handle
+                      </Typography>
                     )}
                   </Box>
 
                   {canEdit && (
-                    <Box sx={{ display: 'flex', gap: 0.5 }}>
+                    <Box sx={{ display: 'flex', gap: 0.5 }} onDoubleClick={(e) => e.stopPropagation()}>
                       <Tooltip title="Edit Client">
-                        <IconButton size="small" onClick={() => handleOpenEdit(c)}>
+                        <IconButton size="small" onClick={(e) => { e.stopPropagation(); handleOpenEdit(c); }} onDoubleClick={(e) => e.stopPropagation()}>
                           <EditRoundedIcon sx={{ fontSize: 16 }} />
                         </IconButton>
                       </Tooltip>
                       <Tooltip title="Archive Client">
-                        <IconButton size="small" onClick={() => handleArchive(c.id, c.name)}>
+                        <IconButton size="small" onClick={(e) => { e.stopPropagation(); handleArchive(c.id, c.name); }} onDoubleClick={(e) => e.stopPropagation()}>
                           <ArchiveRoundedIcon sx={{ fontSize: 16, color: 'text.secondary' }} />
                         </IconButton>
                       </Tooltip>
@@ -206,7 +216,7 @@ export default function BatchflowClients() {
                 </Box>
 
                 {/* Progress bar */}
-                <Box>
+                <Box sx={{ mt: 'auto', pt: 0.5 }}>
                   <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
                     <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.68rem' }}>Production Progress</Typography>
                     <Typography variant="caption" sx={{ fontWeight: 700, fontSize: '0.68rem', color: '#10B981' }}>{progress}%</Typography>
