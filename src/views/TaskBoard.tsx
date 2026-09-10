@@ -4,7 +4,7 @@ import {
   Box, Card, Typography, Chip, IconButton, Fade,
   Select, MenuItem, Button, Skeleton, Checkbox, ListItemText, TextField,
   Dialog, DialogTitle, DialogContent, DialogActions, ToggleButton, ToggleButtonGroup,
-  InputAdornment, Tooltip,
+  InputAdornment, Tooltip, Collapse, Badge,
 } from '@mui/material';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
@@ -17,6 +17,12 @@ import GridViewRoundedIcon from '@mui/icons-material/GridViewRounded';
 import ViewListRoundedIcon from '@mui/icons-material/ViewListRounded';
 import CalendarMonthRoundedIcon from '@mui/icons-material/CalendarMonthRounded';
 import AccountBalanceWalletRoundedIcon from '@mui/icons-material/AccountBalanceWalletRounded';
+import TuneRoundedIcon from '@mui/icons-material/TuneRounded';
+import SortRoundedIcon from '@mui/icons-material/SortRounded';
+import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
+import KeyboardArrowUpRoundedIcon from '@mui/icons-material/KeyboardArrowUpRounded';
+import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded';
+import FilterAltOffRoundedIcon from '@mui/icons-material/FilterAltOffRounded';
 import { format, startOfMonth, endOfMonth } from 'date-fns';
 import { useApp } from '../contexts/AppContext';
 import { calcTaskRevenueFull, formatCurrency, formatDate, PAYMENT_METHODS } from '../types';
@@ -631,6 +637,26 @@ export default function TaskBoard() {
   const [compMonth, setCompMonth] = usePersistedState<string>('tb_compMonth', '');
   const [compClient, setCompClient] = usePersistedState<string>('tb_compClient', '');
   const [compSort, setCompSort] = usePersistedState<SortKey>('tb_compSort', 'date_desc');
+  const [filtersOpen, setFiltersOpen] = usePersistedState<boolean>('tb_filtersOpen', false);
+  const [searchMinimized, setSearchMinimized] = usePersistedState<boolean>('tb_searchMinimized', false);
+
+  const activeFiltersCount = useMemo(() => {
+    let count = 0;
+    if (searchQuery.trim()) count++;
+    if (compClient) count++;
+    if (compMonth) count++;
+    if (compSort !== 'date_desc') count++;
+    return count;
+  }, [searchQuery, compClient, compMonth, compSort]);
+
+  const hasActiveFilters = activeFiltersCount > 0;
+
+  const handleClearAllFilters = () => {
+    setSearchQuery('');
+    setCompClient('');
+    setCompMonth('');
+    setCompSort('date_desc');
+  };
 
   const monthOptions = useMemo(() => {
     const months = new Set<string>();
@@ -700,124 +726,396 @@ export default function TaskBoard() {
   return (
     <Fade in timeout={400}>
       <Box sx={{ pb: 4 }}>
-        {/* Section Navigation Tabs & Primary Actions */}
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1.5, mb: 2.5 }}>
-          <ToggleButtonGroup
-            value={activeTab}
-            exclusive
-            onChange={(_, v) => v && setActiveTab(v)}
-            size="small"
-            sx={{ bgcolor: 'rgba(255,255,255,0.04)', p: 0.5, borderRadius: 1 }}
-          >
-            <ToggleButton
-              value="tasks"
+        {/* Sticky Top Header Container */}
+        <Box
+          sx={{
+            position: 'sticky',
+            top: 0,
+            zIndex: 20,
+            bgcolor: 'background.default',
+            mt: -2,
+            pt: 2,
+            pb: 1.5,
+            mx: { xs: -1.5, sm: -2, md: -3 },
+            px: { xs: 1.5, sm: 2, md: 3 },
+            borderBottom: '1px solid',
+            borderColor: 'divider',
+            mb: 2.5,
+          }}
+        >
+          {/* Section Navigation Tabs & Primary Actions */}
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1.5, mb: activeTab === 'tasks' ? 1.5 : 0 }}>
+            <ToggleButtonGroup
+              value={activeTab}
+              exclusive
+              onChange={(_, v) => v && setActiveTab(v)}
+              size="small"
               sx={{
-                borderRadius: 1, px: 2, py: 0.75, textTransform: 'none', fontWeight: 700, fontSize: '0.85rem',
-                '&.Mui-selected': { bgcolor: 'primary.main', color: '#fff' },
+                bgcolor: 'rgba(255,255,255,0.04)',
+                p: 0.5,
+                borderRadius: 1,
+                width: { xs: '100%', md: 'auto' },
+                display: 'flex',
               }}
             >
-              <VideoLibraryRoundedIcon sx={{ fontSize: 16, mr: 0.75 }} />
-              Video Tasks ({allFilteredTasks.length})
-            </ToggleButton>
+              <ToggleButton
+                value="tasks"
+                sx={{
+                  flex: { xs: 1, md: 'initial' },
+                  borderRadius: 1,
+                  px: { xs: 1.5, sm: 2 },
+                  py: 0.75,
+                  textTransform: 'none',
+                  fontWeight: 700,
+                  fontSize: { xs: '0.82rem', sm: '0.85rem' },
+                  whiteSpace: 'nowrap',
+                  '&.Mui-selected': { bgcolor: 'primary.main', color: '#fff' },
+                }}
+              >
+                <VideoLibraryRoundedIcon sx={{ fontSize: 16, mr: 0.75 }} />
+                Tasks ({allFilteredTasks.length})
+              </ToggleButton>
 
-            <ToggleButton
-              value="payments"
-              sx={{
-                borderRadius: 1, px: 2, py: 0.75, textTransform: 'none', fontWeight: 700, fontSize: '0.85rem',
-                '&.Mui-selected': { bgcolor: 'primary.main', color: '#fff' },
-              }}
-            >
-              <PaymentsRoundedIcon sx={{ fontSize: 16, mr: 0.75 }} />
-              Payments & Ledger
-            </ToggleButton>
-          </ToggleButtonGroup>
+              <ToggleButton
+                value="payments"
+                sx={{
+                  flex: { xs: 1, md: 'initial' },
+                  borderRadius: 1,
+                  px: { xs: 1.5, sm: 2 },
+                  py: 0.75,
+                  textTransform: 'none',
+                  fontWeight: 700,
+                  fontSize: { xs: '0.82rem', sm: '0.85rem' },
+                  whiteSpace: 'nowrap',
+                  '&.Mui-selected': { bgcolor: 'primary.main', color: '#fff' },
+                }}
+              >
+                <PaymentsRoundedIcon sx={{ fontSize: 16, mr: 0.75 }} />
+                Payments
+              </ToggleButton>
+            </ToggleButtonGroup>
 
-          {activeTab === 'tasks' && canEdit && (
-            <Button
-              variant="contained"
-              size="medium"
-              startIcon={<AddRoundedIcon />}
-              onClick={() => { setEditTask(null); setDialogOpen(true); }}
-              sx={{ textTransform: 'none', fontWeight: 700, px: 2.5, borderRadius: 1 }}
-            >
-              Add New Task
-            </Button>
+            {activeTab === 'tasks' && canEdit && (
+              <Button
+                variant="contained"
+                size="medium"
+                startIcon={<AddRoundedIcon />}
+                onClick={() => { setEditTask(null); setDialogOpen(true); }}
+                sx={{
+                  display: { xs: 'none', md: 'inline-flex' },
+                  textTransform: 'none',
+                  fontWeight: 700,
+                  px: 2.5,
+                  borderRadius: 1,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Add New Task
+              </Button>
+            )}
+          </Box>
+
+          {/* Search & Filter Controls (Tasks Tab Only) */}
+          {activeTab === 'tasks' && (
+            <>
+              {/* Space-Saving Minimized Bar on Mobile */}
+              {searchMinimized ? (
+                <Box sx={{ display: { xs: 'flex', md: 'none' }, alignItems: 'center', gap: 1 }}>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    onClick={() => setSearchMinimized(false)}
+                    startIcon={<SearchRoundedIcon sx={{ fontSize: 16 }} />}
+                    endIcon={
+                      <Badge badgeContent={activeFiltersCount} color="primary" sx={{ '& .MuiBadge-badge': { fontSize: '0.65rem', height: 16, minWidth: 16 } }}>
+                        <KeyboardArrowDownRoundedIcon sx={{ fontSize: 16 }} />
+                      </Badge>
+                    }
+                    sx={{
+                      flex: 1,
+                      justifyContent: 'space-between',
+                      textTransform: 'none',
+                      fontSize: '0.8rem',
+                      fontWeight: 600,
+                      py: 0.6,
+                      px: 1.5,
+                      borderRadius: 1,
+                      borderColor: hasActiveFilters ? 'primary.main' : 'rgba(255,255,255,0.12)',
+                      bgcolor: hasActiveFilters ? 'rgba(129,140,248,0.08)' : 'background.paper',
+                      color: hasActiveFilters ? 'primary.light' : 'text.secondary',
+                    }}
+                  >
+                    {searchQuery ? `Search: "${searchQuery}"` : hasActiveFilters ? `${activeFiltersCount} filter(s) active` : 'Search & Filters...'}
+                  </Button>
+
+                  <ToggleButtonGroup
+                    value={viewMode}
+                    exclusive
+                    onChange={(_, v) => v && setViewMode(v)}
+                    size="small"
+                    sx={{ bgcolor: 'background.paper', border: '1px solid rgba(255,255,255,0.1)' }}
+                  >
+                    <ToggleButton value="grid" sx={{ px: 1, py: 0.5 }}>
+                      <GridViewRoundedIcon sx={{ fontSize: 16 }} />
+                    </ToggleButton>
+                    <ToggleButton value="list" sx={{ px: 1, py: 0.5 }}>
+                      <ViewListRoundedIcon sx={{ fontSize: 16 }} />
+                    </ToggleButton>
+                  </ToggleButtonGroup>
+                </Box>
+              ) : (
+                <Card sx={{ p: 1.25, bgcolor: 'background.paper', borderRadius: 1, border: '1px solid rgba(255,255,255,0.08)' }}>
+                  {/* Primary Row: Search Input + Mobile Filter Toggle + Desktop Selectors + View Switcher */}
+                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                    <TextField
+                      size="small"
+                      placeholder="Search tasks, clients..."
+                      value={searchQuery}
+                      onChange={e => setSearchQuery(e.target.value)}
+                      InputProps={{
+                        startAdornment: (
+                          <InputAdornment position="start">
+                            <SearchRoundedIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+                          </InputAdornment>
+                        ),
+                        endAdornment: searchQuery ? (
+                          <InputAdornment position="end">
+                            <IconButton size="small" onClick={() => setSearchQuery('')} edge="end" sx={{ p: 0.5 }}>
+                              <CloseRoundedIcon sx={{ fontSize: 16 }} />
+                            </IconButton>
+                          </InputAdornment>
+                        ) : null,
+                      }}
+                      sx={{
+                        flex: 1,
+                        minWidth: { xs: 130, sm: 200 },
+                        '& .MuiInputBase-root': { height: 38, fontSize: '0.84rem' },
+                      }}
+                    />
+
+                    {/* Mobile Filters Toggle Button */}
+                    <Button
+                      size="small"
+                      variant={filtersOpen || hasActiveFilters ? 'contained' : 'outlined'}
+                      onClick={() => setFiltersOpen(prev => !prev)}
+                      startIcon={
+                        <Badge
+                          badgeContent={activeFiltersCount}
+                          color="error"
+                          sx={{ '& .MuiBadge-badge': { fontSize: '0.62rem', height: 16, minWidth: 16, px: 0.5 } }}
+                        >
+                          <TuneRoundedIcon sx={{ fontSize: 16 }} />
+                        </Badge>
+                      }
+                      endIcon={filtersOpen ? <KeyboardArrowUpRoundedIcon sx={{ fontSize: 16 }} /> : <KeyboardArrowDownRoundedIcon sx={{ fontSize: 16 }} />}
+                      sx={{
+                        display: { xs: 'inline-flex', md: 'none' },
+                        height: 38,
+                        px: 1.25,
+                        minWidth: 80,
+                        textTransform: 'none',
+                        fontWeight: 700,
+                        fontSize: '0.78rem',
+                        borderRadius: 1,
+                        whiteSpace: 'nowrap',
+                        bgcolor: filtersOpen ? 'primary.main' : (hasActiveFilters ? 'rgba(129,140,248,0.15)' : 'transparent'),
+                        borderColor: hasActiveFilters ? 'primary.main' : 'rgba(255,255,255,0.15)',
+                      }}
+                    >
+                      Filters
+                    </Button>
+
+                    {/* Desktop Inline Selectors */}
+                    <Box sx={{ display: { xs: 'none', md: 'flex' }, gap: 1, alignItems: 'center' }}>
+                      <Select
+                        value={compClient}
+                        onChange={e => setCompClient(e.target.value)}
+                        size="small"
+                        displayEmpty
+                        sx={{ minWidth: 130, height: 38, fontSize: '0.82rem' }}
+                      >
+                        <MenuItem value="">All Clients</MenuItem>
+                        {clients.map(c => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+                      </Select>
+
+                      <Select
+                        value={compMonth}
+                        onChange={e => setCompMonth(e.target.value)}
+                        size="small"
+                        displayEmpty
+                        sx={{ minWidth: 125, height: 38, fontSize: '0.82rem' }}
+                      >
+                        <MenuItem value="">All Months</MenuItem>
+                        {monthOptions.map(m => <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>)}
+                      </Select>
+
+                      <Select
+                        value={compSort}
+                        onChange={e => setCompSort(e.target.value as SortKey)}
+                        size="small"
+                        sx={{ minWidth: 140, height: 38, fontSize: '0.82rem' }}
+                      >
+                        {SORT_OPTIONS.map(o => <MenuItem key={o.key} value={o.key}>{o.label}</MenuItem>)}
+                      </Select>
+
+                      {hasActiveFilters && (
+                        <Tooltip title="Reset all filters">
+                          <IconButton size="small" onClick={handleClearAllFilters} sx={{ color: '#F87171' }}>
+                            <FilterAltOffRoundedIcon sx={{ fontSize: 18 }} />
+                          </IconButton>
+                        </Tooltip>
+                      )}
+                    </Box>
+
+                    {/* View Mode Toggle: Grid vs List */}
+                    <ToggleButtonGroup
+                      value={viewMode}
+                      exclusive
+                      onChange={(_, v) => v && setViewMode(v)}
+                      size="small"
+                      sx={{ ml: { xs: 0, md: 'auto' }, height: 38 }}
+                    >
+                      <ToggleButton value="grid" aria-label="Grid view" sx={{ px: 1 }}>
+                        <Tooltip title="Grid View"><GridViewRoundedIcon sx={{ fontSize: 18 }} /></Tooltip>
+                      </ToggleButton>
+                      <ToggleButton value="list" aria-label="List view" sx={{ px: 1 }}>
+                        <Tooltip title="List View"><ViewListRoundedIcon sx={{ fontSize: 18 }} /></Tooltip>
+                      </ToggleButton>
+                    </ToggleButtonGroup>
+
+                    {/* Mobile Minimize button */}
+                    <Tooltip title="Minimize to save space">
+                      <IconButton
+                        size="small"
+                        onClick={() => setSearchMinimized(true)}
+                        sx={{ display: { xs: 'inline-flex', md: 'none' }, color: 'text.secondary', p: 0.75 }}
+                      >
+                        <KeyboardArrowUpRoundedIcon sx={{ fontSize: 18 }} />
+                      </IconButton>
+                    </Tooltip>
+                  </Box>
+
+                  {/* Mobile Collapsible Filter Drawer */}
+                  <Collapse in={filtersOpen}>
+                    <Box sx={{ display: { xs: 'flex', md: 'none' }, flexDirection: 'column', gap: 1.25, pt: 1.5, mt: 1.25, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+                      <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1 }}>
+                        {/* Client Filter */}
+                        <Select
+                          value={compClient}
+                          onChange={e => setCompClient(e.target.value)}
+                          size="small"
+                          displayEmpty
+                          fullWidth
+                          sx={{ fontSize: '0.82rem', height: 36 }}
+                        >
+                          <MenuItem value="">All Clients</MenuItem>
+                          {clients.map(c => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+                        </Select>
+
+                        {/* Month Filter */}
+                        <Select
+                          value={compMonth}
+                          onChange={e => setCompMonth(e.target.value)}
+                          size="small"
+                          displayEmpty
+                          fullWidth
+                          sx={{ fontSize: '0.82rem', height: 36 }}
+                        >
+                          <MenuItem value="">All Months</MenuItem>
+                          {monthOptions.map(m => <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>)}
+                        </Select>
+                      </Box>
+
+                      {/* Sort dropdown */}
+                      <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+                        <Select
+                          value={compSort}
+                          onChange={e => setCompSort(e.target.value as SortKey)}
+                          size="small"
+                          fullWidth
+                          startAdornment={<SortRoundedIcon sx={{ fontSize: 16, mr: 0.75, color: 'text.secondary' }} />}
+                          sx={{ fontSize: '0.82rem', height: 36 }}
+                        >
+                          {SORT_OPTIONS.map(o => <MenuItem key={o.key} value={o.key}>{o.label}</MenuItem>)}
+                        </Select>
+
+                        {hasActiveFilters && (
+                          <Button
+                            size="small"
+                            color="error"
+                            variant="outlined"
+                            onClick={handleClearAllFilters}
+                            startIcon={<FilterAltOffRoundedIcon sx={{ fontSize: 14 }} />}
+                            sx={{ textTransform: 'none', height: 36, whiteSpace: 'nowrap', fontSize: '0.75rem', px: 1.25 }}
+                          >
+                            Clear
+                          </Button>
+                        )}
+                      </Box>
+                    </Box>
+                  </Collapse>
+                </Card>
+              )}
+
+              {/* Active Filter Chips Bar */}
+              {hasActiveFilters && (
+                <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', alignItems: 'center', mt: 1 }}>
+                  <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.7rem', fontWeight: 600 }}>
+                    Active:
+                  </Typography>
+
+                  {searchQuery && (
+                    <Chip
+                      size="small"
+                      label={`"${searchQuery}"`}
+                      onDelete={() => setSearchQuery('')}
+                      sx={{ height: 22, fontSize: '0.7rem', bgcolor: 'rgba(129,140,248,0.15)', color: 'primary.light' }}
+                    />
+                  )}
+
+                  {compClient && (
+                    <Chip
+                      size="small"
+                      label={clients.find(c => c.id === compClient)?.name || 'Client'}
+                      onDelete={() => setCompClient('')}
+                      sx={{ height: 22, fontSize: '0.7rem', bgcolor: 'rgba(52,211,153,0.15)', color: '#34D399' }}
+                    />
+                  )}
+
+                  {compMonth && (
+                    <Chip
+                      size="small"
+                      label={monthOptions.find(m => m.value === compMonth)?.label || compMonth}
+                      onDelete={() => setCompMonth('')}
+                      sx={{ height: 22, fontSize: '0.7rem', bgcolor: 'rgba(245,158,11,0.15)', color: '#F59E0B' }}
+                    />
+                  )}
+
+                  {compSort !== 'date_desc' && (
+                    <Chip
+                      size="small"
+                      label={SORT_OPTIONS.find(s => s.key === compSort)?.label || compSort}
+                      onDelete={() => setCompSort('date_desc')}
+                      sx={{ height: 22, fontSize: '0.7rem', bgcolor: 'rgba(167,139,250,0.15)', color: '#A78BFA' }}
+                    />
+                  )}
+
+                  <Button
+                    size="small"
+                    onClick={handleClearAllFilters}
+                    sx={{ fontSize: '0.68rem', minWidth: 'auto', p: '2px 6px', textTransform: 'none', color: '#F87171' }}
+                  >
+                    Reset all
+                  </Button>
+                </Box>
+              )}
+            </>
           )}
         </Box>
 
-        {/* TAB 1: Tasks View */}
+        {/* TAB 1: Tasks View Content */}
         {activeTab === 'tasks' && (
           <Box>
-            {/* Filter & Search Bar */}
-            <Card sx={{ p: 1.5, mb: 2.5, bgcolor: 'background.paper', borderRadius: 1 }}>
-              <Box sx={{ display: 'flex', gap: 1.25, flexWrap: 'wrap', alignItems: 'center' }}>
-                {/* Search Bar */}
-                <TextField
-                  size="small"
-                  placeholder="Search tasks, clients..."
-                  value={searchQuery}
-                  onChange={e => setSearchQuery(e.target.value)}
-                  InputProps={{
-                    startAdornment: (
-                      <InputAdornment position="start">
-                        <SearchRoundedIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
-                      </InputAdornment>
-                    ),
-                  }}
-                  sx={{ flex: '1 1 200px', minWidth: 160 }}
-                />
-
-                {/* Client Filter */}
-                <Select
-                  value={compClient}
-                  onChange={e => setCompClient(e.target.value)}
-                  size="small"
-                  displayEmpty
-                  sx={{ minWidth: 140, fontSize: '0.82rem' }}
-                >
-                  <MenuItem value="">All Clients</MenuItem>
-                  {clients.map(c => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
-                </Select>
-
-                {/* Month Filter */}
-                <Select
-                  value={compMonth}
-                  onChange={e => setCompMonth(e.target.value)}
-                  size="small"
-                  displayEmpty
-                  sx={{ minWidth: 130, fontSize: '0.82rem' }}
-                >
-                  <MenuItem value="">All Months</MenuItem>
-                  {monthOptions.map(m => <MenuItem key={m.value} value={m.value}>{m.label}</MenuItem>)}
-                </Select>
-
-                {/* Sort Dropdown */}
-                <Select
-                  value={compSort}
-                  onChange={e => setCompSort(e.target.value as SortKey)}
-                  size="small"
-                  sx={{ minWidth: 140, fontSize: '0.82rem' }}
-                >
-                  {SORT_OPTIONS.map(o => <MenuItem key={o.key} value={o.key}>{o.label}</MenuItem>)}
-                </Select>
-
-                {/* View Mode Toggle: Grid vs List */}
-                <ToggleButtonGroup
-                  value={viewMode}
-                  exclusive
-                  onChange={(_, v) => v && setViewMode(v)}
-                  size="small"
-                  sx={{ ml: 'auto' }}
-                >
-                  <ToggleButton value="grid" aria-label="Grid view">
-                    <Tooltip title="Grid View"><GridViewRoundedIcon fontSize="small" /></Tooltip>
-                  </ToggleButton>
-                  <ToggleButton value="list" aria-label="List view">
-                    <Tooltip title="List View"><ViewListRoundedIcon fontSize="small" /></Tooltip>
-                  </ToggleButton>
-                </ToggleButtonGroup>
-              </Box>
-            </Card>
 
             {/* Tasks Render: Grid or List */}
             {allFilteredTasks.length === 0 ? (

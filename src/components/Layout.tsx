@@ -50,15 +50,15 @@ const BATCHFLOW_NAV_ITEMS: { view: ViewName; label: string; icon: React.ReactNod
 
 interface LayoutProps {
   children: React.ReactNode;
-  onAddTask: () => void;
+  onAddTask?: () => void;
 }
 
-export default function Layout({ children, onAddTask }: LayoutProps) {
+export default function Layout({ children }: LayoutProps) {
   const theme = useTheme();
   const isMobile = useMediaQuery(theme.breakpoints.down('md'));
   const {
     currentView, setCurrentView, workspaces, activeWorkspace,
-    switchWorkspace, createWorkspace, currentRole, canEdit, workspaceMembers,
+    switchWorkspace, createWorkspace, currentRole, workspaceMembers,
     workspaceInvites,
   } = useApp();
   const [wsDrawerOpen, setWsDrawerOpen] = useState(false);
@@ -143,21 +143,6 @@ export default function Layout({ children, onAddTask }: LayoutProps) {
           </Typography>
 
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            {currentView === 'tasks' && !isBatchflow && canEdit && (
-              <IconButton
-                onClick={onAddTask}
-                sx={{
-                  bgcolor: 'primary.main',
-                  color: '#fff',
-                  width: 36,
-                  height: 36,
-                  '&:hover': { bgcolor: 'primary.dark' },
-                }}
-              >
-                <AddRoundedIcon fontSize="small" />
-              </IconButton>
-            )}
-
             {activeWorkspace && user && (
               <Tooltip title={`Collaborators (${workspaceMembers.length})${workspaceInvites.length > 0 ? ` • ${workspaceInvites.length} pending invite${workspaceInvites.length > 1 ? 's' : ''}` : ''}`}>
                 <IconButton
