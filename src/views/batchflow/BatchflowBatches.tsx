@@ -598,16 +598,20 @@ export default function BatchflowBatches() {
   };
 
   return (
-    <Box sx={{ pb: 3 }}>
-      {/* FIXED / STICKY AT TOP: Big Title & Thick KPI Card */}
+    <Box
+      sx={{
+        height: '100%',
+        minHeight: 0,
+        display: 'flex',
+        flexDirection: 'column',
+        overflow: 'hidden',
+      }}
+    >
+      {/* FIXED AT TOP: Big Title & Thick KPI Card (Unscrollable) */}
       <Box
         sx={{
-          position: 'sticky',
-          top: 0,
-          zIndex: 10,
-          bgcolor: 'background.default',
-          pt: 0.5,
-          pb: 2,
+          flexShrink: 0,
+          pb: 1.25,
         }}
       >
         <Card
@@ -616,9 +620,9 @@ export default function BatchflowBatches() {
           }}
           title={canEdit && selectedBatch ? 'Double-click to edit batch' : undefined}
           sx={{
-            p: { xs: 2, sm: 2.25 },
+            p: { xs: 1.25, sm: 1.5 },
             borderRadius: 1,
-            borderLeft: `6px solid ${selectedClient?.color || '#818CF8'}`,
+            borderLeft: `5px solid ${selectedClient?.color || '#818CF8'}`,
             bgcolor: 'background.paper',
             boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
             cursor: canEdit && selectedBatch ? 'pointer' : 'default',
@@ -854,11 +858,29 @@ export default function BatchflowBatches() {
       </Box>
 
       {/* 3-COLUMN WORKSTATION LAYOUT WITH SEPARATE SCROLLING */}
-      <Grid container spacing={2} sx={{ alignItems: 'stretch' }}>
+      <Box
+        sx={{
+          flex: 1,
+          minHeight: 0,
+          display: 'flex',
+          flexDirection: { xs: 'column', md: 'row' },
+          gap: 1.5,
+          overflow: 'hidden',
+        }}
+      >
         {/* Column 1: Batches Selector (Compact Left Column) */}
-        <Grid size={{ xs: 12, md: 3, lg: 2.75 }}>
-          <Card sx={{ p: 2, borderRadius: 1, height: '100%', display: 'flex', flexDirection: 'column' }}>
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+        <Box
+          sx={{
+            width: { xs: '100%', md: 260, lg: 280 },
+            flexShrink: 0,
+            height: '100%',
+            minHeight: 0,
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          <Card sx={{ p: 1.75, borderRadius: 1, height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.25, flexShrink: 0 }}>
               <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 Batches ({activeBatches.length})
               </Typography>
@@ -885,10 +907,11 @@ export default function BatchflowBatches() {
               )}
             </Box>
 
-            {/* Separately scrollable Batches List */}
+            {/* Separately scrollable Batches List - ONLY scrolls if content requires it */}
             <Box
               sx={{
-                maxHeight: { xs: 320, md: 'calc(100vh - 310px)' },
+                flex: 1,
+                minHeight: 0,
                 overflowY: 'auto',
                 pr: 0.5,
                 display: 'flex',
@@ -942,13 +965,22 @@ export default function BatchflowBatches() {
               )}
             </Box>
           </Card>
-        </Grid>
+        </Box>
 
         {/* Column 2: Video Pipeline (Middle Column) */}
-        <Grid size={{ xs: 12, md: 5, lg: 5.25 }}>
-          <Card sx={{ p: 2, borderRadius: 1, height: '100%', display: 'flex', flexDirection: 'column' }}>
+        <Box
+          sx={{
+            flex: 1,
+            minWidth: 0,
+            height: '100%',
+            minHeight: 0,
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          <Card sx={{ p: 1.75, borderRadius: 1, height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             {/* Videos Toolbar */}
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5, flexWrap: 'wrap', gap: 1 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.25, flexWrap: 'wrap', gap: 1, flexShrink: 0 }}>
               <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 Video Pipeline ({currentBatchVideos.length})
               </Typography>
@@ -984,11 +1016,12 @@ export default function BatchflowBatches() {
               </Box>
             </Box>
 
-            {/* Separately scrollable Video Cards List */}
+            {/* Separately scrollable Video Cards List - ONLY scrolls if content requires it */}
             <Box
               ref={reportRef}
               sx={{
-                maxHeight: { xs: 450, md: 'calc(100vh - 310px)' },
+                flex: 1,
+                minHeight: 0,
                 overflowY: 'auto',
                 pr: 0.5,
                 display: 'flex',
@@ -1133,13 +1166,22 @@ export default function BatchflowBatches() {
               )}
             </Box>
           </Card>
-        </Grid>
+        </Box>
 
         {/* Column 3: Master Script (Permanent Right Column) */}
-        <Grid size={{ xs: 12, md: 4, lg: 4 }}>
-          <Card sx={{ p: 2, borderRadius: 1, height: '100%', display: 'flex', flexDirection: 'column' }}>
+        <Box
+          sx={{
+            width: { xs: '100%', md: 320, lg: 360 },
+            flexShrink: 0,
+            height: '100%',
+            minHeight: 0,
+            display: 'flex',
+            flexDirection: 'column',
+          }}
+        >
+          <Card sx={{ p: 1.75, borderRadius: 1, height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
             {/* Script Header & Toolbar */}
-            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.5 }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.25, flexShrink: 0 }}>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
                 <DescriptionRoundedIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
                 <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
@@ -1163,10 +1205,11 @@ export default function BatchflowBatches() {
               )}
             </Box>
 
-            {/* Separately scrollable Script Content */}
+            {/* Separately scrollable Script Content - ONLY scrolls if content requires it */}
             <Box
               sx={{
-                maxHeight: { xs: 350, md: 'calc(100vh - 310px)' },
+                flex: 1,
+                minHeight: 0,
                 overflowY: 'auto',
                 pr: 0.5,
                 '&::-webkit-scrollbar': { width: 5 },
@@ -1176,8 +1219,8 @@ export default function BatchflowBatches() {
               <FormattedScriptViewer text={selectedBatch?.script || ''} />
             </Box>
           </Card>
-        </Grid>
-      </Grid>
+        </Box>
+      </Box>
 
       {/* New Batch Dialog */}
       <Dialog open={newBatchOpen} onClose={() => setNewBatchOpen(false)} maxWidth="sm" fullWidth>

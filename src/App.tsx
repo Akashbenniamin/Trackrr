@@ -71,7 +71,7 @@ function AppContent() {
   return (
     <Layout onAddTask={() => setTaskDialogOpen(true)}>
       {/* Desktop sidebar offset */}
-      <Box sx={{ ml: { md: '64px' } }}>
+      <Box sx={{ ml: { md: '64px' }, flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', height: '100%' }}>
         {renderView()}
       </Box>
 

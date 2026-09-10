@@ -83,11 +83,11 @@ export default function Layout({ children, onAddTask }: LayoutProps) {
   };
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', minHeight: '100vh', bgcolor: 'background.default' }}>
+    <Box sx={{ display: 'flex', flexDirection: 'column', height: '100vh', maxHeight: '100vh', overflow: 'hidden', bgcolor: 'background.default' }}>
       <OfflineBanner />
 
       {/* Top AppBar */}
-      <AppBar position="sticky" elevation={0}>
+      <AppBar position="sticky" elevation={0} sx={{ flexShrink: 0 }}>
         <Toolbar sx={{ gap: 1, minHeight: { xs: 56, sm: 64 } }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
             <Tooltip title="Switch Workspace">
@@ -257,10 +257,13 @@ export default function Layout({ children, onAddTask }: LayoutProps) {
         component="main"
         sx={{
           flex: 1,
-          overflow: 'auto',
-          pb: isMobile ? '70px' : 0,
+          minHeight: 0,
+          overflow: isBatchflow && currentView === 'batches' ? { xs: 'auto', md: 'hidden' } : 'auto',
+          pb: isMobile ? '70px' : (isBatchflow && currentView === 'batches' ? 1.5 : 2),
           px: { xs: 1.5, sm: 2, md: 3 },
-          pt: 2,
+          pt: isBatchflow && currentView === 'batches' ? 1.5 : 2,
+          display: 'flex',
+          flexDirection: 'column',
         }}
       >
         {children}
