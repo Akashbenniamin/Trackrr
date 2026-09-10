@@ -20,6 +20,8 @@ import GroupAddRoundedIcon from '@mui/icons-material/GroupAddRounded';
 import LayersRoundedIcon from '@mui/icons-material/LayersRounded';
 import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import ArchiveRoundedIcon from '@mui/icons-material/ArchiveRounded';
+import MovieCreationRoundedIcon from '@mui/icons-material/MovieCreationRounded';
+import WorkOutlineRoundedIcon from '@mui/icons-material/WorkOutlineRounded';
 import { useAuth } from '../contexts/AuthContext';
 import AuthDialog from './AuthDialog';
 import OfflineBanner from './OfflineBanner';
@@ -92,7 +94,7 @@ export default function Layout({ children, onAddTask }: LayoutProps) {
               <Chip
                 avatar={
                   <Avatar sx={{ bgcolor: activeWorkspace?.color || '#818CF8', width: 24, height: 24, fontSize: '0.7rem' }}>
-                    {isBatchflow ? '🎬' : (activeWorkspace?.name?.[0]?.toUpperCase() ?? 'W')}
+                    {isBatchflow ? <MovieCreationRoundedIcon sx={{ fontSize: 13 }} /> : (activeWorkspace?.name?.[0]?.toUpperCase() ?? 'W')}
                   </Avatar>
                 }
                 label={
@@ -354,15 +356,15 @@ export default function Layout({ children, onAddTask }: LayoutProps) {
                     }}
                   >
                     <ListItemAvatar sx={{ minWidth: 36 }}>
-                      <Avatar sx={{ width: 28, height: 28, bgcolor: ws.color, fontSize: '0.75rem' }}>
-                        {wsIsBatch ? '🎬' : (ws.name[0]?.toUpperCase() ?? 'W')}
+                      <Avatar sx={{ width: 28, height: 28, bgcolor: ws.color, fontSize: '0.75rem', fontWeight: 800 }}>
+                        {wsIsBatch ? <MovieCreationRoundedIcon sx={{ fontSize: 15 }} /> : (ws.name[0]?.toUpperCase() ?? 'W')}
                       </Avatar>
                     </ListItemAvatar>
                     <ListItemText
                       primary={ws.name}
-                      secondary={wsIsBatch ? '🎬 BatchFlow' : '💼 Freelance'}
+                      secondary={wsIsBatch ? 'BatchFlow' : 'Freelance'}
                       primaryTypographyProps={{ fontWeight: 600, fontSize: '0.88rem' }}
-                      secondaryTypographyProps={{ fontSize: '0.68rem', color: wsIsBatch ? '#F472B6' : 'text.secondary' }}
+                      secondaryTypographyProps={{ fontSize: '0.68rem', color: wsIsBatch ? '#F472B6' : 'text.secondary', fontWeight: 600 }}
                     />
                     {ws.id === activeWorkspace?.id && <CheckRoundedIcon sx={{ color: 'primary.main', fontSize: 18 }} />}
                   </ListItemButton>
@@ -414,8 +416,11 @@ export default function Layout({ children, onAddTask }: LayoutProps) {
                 transition: 'all 0.15s ease',
               }}
             >
-              <Typography variant="body2" sx={{ fontSize: '0.78rem', fontWeight: 700 }}>💼 Freelance</Typography>
-              <Typography variant="caption" sx={{ fontSize: '0.62rem', color: 'text.secondary', display: 'block' }}>Tasks & Bills</Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
+                <WorkOutlineRoundedIcon sx={{ fontSize: 15, color: newWsType === 'freelance' ? 'primary.main' : 'text.secondary' }} />
+                <Typography variant="body2" sx={{ fontSize: '0.78rem', fontWeight: 700 }}>Freelance</Typography>
+              </Box>
+              <Typography variant="caption" sx={{ fontSize: '0.62rem', color: 'text.secondary', display: 'block', mt: 0.25 }}>Tasks & Bills</Typography>
             </Box>
 
             <Box
@@ -431,8 +436,11 @@ export default function Layout({ children, onAddTask }: LayoutProps) {
                 transition: 'all 0.15s ease',
               }}
             >
-              <Typography variant="body2" sx={{ fontSize: '0.78rem', fontWeight: 700, color: newWsType === 'batchflow' ? '#F472B6' : 'inherit' }}>🎬 BatchFlow</Typography>
-              <Typography variant="caption" sx={{ fontSize: '0.62rem', color: 'text.secondary', display: 'block' }}>Batches & Scripts</Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
+                <MovieCreationRoundedIcon sx={{ fontSize: 15, color: newWsType === 'batchflow' ? '#F472B6' : 'text.secondary' }} />
+                <Typography variant="body2" sx={{ fontSize: '0.78rem', fontWeight: 700, color: newWsType === 'batchflow' ? '#F472B6' : 'inherit' }}>BatchFlow</Typography>
+              </Box>
+              <Typography variant="caption" sx={{ fontSize: '0.62rem', color: 'text.secondary', display: 'block', mt: 0.25 }}>Batches & Scripts</Typography>
             </Box>
           </Box>
 

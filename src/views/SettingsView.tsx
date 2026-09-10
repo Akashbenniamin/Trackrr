@@ -23,6 +23,8 @@ import AirRoundedIcon from '@mui/icons-material/AirRounded';
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
 import StorageRoundedIcon from '@mui/icons-material/StorageRounded';
 import DataObjectRoundedIcon from '@mui/icons-material/DataObjectRounded';
+import MovieCreationRoundedIcon from '@mui/icons-material/MovieCreationRounded';
+import WorkOutlineRoundedIcon from '@mui/icons-material/WorkOutlineRounded';
 import { useApp } from '../contexts/AppContext';
 import { useAuth } from '../contexts/AuthContext';
 import { storage } from '../lib/storage';
@@ -428,7 +430,7 @@ export default function SettingsView() {
             <Box>
               <Typography variant="h6" sx={{ fontWeight: 800 }}>Workspace Overview</Typography>
               <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                Active: <strong>{activeWorkspace?.name}</strong> ({isBatchflow ? '🎬 BatchFlow Workspace' : '💼 Freelance Workspace'})
+                Active: <strong>{activeWorkspace?.name}</strong> ({isBatchflow ? 'BatchFlow Workspace' : 'Freelance Workspace'})
               </Typography>
             </Box>
             <Chip
@@ -638,7 +640,7 @@ export default function SettingsView() {
                   >
                     <ListItemAvatar sx={{ minWidth: 44 }}>
                       <Avatar sx={{ width: 34, height: 34, bgcolor: ws.color, fontSize: '0.85rem', fontWeight: 700 }}>
-                        {isWsBatch ? '🎬' : (ws.name?.[0]?.toUpperCase() || 'W')}
+                        {isWsBatch ? <MovieCreationRoundedIcon sx={{ fontSize: 18 }} /> : (ws.name?.[0]?.toUpperCase() || 'W')}
                       </Avatar>
                     </ListItemAvatar>
                     <ListItemText
@@ -646,7 +648,7 @@ export default function SettingsView() {
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                           <Typography variant="body2" sx={{ fontWeight: 700, fontSize: '0.92rem' }}>{ws.name}</Typography>
                           <Chip
-                            label={isWsBatch ? '🎬 BatchFlow' : '💼 Freelance'}
+                            label={isWsBatch ? 'BatchFlow' : 'Freelance'}
                             size="small"
                             sx={{
                               height: 18,
@@ -787,7 +789,10 @@ export default function SettingsView() {
                     transition: 'all 0.15s ease',
                   }}
                 >
-                  <Typography variant="body2" sx={{ fontWeight: 800 }}>💼 Freelance</Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
+                    <WorkOutlineRoundedIcon sx={{ fontSize: 16, color: editWs?.type === 'freelance' ? 'primary.main' : 'text.secondary' }} />
+                    <Typography variant="body2" sx={{ fontWeight: 800 }}>Freelance</Typography>
+                  </Box>
                   <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '0.68rem', mt: 0.25 }}>
                     Video pricing, monthly salary & bills
                   </Typography>
@@ -806,9 +811,12 @@ export default function SettingsView() {
                     transition: 'all 0.15s ease',
                   }}
                 >
-                  <Typography variant="body2" sx={{ fontWeight: 800, color: editWs?.type === 'batchflow' ? '#F472B6' : 'inherit' }}>
-                    🎬 BatchFlow
-                  </Typography>
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 0.5 }}>
+                    <MovieCreationRoundedIcon sx={{ fontSize: 16, color: editWs?.type === 'batchflow' ? '#F472B6' : 'text.secondary' }} />
+                    <Typography variant="body2" sx={{ fontWeight: 800, color: editWs?.type === 'batchflow' ? '#F472B6' : 'inherit' }}>
+                      BatchFlow
+                    </Typography>
+                  </Box>
                   <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '0.68rem', mt: 0.25 }}>
                     Batches, script parser & pipeline
                   </Typography>
