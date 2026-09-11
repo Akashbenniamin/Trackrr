@@ -149,6 +149,8 @@ export interface AppSettings {
   theme_color: string;
   theme_style?: ThemeStyle;
   show_completed: boolean;
+  meta_app_id?: string;
+  meta_client_token?: string;
 }
 
 export type ViewName =

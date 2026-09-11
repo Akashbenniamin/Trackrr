@@ -58,7 +58,7 @@ interface AppContextType {
   deleteBatchflowBatch: (id: string) => Promise<void>;
   addBatchflowVideo: (data: Partial<BatchflowVideo>) => Promise<BatchflowVideo | null>;
   updateBatchflowVideo: (id: string, data: Partial<BatchflowVideo>) => Promise<void>;
-  updateBatchflowVideoStatus: (id: string, status: BatchflowVideoStatus, videoUrl?: string | null) => Promise<void>;
+  updateBatchflowVideoStatus: (id: string, status: BatchflowVideoStatus, videoUrl?: string | null, postedDate?: string | null) => Promise<void>;
   deleteBatchflowVideo: (id: string) => Promise<void>;
   importBackupData: (data: any) => Promise<{ success: boolean; message: string }>;
   updateSettings: (data: Partial<AppSettings>) => Promise<void>;
@@ -1084,14 +1084,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setBatchflowVideos(prev => prev.map(v => v.id === id ? { ...v, ...data } : v));
   }, [assertCanEdit, isCloudActive]);
 
-  const updateBatchflowVideoStatus = useCallback(async (id: string, status: BatchflowVideoStatus, videoUrl?: string | null) => {
+  const updateBatchflowVideoStatus = useCallback(async (
+    id: string,
+    status: BatchflowVideoStatus,
+    videoUrl?: string | null,
+    postedDate?: string | null
+  ) => {
     assertCanEdit();
     const now = new Date().toISOString();
     const updates: Partial<BatchflowVideo> = { status };
     if (status === 'Pending') updates.waiting_date = now;
     if (status === 'Edited') updates.edited_date = now;
     if (status === 'Posted') {
-      updates.posted_date = now;
+      updates.posted_date = postedDate ? (postedDate.includes('T') ? postedDate : `${postedDate}T12:00:00.000Z`) : now;
       if (videoUrl !== undefined) {
         updates.video_url = videoUrl;
       }

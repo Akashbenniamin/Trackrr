@@ -1,10 +1,12 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Box, Card, Typography, Button, Select, MenuItem, Divider, Fade,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField,
   Avatar, IconButton, Alert, List, ListItem,
   ListItemAvatar, ListItemText, Chip, Snackbar, ButtonBase,
+  CircularProgress,
 } from '@mui/material';
+import InstagramIcon from '@mui/icons-material/Instagram';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 import EditRoundedIcon from '@mui/icons-material/EditRounded';
@@ -28,6 +30,7 @@ import WorkOutlineRoundedIcon from '@mui/icons-material/WorkOutlineRounded';
 import { useApp } from '../contexts/AppContext';
 import { useAuth } from '../contexts/AuthContext';
 import { storage } from '../lib/storage';
+import { fetchVideoMetadata, type VideoMetadataResult } from '../lib/videoMetadata';
 import type { WorkspaceType, ThemeStyle } from '../types';
 
 const WS_COLORS = ['#818CF8', '#34D399', '#F59E0B', '#F87171', '#A78BFA', '#60A5FA', '#FB7185', '#4ADE80'];
@@ -206,6 +209,51 @@ export default function SettingsView() {
 
   const [importing, setImporting] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
+
+  // Meta / Instagram oEmbed API settings
+  const [metaAppId, setMetaAppId] = useState(settings.meta_app_id || '');
+  const [metaClientToken, setMetaClientToken] = useState(settings.meta_client_token || '');
+  const [metaTestUrl, setMetaTestUrl] = useState('');
+  const [metaTesting, setMetaTesting] = useState(false);
+  const [metaTestResult, setMetaTestResult] = useState<VideoMetadataResult | null>(null);
+
+  useEffect(() => {
+    if (settings.meta_app_id !== undefined) setMetaAppId(settings.meta_app_id || '');
+    if (settings.meta_client_token !== undefined) setMetaClientToken(settings.meta_client_token || '');
+  }, [settings.meta_app_id, settings.meta_client_token]);
+
+  const handleSaveMetaCredentials = () => {
+    updateSettings({
+      meta_app_id: metaAppId.trim(),
+      meta_client_token: metaClientToken.trim(),
+    });
+    if (metaAppId.trim() && metaClientToken.trim()) {
+      localStorage.setItem('trackrr_meta_access_token', `${metaAppId.trim()}|${metaClientToken.trim()}`);
+    } else {
+      localStorage.removeItem('trackrr_meta_access_token');
+    }
+    setToastMessage('Meta / Instagram API credentials saved successfully!');
+  };
+
+  const handleTestMetaApi = async () => {
+    if (!metaTestUrl.trim()) return;
+    setMetaTesting(true);
+    setMetaTestResult(null);
+    try {
+      const res = await fetchVideoMetadata(metaTestUrl.trim(), {
+        metaAppId: metaAppId.trim() || undefined,
+        metaClientToken: metaClientToken.trim() || undefined,
+      });
+      setMetaTestResult(res);
+    } catch (err: any) {
+      setMetaTestResult({
+        provider: 'other',
+        error: err?.message || 'Error testing video metadata.',
+      });
+    } finally {
+      setMetaTesting(false);
+    }
+  };
 
   const isBatchflow = activeWorkspace?.type === 'batchflow';
 
@@ -756,6 +804,156 @@ export default function SettingsView() {
           >
             Copy BatchFlow SQL Migration
           </Button>
+        </Card>
+
+        {/* Meta / Instagram oEmbed API Configuration */}
+        <Card sx={{ p: 2.5, mb: 2.5 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <InstagramIcon sx={{ color: '#E1306C', fontSize: 24 }} />
+              <Typography variant="h6" sx={{ fontWeight: 800 }}>Meta & Instagram Auto-Fetch</Typography>
+            </Box>
+            <Chip
+              label={metaAppId && metaClientToken ? 'Configured' : 'Optional / Fallback Active'}
+              color={metaAppId && metaClientToken ? 'success' : 'default'}
+              size="small"
+              sx={{ fontWeight: 700, fontSize: '0.7rem' }}
+            />
+          </Box>
+          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2.5 }}>
+            Automatically extracts publication dates and post details when pasting Instagram Reel / Post URLs using Meta's official oEmbed API.
+          </Typography>
+
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mb: 2.5 }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
+              <TextField
+                label="Meta App ID"
+                size="small"
+                fullWidth
+                placeholder="e.g. 123456789012345"
+                value={metaAppId}
+                onChange={e => setMetaAppId(e.target.value)}
+                helperText="From developers.facebook.com app dashboard"
+              />
+              <TextField
+                label="Meta Client Token"
+                size="small"
+                fullWidth
+                placeholder="e.g. a1b2c3d4e5f6..."
+                value={metaClientToken}
+                onChange={e => setMetaClientToken(e.target.value)}
+                helperText="Found in App Settings > Advanced > Client Token"
+              />
+            </Box>
+
+            <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
+              <Button
+                variant="contained"
+                onClick={handleSaveMetaCredentials}
+                sx={{
+                  bgcolor: '#E1306C',
+                  '&:hover': { bgcolor: '#C13584' },
+                  fontWeight: 700,
+                  textTransform: 'none',
+                  px: 2.5,
+                }}
+              >
+                Save Meta Credentials
+              </Button>
+              {(metaAppId || metaClientToken) && (
+                <Button
+                  variant="outlined"
+                  color="inherit"
+                  onClick={() => {
+                    setMetaAppId('');
+                    setMetaClientToken('');
+                    updateSettings({ meta_app_id: '', meta_client_token: '' });
+                    localStorage.removeItem('trackrr_meta_access_token');
+                    setToastMessage('Meta credentials cleared.');
+                  }}
+                  sx={{ textTransform: 'none', borderColor: 'divider', color: 'text.secondary' }}
+                >
+                  Clear Credentials
+                </Button>
+              )}
+            </Box>
+          </Box>
+
+          {/* Test Link Fetch Section */}
+          <Box sx={{ p: 2, bgcolor: 'action.hover', borderRadius: 2, border: '1px solid', borderColor: 'divider', mb: 2 }}>
+            <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.5 }}>
+              Test URL Metadata Extraction
+            </Typography>
+            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1.5 }}>
+              Paste an Instagram post or Reel link below to verify date extraction.
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 1.5, flexWrap: { xs: 'wrap', sm: 'nowrap' } }}>
+              <TextField
+                size="small"
+                fullWidth
+                placeholder="https://www.instagram.com/reel/... or https://youtube.com/..."
+                value={metaTestUrl}
+                onChange={e => setMetaTestUrl(e.target.value)}
+              />
+              <Button
+                variant="outlined"
+                onClick={handleTestMetaApi}
+                disabled={metaTesting || !metaTestUrl.trim()}
+                sx={{ textTransform: 'none', fontWeight: 700, whiteSpace: 'nowrap', minWidth: 120 }}
+              >
+                {metaTesting ? <CircularProgress size={18} /> : 'Test Fetch'}
+              </Button>
+            </Box>
+
+            {metaTestResult && (
+              <Box sx={{ mt: 1.5, p: 1.5, borderRadius: 1.5, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+                {metaTestResult.postedDate ? (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                      <CheckCircleRoundedIcon sx={{ color: '#10B981', fontSize: 18 }} />
+                      <Typography variant="body2" sx={{ fontWeight: 700, color: '#10B981' }}>
+                        Extracted Date: {metaTestResult.postedDate}
+                      </Typography>
+                      <Chip
+                        label={metaTestResult.usedOfficialMetaApi ? 'Official Meta oEmbed API' : 'Fallback Resolver'}
+                        size="small"
+                        color={metaTestResult.usedOfficialMetaApi ? 'success' : 'default'}
+                        sx={{ height: 20, fontSize: '0.65rem', fontWeight: 700 }}
+                      />
+                    </Box>
+                    {metaTestResult.title && (
+                      <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                        Title / Caption: {metaTestResult.title}
+                      </Typography>
+                    )}
+                    {metaTestResult.author && (
+                      <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                        Author: @{metaTestResult.author}
+                      </Typography>
+                    )}
+                  </Box>
+                ) : (
+                  <Alert severity={metaTestResult.error ? 'warning' : 'info'} sx={{ width: '100%', py: 0.5, fontSize: '0.8rem' }}>
+                    {metaTestResult.error || 'No date found for this URL.'}
+                  </Alert>
+                )}
+              </Box>
+            )}
+          </Box>
+
+          {/* Quick Setup Instructions */}
+          <Alert severity="info" sx={{ fontSize: '0.78rem', '& .MuiAlert-message': { width: '100%' } }}>
+            <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.5 }}>
+              How to get Meta oEmbed App Credentials (Free 1-time setup):
+            </Typography>
+            <ol style={{ margin: 0, paddingLeft: 18, lineHeight: 1.6 }}>
+              <li>Visit <a href="https://developers.facebook.com" target="_blank" rel="noopener noreferrer" style={{ color: '#38BDF8', fontWeight: 600 }}>developers.facebook.com</a> and click <strong>Create App</strong> (type: <em>Other</em> &gt; <em>Consumer</em> or <em>Business</em>).</li>
+              <li>Under "Add Products", find <strong>oEmbed</strong> and click <strong>Set Up</strong>.</li>
+              <li>Go to <strong>App settings &gt; Basic</strong> to copy your <strong>App ID</strong>.</li>
+              <li>Click <strong>Advanced</strong> under App Settings to copy your <strong>Client Token</strong>.</li>
+              <li>Paste both fields above and click <strong>Save Meta Credentials</strong>. (These app tokens never expire!)</li>
+            </ol>
+          </Alert>
         </Card>
 
         {/* Workspace Dialog (Create / Edit) */}

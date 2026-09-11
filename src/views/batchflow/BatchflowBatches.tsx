@@ -3,7 +3,7 @@ import {
   Box, Card, Typography, Button, TextField, Chip, IconButton,
   Dialog, DialogTitle, DialogContent, DialogActions,
   Select, MenuItem, InputLabel, FormControl, Divider, Tooltip,
-  Paper, Alert, LinearProgress, Menu,
+  Paper, Alert, LinearProgress, Menu, CircularProgress,
 } from '@mui/material';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import EditRoundedIcon from '@mui/icons-material/EditRounded';
@@ -20,11 +20,14 @@ import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import VideoLibraryRoundedIcon from '@mui/icons-material/VideoLibraryRounded';
 import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded';
 import LinkRoundedIcon from '@mui/icons-material/LinkRounded';
+import InstagramIcon from '@mui/icons-material/Instagram';
+import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import { registerOkineFont } from '../../lib/okineFont';
 import { useApp } from '../../contexts/AppContext';
 import { usePersistedState } from '../../lib/usePersistedState';
+import { fetchVideoMetadata, cleanVideoUrl, type VideoMetadataResult } from '../../lib/videoMetadata';
 import type { BatchflowBatch, BatchflowVideo, BatchflowVideoStatus } from '../../types';
 
 const STATUS_COLORS: Record<BatchflowVideoStatus, { bg: string; text: string; border: string }> = {
@@ -251,7 +254,7 @@ export default function BatchflowBatches() {
     batchflowClients, batchflowBatches, batchflowVideos,
     addBatchflowBatch, updateBatchflowBatch, deleteBatchflowBatch,
     addBatchflowVideo, updateBatchflowVideo, updateBatchflowVideoStatus, deleteBatchflowVideo,
-    canEdit, activeWorkspace,
+    canEdit, activeWorkspace, settings,
   } = useApp();
 
   const activeClients = batchflowClients.filter(c => !c.archived);
@@ -306,11 +309,82 @@ export default function BatchflowBatches() {
   const [statusFilter, setStatusFilter] = useState<'ALL' | BatchflowVideoStatus>('ALL');
 
   const [editVideoOpen, setEditVideoOpen] = useState(false);
-  const [editingVideo, setEditingVideo] = useState<{ id: string; name: string; script_number: number; video_url?: string } | null>(null);
+  const [editingVideo, setEditingVideo] = useState<{
+    id: string;
+    name: string;
+    script_number: number;
+    video_url?: string;
+    posted_date?: string;
+    status?: BatchflowVideoStatus;
+  } | null>(null);
+  const [editingMetaLoading, setEditingMetaLoading] = useState(false);
+  const [editingMetaResult, setEditingMetaResult] = useState<VideoMetadataResult | null>(null);
 
   const [postedLinkDialogOpen, setPostedLinkDialogOpen] = useState(false);
   const [postedTargetVideo, setPostedTargetVideo] = useState<BatchflowVideo | null>(null);
   const [postedVideoUrl, setPostedVideoUrl] = useState('');
+  const [postedCustomDate, setPostedCustomDate] = useState(new Date().toISOString().slice(0, 10));
+  const [postedMetaLoading, setPostedMetaLoading] = useState(false);
+  const [postedMetaResult, setPostedMetaResult] = useState<VideoMetadataResult | null>(null);
+
+  const handleFetchPostedMetadata = async (urlInput?: string) => {
+    const raw = (urlInput !== undefined ? urlInput : postedVideoUrl).trim();
+    if (!raw) return;
+
+    const cleaned = cleanVideoUrl(raw);
+    setPostedVideoUrl(cleaned);
+    setPostedMetaLoading(true);
+    setPostedMetaResult(null);
+
+    try {
+      const res = await fetchVideoMetadata(cleaned, {
+        metaAppId: settings.meta_app_id,
+        metaClientToken: settings.meta_client_token,
+      });
+      setPostedMetaResult(res);
+
+      if (res.postedDate) {
+        setPostedCustomDate(res.postedDate);
+      }
+    } catch (err: any) {
+      setPostedMetaResult({
+        provider: 'other',
+        error: err?.message || 'Failed to fetch video details',
+      });
+    } finally {
+      setPostedMetaLoading(false);
+    }
+  };
+
+  const handleFetchEditingMetadata = async (urlInput?: string) => {
+    if (!editingVideo) return;
+    const raw = (urlInput !== undefined ? urlInput : (editingVideo.video_url || '')).trim();
+    if (!raw) return;
+
+    const cleaned = cleanVideoUrl(raw);
+    setEditingVideo(prev => prev ? { ...prev, video_url: cleaned } : null);
+    setEditingMetaLoading(true);
+    setEditingMetaResult(null);
+
+    try {
+      const res = await fetchVideoMetadata(cleaned, {
+        metaAppId: settings.meta_app_id,
+        metaClientToken: settings.meta_client_token,
+      });
+      setEditingMetaResult(res);
+
+      if (res.postedDate) {
+        setEditingVideo(prev => prev ? { ...prev, posted_date: res.postedDate || undefined } : null);
+      }
+    } catch (err: any) {
+      setEditingMetaResult({
+        provider: 'other',
+        error: err?.message || 'Failed to fetch video details',
+      });
+    } finally {
+      setEditingMetaLoading(false);
+    }
+  };
 
   const [contextMenu, setContextMenu] = useState<{
     mouseX: number;
@@ -377,6 +451,9 @@ export default function BatchflowBatches() {
     if (nextStatus === 'Posted') {
       setPostedTargetVideo(v);
       setPostedVideoUrl(v.video_url || '');
+      setPostedCustomDate(v.posted_date ? v.posted_date.slice(0, 10) : new Date().toISOString().slice(0, 10));
+      setPostedMetaResult(null);
+      setPostedMetaLoading(false);
       setPostedLinkDialogOpen(true);
       return;
     }
@@ -385,23 +462,28 @@ export default function BatchflowBatches() {
 
   const handleSavePostedLink = async (skip = false) => {
     if (!postedTargetVideo) return;
-    const urlToSave = skip ? null : (postedVideoUrl.trim() || null);
+    const urlToSave = skip ? null : (postedVideoUrl.trim() ? cleanVideoUrl(postedVideoUrl.trim()) : null);
+    const dateToSave = postedCustomDate.trim() || new Date().toISOString().slice(0, 10);
+
     if (postedTargetVideo.status !== 'Posted') {
-      await updateBatchflowVideoStatus(postedTargetVideo.id, 'Posted', urlToSave);
+      await updateBatchflowVideoStatus(postedTargetVideo.id, 'Posted', urlToSave, dateToSave);
     } else {
       await updateBatchflowVideo(postedTargetVideo.id, {
         video_url: skip ? null : urlToSave,
+        posted_date: dateToSave.includes('T') ? dateToSave : `${dateToSave}T12:00:00.000Z`,
       });
     }
     setPostedLinkDialogOpen(false);
     setPostedTargetVideo(null);
     setPostedVideoUrl('');
+    setPostedMetaResult(null);
   };
 
   const handleCancelPostedLink = () => {
     setPostedLinkDialogOpen(false);
     setPostedTargetVideo(null);
     setPostedVideoUrl('');
+    setPostedMetaResult(null);
   };
 
   const handleSaveScript = async () => {
@@ -1476,7 +1558,16 @@ export default function BatchflowBatches() {
                     key={v.id}
                     onDoubleClick={() => {
                       if (canEdit) {
-                        setEditingVideo({ id: v.id, name: v.name, script_number: v.script_number, video_url: v.video_url || '' });
+                        setEditingVideo({
+                          id: v.id,
+                          name: v.name,
+                          script_number: v.script_number,
+                          video_url: v.video_url || '',
+                          posted_date: v.posted_date ? v.posted_date.slice(0, 10) : '',
+                          status: v.status,
+                        });
+                        setEditingMetaResult(null);
+                        setEditingMetaLoading(false);
                         setEditVideoOpen(true);
                       }
                     }}
@@ -1531,28 +1622,34 @@ export default function BatchflowBatches() {
                           <Typography variant="body2" noWrap sx={{ fontWeight: 700 }}>
                             {v.name}
                           </Typography>
-                          {v.video_url && (
-                            <Tooltip title={`Go to Video: ${v.video_url}`}>
-                              <IconButton
-                                size="small"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  window.open(v.video_url!, '_blank', 'noopener,noreferrer');
-                                }}
-                                onDoubleClick={(e) => e.stopPropagation()}
-                                sx={{
-                                  p: 0.35,
-                                  color: '#38BDF8',
-                                  bgcolor: 'rgba(56, 189, 248, 0.12)',
-                                  border: '1px solid rgba(56, 189, 248, 0.3)',
-                                  borderRadius: 1,
-                                  '&:hover': { bgcolor: 'rgba(56, 189, 248, 0.25)' },
-                                }}
-                              >
-                                <OpenInNewRoundedIcon sx={{ fontSize: 13 }} />
-                              </IconButton>
-                            </Tooltip>
-                          )}
+                          {v.video_url && (() => {
+                            const isIg = v.video_url.toLowerCase().includes('instagram.com') || v.video_url.toLowerCase().includes('instagr.am');
+                            return (
+                              <Tooltip title={`Open ${isIg ? 'Instagram' : 'Video'}: ${v.video_url}`}>
+                                <IconButton
+                                  size="small"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    window.open(v.video_url!, '_blank', 'noopener,noreferrer');
+                                  }}
+                                  onDoubleClick={(e) => e.stopPropagation()}
+                                  sx={{
+                                    p: 0.35,
+                                    color: isIg ? '#E1306C' : '#38BDF8',
+                                    bgcolor: isIg ? 'rgba(225, 48, 108, 0.12)' : 'rgba(56, 189, 248, 0.12)',
+                                    border: '1px solid',
+                                    borderColor: isIg ? 'rgba(225, 48, 108, 0.3)' : 'rgba(56, 189, 248, 0.3)',
+                                    borderRadius: 1,
+                                    '&:hover': {
+                                      bgcolor: isIg ? 'rgba(225, 48, 108, 0.25)' : 'rgba(56, 189, 248, 0.25)',
+                                    },
+                                  }}
+                                >
+                                  {isIg ? <InstagramIcon sx={{ fontSize: 13 }} /> : <OpenInNewRoundedIcon sx={{ fontSize: 13 }} />}
+                                </IconButton>
+                              </Tooltip>
+                            );
+                          })()}
                         </Box>
                         <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.68rem', display: 'block' }}>
                           {v.status === 'Posted' && v.posted_date ? `Posted: ${new Date(v.posted_date).toLocaleDateString()}` :
@@ -1597,7 +1694,16 @@ export default function BatchflowBatches() {
                             size="small"
                             onClick={(e) => {
                               e.stopPropagation();
-                              setEditingVideo({ id: v.id, name: v.name, script_number: v.script_number, video_url: v.video_url || '' });
+                              setEditingVideo({
+                                id: v.id,
+                                name: v.name,
+                                script_number: v.script_number,
+                                video_url: v.video_url || '',
+                                posted_date: v.posted_date ? v.posted_date.slice(0, 10) : '',
+                                status: v.status,
+                              });
+                              setEditingMetaResult(null);
+                              setEditingMetaLoading(false);
                               setEditVideoOpen(true);
                             }}
                             onDoubleClick={(e) => e.stopPropagation()}
@@ -1858,6 +1964,7 @@ script 2
           <TextField
             label="Video Title"
             fullWidth
+            size="small"
             value={editingVideo?.name || ''}
             onChange={e => setEditingVideo(prev => prev ? { ...prev, name: e.target.value } : null)}
           />
@@ -1865,15 +1972,75 @@ script 2
             label="Script #"
             type="number"
             fullWidth
+            size="small"
             value={editingVideo?.script_number || 1}
             onChange={e => setEditingVideo(prev => prev ? { ...prev, script_number: parseInt(e.target.value) || 1 } : null)}
           />
+          <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+            <TextField
+              label="Video URL (Optional)"
+              placeholder="https://instagram.com/... or https://youtube.com/..."
+              fullWidth
+              size="small"
+              value={editingVideo?.video_url || ''}
+              onChange={e => setEditingVideo(prev => prev ? { ...prev, video_url: e.target.value } : null)}
+              onPaste={(e) => {
+                const pasted = e.clipboardData.getData('text');
+                if (pasted && (pasted.includes('instagram.com') || pasted.includes('youtu'))) {
+                  setTimeout(() => {
+                    handleFetchEditingMetadata(pasted);
+                  }, 50);
+                }
+              }}
+            />
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => handleFetchEditingMetadata()}
+              disabled={editingMetaLoading || !editingVideo?.video_url?.trim()}
+              sx={{
+                whiteSpace: 'nowrap',
+                minWidth: 95,
+                height: 40,
+                textTransform: 'none',
+                fontWeight: 700,
+                fontSize: '0.78rem',
+                borderColor: 'rgba(225, 48, 108, 0.4)',
+                color: '#E1306C',
+                '&:hover': {
+                  borderColor: '#E1306C',
+                  bgcolor: 'rgba(225, 48, 108, 0.08)',
+                },
+              }}
+            >
+              {editingMetaLoading ? <CircularProgress size={16} sx={{ color: '#E1306C' }} /> : 'Auto-Fetch'}
+            </Button>
+          </Box>
+
+          {editingMetaResult && (
+            <Box sx={{ p: 1, borderRadius: 1.5, bgcolor: 'action.hover', border: '1px solid', borderColor: 'divider' }}>
+              {editingMetaResult.postedDate ? (
+                <Typography variant="caption" sx={{ fontWeight: 700, color: '#10B981', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                  <CheckCircleRoundedIcon sx={{ fontSize: 15 }} />
+                  Detected Date: {editingMetaResult.postedDate} ({editingMetaResult.usedOfficialMetaApi ? 'Official Meta API' : 'Fallback'})
+                </Typography>
+              ) : (
+                <Typography variant="caption" sx={{ color: '#F59E0B' }}>
+                  {editingMetaResult.error || 'No date found for this URL.'}
+                </Typography>
+              )}
+            </Box>
+          )}
+
           <TextField
-            label="Video URL (Optional)"
-            placeholder="https://..."
+            label="Posted Date"
+            type="date"
             fullWidth
-            value={editingVideo?.video_url || ''}
-            onChange={e => setEditingVideo(prev => prev ? { ...prev, video_url: e.target.value } : null)}
+            size="small"
+            value={editingVideo?.posted_date || ''}
+            onChange={e => setEditingVideo(prev => prev ? { ...prev, posted_date: e.target.value } : null)}
+            slotProps={{ inputLabel: { shrink: true } }}
+            helperText="Date shown on video card & PDF export"
           />
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
@@ -1882,10 +2049,15 @@ script 2
             variant="contained"
             onClick={async () => {
               if (editingVideo) {
+                const clean = editingVideo.video_url?.trim() ? cleanVideoUrl(editingVideo.video_url.trim()) : null;
+                const dateVal = editingVideo.posted_date?.trim()
+                  ? (editingVideo.posted_date.includes('T') ? editingVideo.posted_date : `${editingVideo.posted_date}T12:00:00.000Z`)
+                  : undefined;
                 await updateBatchflowVideo(editingVideo.id, {
                   name: editingVideo.name.trim(),
                   script_number: editingVideo.script_number,
-                  video_url: editingVideo.video_url?.trim() || null,
+                  video_url: clean,
+                  ...(dateVal ? { posted_date: dateVal } : {}),
                 });
                 setEditVideoOpen(false);
               }
@@ -1937,29 +2109,130 @@ script 2
         fullWidth
       >
         <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
-          <LinkRoundedIcon sx={{ color: '#10B981' }} />
-          {postedTargetVideo?.status === 'Posted' ? 'Edit Video Link' : 'Add Video Link (Optional)'}
+          <InstagramIcon sx={{ color: '#E1306C' }} />
+          {postedTargetVideo?.status === 'Posted' ? 'Edit Video Link & Date' : 'Add Video Link & Date'}
         </DialogTitle>
-        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, pt: 1 }}>
-          <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.82rem' }}>
-            Video: <strong>{postedTargetVideo?.name}</strong> (#{postedTargetVideo?.script_number})
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.82rem' }}>
+              Video: <strong>{postedTargetVideo?.name}</strong> (#{postedTargetVideo?.script_number})
+            </Typography>
+            <Chip
+              label={postedTargetVideo?.status || 'Posted'}
+              size="small"
+              sx={{ height: 20, fontSize: '0.65rem', fontWeight: 700, bgcolor: 'rgba(16, 185, 129, 0.15)', color: '#10B981' }}
+            />
+          </Box>
+          <Typography variant="caption" sx={{ color: 'text.disabled', lineHeight: 1.4 }}>
+            Paste the Instagram Reel, post, or video URL. Trackrr can automatically extract the publication date via Meta oEmbed API!
           </Typography>
-          <Typography variant="caption" sx={{ color: 'text.disabled' }}>
-            Paste the published reel, post, or drive video link below. You can also right-click this card anytime to access "Go to Video".
-          </Typography>
+
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+            <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+              <TextField
+                label="Video URL"
+                placeholder="https://instagram.com/reel/... or youtube.com/..."
+                fullWidth
+                size="small"
+                value={postedVideoUrl}
+                onChange={(e) => setPostedVideoUrl(e.target.value)}
+                onPaste={(e) => {
+                  const pasted = e.clipboardData.getData('text');
+                  if (pasted && (pasted.includes('instagram.com') || pasted.includes('youtu'))) {
+                    setTimeout(() => {
+                      handleFetchPostedMetadata(pasted);
+                    }, 50);
+                  }
+                }}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter') {
+                    e.preventDefault();
+                    handleSavePostedLink(false);
+                  }
+                }}
+                autoFocus
+              />
+              <Button
+                variant="outlined"
+                size="small"
+                onClick={() => handleFetchPostedMetadata()}
+                disabled={postedMetaLoading || !postedVideoUrl.trim()}
+                sx={{
+                  whiteSpace: 'nowrap',
+                  minWidth: 100,
+                  height: 40,
+                  textTransform: 'none',
+                  fontWeight: 700,
+                  fontSize: '0.78rem',
+                  borderColor: 'rgba(225, 48, 108, 0.4)',
+                  color: '#E1306C',
+                  '&:hover': {
+                    borderColor: '#E1306C',
+                    bgcolor: 'rgba(225, 48, 108, 0.08)',
+                  },
+                }}
+              >
+                {postedMetaLoading ? (
+                  <CircularProgress size={16} sx={{ color: '#E1306C' }} />
+                ) : (
+                  <>
+                    <AutoAwesomeRoundedIcon sx={{ fontSize: 15, mr: 0.5 }} />
+                    Auto-Fetch
+                  </>
+                )}
+              </Button>
+            </Box>
+
+            {/* Metadata Fetch Status / Preview */}
+            {postedMetaLoading && (
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, px: 1, py: 0.5 }}>
+                <CircularProgress size={14} sx={{ color: '#E1306C' }} />
+                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                  Fetching post details from Meta oEmbed...
+                </Typography>
+              </Box>
+            )}
+
+            {postedMetaResult && (
+              <Box sx={{ p: 1.25, borderRadius: 1.5, bgcolor: 'action.hover', border: '1px solid', borderColor: 'divider' }}>
+                {postedMetaResult.postedDate ? (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+                      <CheckCircleRoundedIcon sx={{ color: '#10B981', fontSize: 16 }} />
+                      <Typography variant="caption" sx={{ fontWeight: 800, color: '#10B981' }}>
+                        Date Detected: {postedMetaResult.postedDate}
+                      </Typography>
+                      <Chip
+                        label={postedMetaResult.usedOfficialMetaApi ? 'Official Meta API' : 'Fallback'}
+                        size="small"
+                        color={postedMetaResult.usedOfficialMetaApi ? 'success' : 'default'}
+                        sx={{ height: 18, fontSize: '0.6rem', fontWeight: 700 }}
+                      />
+                    </Box>
+                    {postedMetaResult.author && (
+                      <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.7rem' }}>
+                        Posted by <strong>@{postedMetaResult.author}</strong>
+                      </Typography>
+                    )}
+                  </Box>
+                ) : (
+                  <Typography variant="caption" sx={{ color: '#F59E0B', display: 'block', fontSize: '0.72rem' }}>
+                    {postedMetaResult.error || 'Could not auto-extract publication date. Please pick a date below.'}
+                  </Typography>
+                )}
+              </Box>
+            )}
+          </Box>
+
           <TextField
-            label="Video URL"
-            placeholder="https://instagram.com/reel/... or https://youtube.com/..."
+            label="Posted Date"
+            type="date"
             fullWidth
-            value={postedVideoUrl}
-            onChange={(e) => setPostedVideoUrl(e.target.value)}
-            onKeyDown={(e) => {
-              if (e.key === 'Enter') {
-                e.preventDefault();
-                handleSavePostedLink(false);
-              }
-            }}
-            autoFocus
+            size="small"
+            value={postedCustomDate}
+            onChange={(e) => setPostedCustomDate(e.target.value)}
+            slotProps={{ inputLabel: { shrink: true } }}
+            helperText="Auto-detected from Instagram or manually adjustable"
           />
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2, justifyContent: 'space-between' }}>
@@ -1975,7 +2248,7 @@ script 2
                 onClick={() => handleSavePostedLink(true)}
                 sx={{ textTransform: 'none', color: 'text.secondary' }}
               >
-                Skip
+                Skip Link
               </Button>
             )}
           </Box>
@@ -1990,7 +2263,7 @@ script 2
               px: 2.5,
             }}
           >
-            {postedTargetVideo?.status === 'Posted' ? 'Save Link' : 'Save & Post'}
+            {postedTargetVideo?.status === 'Posted' ? 'Save Changes' : 'Save & Post'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -2054,6 +2327,9 @@ script 2
                 const v = contextMenu.video;
                 setPostedTargetVideo(v);
                 setPostedVideoUrl(v.video_url || '');
+                setPostedCustomDate(v.posted_date ? v.posted_date.slice(0, 10) : new Date().toISOString().slice(0, 10));
+                setPostedMetaResult(null);
+                setPostedMetaLoading(false);
                 setPostedLinkDialogOpen(true);
               }
               setContextMenu(null);
@@ -2061,7 +2337,7 @@ script 2
             sx={{ gap: 1.25, fontSize: '0.85rem' }}
           >
             <LinkRoundedIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
-            {contextMenu?.video.video_url ? 'Edit Video Link' : 'Add Video Link'}
+            {contextMenu?.video.video_url ? 'Edit Video Link & Date' : 'Add Video Link & Date'}
           </MenuItem>
         )}
 
@@ -2072,7 +2348,16 @@ script 2
             onClick={() => {
               if (contextMenu?.video) {
                 const v = contextMenu.video;
-                setEditingVideo({ id: v.id, name: v.name, script_number: v.script_number, video_url: v.video_url || '' });
+                setEditingVideo({
+                  id: v.id,
+                  name: v.name,
+                  script_number: v.script_number,
+                  video_url: v.video_url || '',
+                  posted_date: v.posted_date ? v.posted_date.slice(0, 10) : '',
+                  status: v.status,
+                });
+                setEditingMetaResult(null);
+                setEditingMetaLoading(false);
                 setEditVideoOpen(true);
               }
               setContextMenu(null);
