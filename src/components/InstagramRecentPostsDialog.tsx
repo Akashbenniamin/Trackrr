@@ -562,34 +562,82 @@ export default function InstagramRecentPostsDialog({
               p: 2.5,
               mb: 2,
               textAlign: 'center',
-              borderRadius: 1.5,
-              bgcolor: 'rgba(255, 255, 255, 0.02)',
-              border: '1px dashed rgba(255, 255, 255, 0.12)',
+              borderRadius: 2,
+              bgcolor: 'rgba(225, 48, 108, 0.04)',
+              border: '1px solid rgba(225, 48, 108, 0.25)',
+              position: 'relative',
+              overflow: 'hidden',
             }}
           >
-            <InstagramIcon sx={{ fontSize: 36, color: 'text.disabled', mb: 1 }} />
-            <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.primary', mb: 0.5 }}>
-              No Direct API Posts Found
-            </Typography>
-            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', maxWidth: 360, mx: 'auto', mb: 1.5 }}>
-              Meta Business Discovery API requires an Instagram Creator/Business account token. You can view all live videos with 1 click using the button below.
-            </Typography>
-            <Button
-              variant="outlined"
-              size="small"
-              onClick={handleOpenLiveReels}
-              startIcon={<OpenInNewRoundedIcon sx={{ fontSize: 15 }} />}
+            <Box
               sx={{
-                textTransform: 'none',
-                borderRadius: 1,
-                fontSize: '0.75rem',
-                borderColor: '#E1306C',
+                width: 48,
+                height: 48,
+                borderRadius: '50%',
+                bgcolor: 'rgba(225, 48, 108, 0.15)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                mx: 'auto',
+                mb: 1.5,
                 color: '#E1306C',
-                '&:hover': { borderColor: '#F58529', bgcolor: 'rgba(225, 48, 108, 0.08)' },
               }}
             >
-              Open @{cleanHandle}'s Reels Live (Option 3)
+              <InstagramIcon sx={{ fontSize: 28 }} />
+            </Box>
+
+            <Typography variant="subtitle1" sx={{ fontWeight: 800, color: 'text.primary', mb: 0.5 }}>
+              Use Option 3: Instant Live Reels Popout
+            </Typography>
+
+            <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.8rem', maxWidth: 420, mx: 'auto', mb: 2, lineHeight: 1.5 }}>
+              Meta restricts automated background scraping to accounts with an <strong>Instagram Professional Graph API User Token</strong>.
+              <br />
+              With <strong>Option 3</strong>, you can view the live feed instantly in your browser with zero restrictions!
+            </Typography>
+
+            <Button
+              variant="contained"
+              size="medium"
+              onClick={handleOpenLiveReels}
+              startIcon={<OpenInNewRoundedIcon sx={{ fontSize: 18 }} />}
+              sx={{
+                background: 'linear-gradient(135deg, #E1306C, #FD1D1D, #F56040)',
+                color: '#fff',
+                fontWeight: 800,
+                fontSize: '0.84rem',
+                textTransform: 'none',
+                px: 3,
+                py: 1,
+                borderRadius: 1.5,
+                boxShadow: '0 6px 20px rgba(225, 48, 108, 0.4)',
+                '&:hover': {
+                  background: 'linear-gradient(135deg, #C13584, #E1306C, #FD1D1D)',
+                },
+                mb: 2,
+              }}
+            >
+              Launch Live Reels Popup (Option 3)
             </Button>
+
+            <Box
+              sx={{
+                p: 1.5,
+                borderRadius: 1.5,
+                bgcolor: 'rgba(0, 0, 0, 0.3)',
+                border: '1px solid rgba(255, 255, 255, 0.06)',
+                textAlign: 'left',
+              }}
+            >
+              <Typography variant="caption" sx={{ fontWeight: 800, color: '#38BDF8', display: 'block', mb: 0.5 }}>
+                💡 Quick 2-Step Flow:
+              </Typography>
+              <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', lineHeight: 1.5, fontSize: '0.74rem' }}>
+                1. Click <strong>Launch Live Reels Popup</strong> above (opens a clean phone-sized reels window).
+                <br />
+                2. Right-click or copy the link of any reel, then paste it in the <strong>Quick Reel Extractor</strong> below to auto-fetch its thumbnail, publication date, likes, and comments into this panel!
+              </Typography>
+            </Box>
           </Box>
         ) : null}
 
