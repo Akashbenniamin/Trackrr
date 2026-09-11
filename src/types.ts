@@ -151,6 +151,8 @@ export interface AppSettings {
   show_completed: boolean;
   meta_app_id?: string;
   meta_client_token?: string;
+  meta_user_token?: string;
+  meta_ig_user_id?: string;
 }
 
 export type ViewName =

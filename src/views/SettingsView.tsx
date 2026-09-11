@@ -224,15 +224,22 @@ export default function SettingsView() {
   const [metaTestHandle, setMetaTestHandle] = useState('leoholidays.in');
   const [metaTestHandleOpen, setMetaTestHandleOpen] = useState(false);
 
+  const [metaUserToken, setMetaUserToken] = useState(settings.meta_user_token || '');
+  const [metaIgUserId, setMetaIgUserId] = useState(settings.meta_ig_user_id || '');
+
   useEffect(() => {
     if (settings.meta_app_id !== undefined) setMetaAppId(settings.meta_app_id || '');
     if (settings.meta_client_token !== undefined) setMetaClientToken(settings.meta_client_token || '');
-  }, [settings.meta_app_id, settings.meta_client_token]);
+    if (settings.meta_user_token !== undefined) setMetaUserToken(settings.meta_user_token || '');
+    if (settings.meta_ig_user_id !== undefined) setMetaIgUserId(settings.meta_ig_user_id || '');
+  }, [settings.meta_app_id, settings.meta_client_token, settings.meta_user_token, settings.meta_ig_user_id]);
 
   const handleSaveMetaCredentials = () => {
     updateSettings({
       meta_app_id: metaAppId.trim(),
       meta_client_token: metaClientToken.trim(),
+      meta_user_token: metaUserToken.trim(),
+      meta_ig_user_id: metaIgUserId.trim(),
     });
     if (metaAppId.trim() && metaClientToken.trim()) {
       localStorage.setItem('trackrr_meta_access_token', `${metaAppId.trim()}|${metaClientToken.trim()}`);
@@ -850,6 +857,27 @@ export default function SettingsView() {
                 value={metaClientToken}
                 onChange={e => setMetaClientToken(e.target.value)}
                 helperText="Found in App Settings > Advanced > Client Token"
+              />
+            </Box>
+
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '2fr 1fr' }, gap: 2 }}>
+              <TextField
+                label="Graph API User Token (Optional - for auto-fetching last 3 videos)"
+                size="small"
+                fullWidth
+                placeholder="EAAG... (from Graph API Explorer)"
+                value={metaUserToken}
+                onChange={e => setMetaUserToken(e.target.value)}
+                helperText="Generated in Graph API Explorer with instagram_basic permission"
+              />
+              <TextField
+                label="Instagram Account ID (Optional)"
+                size="small"
+                fullWidth
+                placeholder="e.g. 178414... (default: me)"
+                value={metaIgUserId}
+                onChange={e => setMetaIgUserId(e.target.value)}
+                helperText="Your IG Business/Creator Account ID"
               />
             </Box>
 

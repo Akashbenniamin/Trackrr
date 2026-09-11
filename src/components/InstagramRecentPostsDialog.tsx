@@ -80,6 +80,8 @@ export default function InstagramRecentPostsDialog({
       const res = await fetchClientRecentInstagramPosts(cleanHandle, {
         metaAppId: settings.meta_app_id,
         metaClientToken: settings.meta_client_token,
+        userToken: settings.meta_user_token,
+        igUserId: settings.meta_ig_user_id,
       });
 
       if (res.posts && res.posts.length > 0) {
