@@ -210,11 +210,31 @@ export async function fetchVideoMetadata(
     };
   }
 
-  // --- 2. YOUTUBE (Open oEmbed API) ---
+  // --- 2. YOUTUBE (Open oEmbed API + Views Fetch) ---
   if (provider === 'youtube') {
     try {
       const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(cleanUrl)}&format=json`;
       const response = await fetch(oembedUrl);
+
+      let viewsCount: string | null = null;
+      try {
+        const vidMatch = cleanUrl.match(/(?:v=|\/embed\/|\/shorts\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/i);
+        if (vidMatch && vidMatch[1]) {
+          const ytHtmlResp = await fetch(`https://www.youtube.com/watch?v=${vidMatch[1]}`, {
+            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
+          });
+          if (ytHtmlResp.ok) {
+            const ytHtml = await ytHtmlResp.text();
+            const vm = ytHtml.match(/"viewCount":\s*"(\d+)"/i) || ytHtml.match(/viewCount[^:]*:\s*"(\d+)"/i);
+            if (vm && vm[1]) {
+              const num = parseInt(vm[1], 10);
+              viewsCount = num >= 1000000 ? `${(num / 1000000).toFixed(1)}M` : num >= 1000 ? `${(num / 1000).toFixed(1)}K` : String(num);
+            }
+          }
+        }
+      } catch {
+        // ignore YouTube html fetch error
+      }
 
       if (response.ok) {
         const data = await response.json();
@@ -224,6 +244,7 @@ export async function fetchVideoMetadata(
           creatorHandle: data.author_name || undefined,
           thumbnailUrl: data.thumbnail_url || undefined,
           caption: data.title || undefined,
+          viewsCount,
           provider: 'youtube',
           rawHtml: data.html,
         };

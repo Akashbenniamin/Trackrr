@@ -340,6 +340,7 @@ export default function BatchflowBatches() {
   const [postedLinkDialogOpen, setPostedLinkDialogOpen] = useState(false);
   const [postedTargetVideo, setPostedTargetVideo] = useState<BatchflowVideo | null>(null);
   const [postedVideoUrl, setPostedVideoUrl] = useState('');
+  const [postedViews, setPostedViews] = useState('');
   const [postedCustomDate, setPostedCustomDate] = useState(new Date().toISOString().slice(0, 10));
   const [postedMetaLoading, setPostedMetaLoading] = useState(false);
   const [postedMetaResult, setPostedMetaResult] = useState<VideoMetadataResult | null>(null);
@@ -363,6 +364,9 @@ export default function BatchflowBatches() {
 
       if (res.postedDate) {
         setPostedCustomDate(res.postedDate);
+      }
+      if (res.viewsCount) {
+        setPostedViews(res.viewsCount);
       }
     } catch (err: any) {
       setPostedMetaResult({
@@ -472,6 +476,7 @@ export default function BatchflowBatches() {
     if (nextStatus === 'Posted') {
       setPostedTargetVideo(v);
       setPostedVideoUrl(v.video_url || '');
+      setPostedViews(v.views ? String(v.views) : '');
       setPostedCustomDate(v.posted_date ? v.posted_date.slice(0, 10) : new Date().toISOString().slice(0, 10));
       setPostedMetaResult(null);
       setPostedMetaLoading(false);
@@ -485,22 +490,24 @@ export default function BatchflowBatches() {
     if (!postedTargetVideo) return;
     const urlToSave = skip ? null : (postedVideoUrl.trim() ? cleanVideoUrl(postedVideoUrl.trim()) : null);
     const dateToSave = postedCustomDate.trim() || new Date().toISOString().slice(0, 10);
+    const viewsToSave = skip ? null : (postedViews.trim() || postedMetaResult?.viewsCount || null);
 
     if (postedTargetVideo.status !== 'Posted') {
       await updateBatchflowVideoStatus(postedTargetVideo.id, 'Posted', urlToSave, dateToSave);
-      if (postedMetaResult?.viewsCount) {
-        await updateBatchflowVideo(postedTargetVideo.id, { views: postedMetaResult.viewsCount });
+      if (viewsToSave !== null) {
+        await updateBatchflowVideo(postedTargetVideo.id, { views: viewsToSave });
       }
     } else {
       await updateBatchflowVideo(postedTargetVideo.id, {
         video_url: skip ? null : urlToSave,
         posted_date: dateToSave.includes('T') ? dateToSave : `${dateToSave}T12:00:00.000Z`,
-        ...(postedMetaResult?.viewsCount ? { views: postedMetaResult.viewsCount } : {}),
+        views: viewsToSave,
       });
     }
     setPostedLinkDialogOpen(false);
     setPostedTargetVideo(null);
     setPostedVideoUrl('');
+    setPostedViews('');
     setPostedMetaResult(null);
   };
 
@@ -508,6 +515,7 @@ export default function BatchflowBatches() {
     setPostedLinkDialogOpen(false);
     setPostedTargetVideo(null);
     setPostedVideoUrl('');
+    setPostedViews('');
     setPostedMetaResult(null);
   };
 
@@ -564,7 +572,7 @@ export default function BatchflowBatches() {
       const p2 = rot(cx + w / 2, cy + h / 2);
       const p3 = rot(cx - w / 2, cy + h / 2);
 
-      doc.setLineWidth(0.75);
+      doc.setLineWidth(1.35);
       doc.lines(
         [
           [p1[0] - p0[0], p1[1] - p0[1]],
@@ -578,6 +586,7 @@ export default function BatchflowBatches() {
         true
       );
 
+      doc.setLineWidth(1.5);
       const s1 = rot(cx, cy + h / 2);
       const s2 = rot(cx, cy + h / 2 + 1.4);
       doc.line(s1[0], s1[1], s2[0], s2[1]);
@@ -594,11 +603,11 @@ export default function BatchflowBatches() {
       doc.triangle(t0[0], t0[1], t1[0], t1[1], t2[0], t2[1], 'FD');
     } else if (type === 'PENDING') {
       const r = s * 0.42;
-      doc.setLineWidth(0.75);
+      doc.setLineWidth(1.35);
       doc.circle(cx, cy, r, 'D');
-      doc.circle(cx, cy, 0.7, 'F');
+      doc.circle(cx, cy, 0.9, 'F');
       const hEnd = rot(cx, cy - r * 0.58);
-      doc.setLineWidth(0.8);
+      doc.setLineWidth(1.5);
       doc.line(cx, cy, hEnd[0], hEnd[1]);
       const mEnd = rot(cx + r * 0.5, cy);
       doc.line(cx, cy, mEnd[0], mEnd[1]);
@@ -620,17 +629,17 @@ export default function BatchflowBatches() {
         );
         doc.lines(rel.slice(1), pts[0][0], pts[0][1], [1, 1], 'FD', true);
       };
-      doc.setLineWidth(0.4);
+      doc.setLineWidth(0.85);
       draw4Star(cx - s * 0.08, cy + s * 0.05, s * 0.4);
       draw4Star(cx + s * 0.3, cy - s * 0.24, s * 0.22);
     } else if (type === 'POSTED') {
       const r = s * 0.42;
-      doc.setLineWidth(0.75);
+      doc.setLineWidth(1.35);
       doc.circle(cx, cy, r, 'D');
       const p1 = rot(cx - r * 0.4, cy + r * 0.02);
       const p2 = rot(cx - r * 0.06, cy + r * 0.34);
       const p3 = rot(cx + r * 0.44, cy - r * 0.3);
-      doc.setLineWidth(1.0);
+      doc.setLineWidth(1.85);
       doc.line(p1[0], p1[1], p2[0], p2[1]);
       doc.line(p2[0], p2[1], p3[0], p3[1]);
     }
@@ -737,7 +746,7 @@ export default function BatchflowBatches() {
         text: [15, 23, 42],
         dot: [100, 116, 139],
         badgeBg: [226, 232, 240],
-        wmColor: [225, 232, 240],
+        wmColor: [210, 220, 235],
         icon: 'TOTAL',
       },
       {
@@ -748,7 +757,7 @@ export default function BatchflowBatches() {
         text: [180, 83, 9],
         dot: [217, 119, 6],
         badgeBg: [254, 215, 170],
-        wmColor: [252, 220, 145],
+        wmColor: [248, 205, 120],
         icon: 'PENDING',
       },
       {
@@ -759,7 +768,7 @@ export default function BatchflowBatches() {
         text: [29, 78, 216],
         dot: [37, 99, 235],
         badgeBg: [191, 219, 254],
-        wmColor: [205, 225, 254],
+        wmColor: [185, 212, 252],
         icon: 'EDITED',
       },
       {
@@ -770,7 +779,7 @@ export default function BatchflowBatches() {
         text: [4, 120, 87],
         dot: [5, 150, 105],
         badgeBg: [167, 243, 208],
-        wmColor: [185, 235, 210],
+        wmColor: [160, 230, 195],
         icon: 'POSTED',
       },
     ];
@@ -784,28 +793,36 @@ export default function BatchflowBatches() {
       doc.setLineWidth(0.35);
       doc.roundedRect(kX, cardY, cardWidth, cardHeight, 2.0, 2.0, 'FD');
 
-      // 2. Faded Watermark Icon in bottom-left corner with rotation, overflowing edge and clipped to card
+      // 2. Faded Watermark Icon in bottom-left corner with rotation:
+      // ~20% of the icon extends outside the bottom-left corner, strictly clipped to the card boundaries
       doc.saveGraphicsState();
-      doc.roundedRect(kX, cardY, cardWidth, cardHeight, 2.0, 2.0);
+      doc.roundedRect(kX, cardY, cardWidth, cardHeight, 2.0, 2.0, null as any);
       doc.clip();
+      doc.discardPath();
 
-      const wmX = kX + 4;
-      const wmY = cardY + cardHeight - 2;
-      drawCardWatermark(doc, kpi.icon, wmX, wmY, 24, kpi.wmColor, -16);
+      const s = 18;
+      const wmX = kX + 5.5;
+      const wmY = cardY + cardHeight - 5.5;
+      drawCardWatermark(doc, kpi.icon, wmX, wmY, s, kpi.wmColor, -16);
 
       // Linear fade effect at the bottom of the card
-      const fadeSteps = 8;
-      const fadeH = 9;
+      const fadeSteps = 6;
+      const fadeH = 6;
       const startFadeY = cardY + cardHeight - fadeH;
-      for (let s = 0; s < fadeSteps; s++) {
-        const alpha = ((s + 1) / fadeSteps) * 0.65;
-        const stripY = startFadeY + (s * fadeH) / fadeSteps;
+      for (let sIdx = 0; sIdx < fadeSteps; sIdx++) {
+        const alpha = ((sIdx + 1) / fadeSteps) * 0.45;
+        const stripY = startFadeY + (sIdx * fadeH) / fadeSteps;
         const stripH = fadeH / fadeSteps + 0.1;
         doc.setGState(new (doc as any).GState({ opacity: alpha }));
         doc.setFillColor(kpi.bg[0], kpi.bg[1], kpi.bg[2]);
         doc.rect(kX, stripY, cardWidth, stripH, 'F');
       }
       doc.restoreGraphicsState();
+
+      // Re-stroke crisp card border so watermark edges are cleanly bounded
+      doc.setDrawColor(kpi.border[0], kpi.border[1], kpi.border[2]);
+      doc.setLineWidth(0.35);
+      doc.roundedRect(kX, cardY, cardWidth, cardHeight, 2.0, 2.0, 'S');
 
       // 3. Status Indicator Dot + Label at top-left
       const dotX = kX + 5.2;
@@ -891,7 +908,9 @@ export default function BatchflowBatches() {
       // Col 3: Views
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
-      const vViews = viewsMap?.get(v.id) || (v.views ? String(v.views) : null);
+      const vViews = (viewsMap?.get(v.id) && viewsMap.get(v.id)?.trim() !== '')
+        ? viewsMap.get(v.id)!.trim()
+        : (v.views != null && String(v.views).trim() !== '' ? String(v.views).trim() : null);
       if (vViews) {
         doc.setTextColor(15, 23, 42);
         doc.text(vViews, margin + 94, curY + 6.0);
@@ -961,8 +980,8 @@ export default function BatchflowBatches() {
     const viewsMap = new Map<string, string>();
     await Promise.all(
       currentBatchVideos.map(async (v) => {
-        if (v.views) {
-          viewsMap.set(v.id, String(v.views));
+        if (v.views != null && String(v.views).trim() !== '') {
+          viewsMap.set(v.id, String(v.views).trim());
         } else if (v.video_url) {
           try {
             const metaPromise = fetchVideoMetadata(v.video_url, {
@@ -1019,8 +1038,8 @@ export default function BatchflowBatches() {
     const viewsMap = new Map<string, string>();
     await Promise.all(
       batchflowVideos.map(async (v) => {
-        if (v.views) {
-          viewsMap.set(v.id, String(v.views));
+        if (v.views != null && String(v.views).trim() !== '') {
+          viewsMap.set(v.id, String(v.views).trim());
         } else if (v.video_url) {
           try {
             const metaPromise = fetchVideoMetadata(v.video_url, {
@@ -1908,6 +1927,7 @@ export default function BatchflowBatches() {
                           {v.status === 'Posted' && v.posted_date ? `Posted: ${new Date(v.posted_date).toLocaleDateString()}` :
                            v.status === 'Edited' && v.edited_date ? `Edited: ${new Date(v.edited_date).toLocaleDateString()}` :
                            'Ready for editing'}
+                          {v.views ? ` • ${v.views} views` : ''}
                         </Typography>
                       </Box>
                     </Box>
@@ -2322,6 +2342,16 @@ script 2
           )}
 
           <TextField
+            label="Views Count (Optional)"
+            placeholder="e.g. 12.5K, 1500, or 250,000"
+            fullWidth
+            size="small"
+            value={editingVideo?.views ?? ''}
+            onChange={e => setEditingVideo(prev => prev ? { ...prev, views: e.target.value } : null)}
+            helperText="Views count shown on video card & exported in PDF table"
+          />
+
+          <TextField
             label="Posted Date"
             type="date"
             fullWidth
@@ -2346,7 +2376,7 @@ script 2
                   name: editingVideo.name.trim(),
                   script_number: editingVideo.script_number,
                   video_url: clean,
-                  ...(editingVideo.views !== undefined ? { views: editingVideo.views } : {}),
+                  views: editingVideo.views != null && String(editingVideo.views).trim() !== '' ? String(editingVideo.views).trim() : null,
                   ...(dateVal ? { posted_date: dateVal } : {}),
                 });
                 setEditVideoOpen(false);
@@ -2542,6 +2572,16 @@ script 2
           </Box>
 
           <TextField
+            label="Views Count (Optional)"
+            placeholder="e.g. 12.5K, 1500, or 250,000"
+            fullWidth
+            size="small"
+            value={postedViews}
+            onChange={(e) => setPostedViews(e.target.value)}
+            helperText="Views count shown on video card & exported in PDF table"
+          />
+
+          <TextField
             label="Posted Date"
             type="date"
             fullWidth
@@ -2644,6 +2684,7 @@ script 2
                 const v = contextMenu.video;
                 setPostedTargetVideo(v);
                 setPostedVideoUrl(v.video_url || '');
+                setPostedViews(v.views ? String(v.views) : '');
                 setPostedCustomDate(v.posted_date ? v.posted_date.slice(0, 10) : new Date().toISOString().slice(0, 10));
                 setPostedMetaResult(null);
                 setPostedMetaLoading(false);
@@ -2717,8 +2758,10 @@ script 2
             if (postedLinkDialogOpen) {
               setPostedVideoUrl(url);
               if (date) setPostedCustomDate(date);
+              handleFetchPostedMetadata(url);
             } else if (editVideoOpen && editingVideo) {
               setEditingVideo(prev => prev ? { ...prev, video_url: url, posted_date: date || prev.posted_date } : null);
+              handleFetchEditingMetadata(url);
             }
           }}
           existingVideos={batchflowVideos.filter(v => {
