@@ -28,6 +28,7 @@ import { registerOkineFont } from '../../lib/okineFont';
 import { useApp } from '../../contexts/AppContext';
 import { usePersistedState } from '../../lib/usePersistedState';
 import { fetchVideoMetadata, cleanVideoUrl, type VideoMetadataResult } from '../../lib/videoMetadata';
+import InstagramRecentPostsDialog from '../../components/InstagramRecentPostsDialog';
 import type { BatchflowBatch, BatchflowVideo, BatchflowVideoStatus } from '../../types';
 
 const STATUS_COLORS: Record<BatchflowVideoStatus, { bg: string; text: string; border: string }> = {
@@ -326,6 +327,7 @@ export default function BatchflowBatches() {
   const [postedCustomDate, setPostedCustomDate] = useState(new Date().toISOString().slice(0, 10));
   const [postedMetaLoading, setPostedMetaLoading] = useState(false);
   const [postedMetaResult, setPostedMetaResult] = useState<VideoMetadataResult | null>(null);
+  const [igRecentDialogOpen, setIgRecentDialogOpen] = useState(false);
 
   const handleFetchPostedMetadata = async (urlInput?: string) => {
     const raw = (urlInput !== undefined ? urlInput : postedVideoUrl).trim();
@@ -1099,18 +1101,47 @@ export default function BatchflowBatches() {
                       {selectedBatch ? selectedBatch.name : 'No Batch Selected'}
                     </Typography>
                     {selectedClient && (
-                      <Chip
-                        label={selectedClient.name}
-                        size="small"
-                        sx={{
-                          bgcolor: `${selectedClient.color || '#818CF8'}18`,
-                          color: selectedClient.color || '#818CF8',
-                          border: `1px solid ${selectedClient.color || '#818CF8'}35`,
-                          fontWeight: 800,
-                          fontSize: '0.72rem',
-                          height: 22,
-                        }}
-                      />
+                      <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
+                        <Chip
+                          label={selectedClient.name}
+                          size="small"
+                          sx={{
+                            bgcolor: `${selectedClient.color || '#818CF8'}18`,
+                            color: selectedClient.color || '#818CF8',
+                            border: `1px solid ${selectedClient.color || '#818CF8'}35`,
+                            fontWeight: 800,
+                            fontSize: '0.72rem',
+                            height: 22,
+                          }}
+                        />
+                        {selectedClient.instagram_id && (
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => setIgRecentDialogOpen(true)}
+                            startIcon={<InstagramIcon sx={{ fontSize: 13, color: '#E1306C' }} />}
+                            sx={{
+                              height: 22,
+                              fontSize: '0.68rem',
+                              fontWeight: 700,
+                              textTransform: 'none',
+                              px: 0.9,
+                              py: 0,
+                              borderRadius: 1,
+                              borderColor: 'rgba(225, 48, 108, 0.35)',
+                              color: '#F43F5E',
+                              bgcolor: 'rgba(225, 48, 108, 0.08)',
+                              lineHeight: 1,
+                              '&:hover': {
+                                borderColor: '#E1306C',
+                                bgcolor: 'rgba(225, 48, 108, 0.18)',
+                              },
+                            }}
+                          >
+                            Last 3 Videos
+                          </Button>
+                        )}
+                      </Box>
                     )}
                   </Box>
                   {selectedBatch && (
@@ -2127,6 +2158,33 @@ script 2
             Paste the Instagram Reel, post, or video URL. Trackrr can automatically extract the publication date via Meta oEmbed API!
           </Typography>
 
+          {selectedClient?.instagram_id && (
+            <Button
+              variant="outlined"
+              size="small"
+              onClick={() => setIgRecentDialogOpen(true)}
+              startIcon={<InstagramIcon sx={{ fontSize: 13, color: '#E1306C' }} />}
+              sx={{
+                alignSelf: 'flex-start',
+                textTransform: 'none',
+                fontSize: '0.72rem',
+                fontWeight: 700,
+                borderColor: 'rgba(225, 48, 108, 0.35)',
+                color: '#F43F5E',
+                bgcolor: 'rgba(225, 48, 108, 0.06)',
+                height: 24,
+                px: 1,
+                borderRadius: 1,
+                '&:hover': {
+                  borderColor: '#E1306C',
+                  bgcolor: 'rgba(225, 48, 108, 0.15)',
+                },
+              }}
+            >
+              Pick from @{selectedClient.instagram_id.replace('@', '')}'s Recent Videos
+            </Button>
+          )}
+
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
             <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
               <TextField
@@ -2387,6 +2445,28 @@ script 2
           </MenuItem>
         )}
       </Menu>
+
+      {selectedClient?.instagram_id && (
+        <InstagramRecentPostsDialog
+          open={igRecentDialogOpen}
+          onClose={() => setIgRecentDialogOpen(false)}
+          handle={selectedClient.instagram_id}
+          clientName={selectedClient.name}
+          clientColor={selectedClient.color}
+          onSelectVideoUrl={(url, date) => {
+            if (postedLinkDialogOpen) {
+              setPostedVideoUrl(url);
+              if (date) setPostedCustomDate(date);
+            } else if (editVideoOpen && editingVideo) {
+              setEditingVideo(prev => prev ? { ...prev, video_url: url, posted_date: date || prev.posted_date } : null);
+            }
+          }}
+          existingVideos={batchflowVideos.filter(v => {
+            const b = batchflowBatches.find(batch => batch.id === v.batch_id);
+            return b && b.client_id === selectedClient.id;
+          })}
+        />
+      )}
     </Box>
   );
 }

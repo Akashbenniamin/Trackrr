@@ -34,7 +34,8 @@ import WorkOutlineRoundedIcon from '@mui/icons-material/WorkOutlineRounded';
 import { useApp } from '../contexts/AppContext';
 import { useAuth } from '../contexts/AuthContext';
 import { storage } from '../lib/storage';
-import { fetchVideoMetadata, type VideoMetadataResult } from '../lib/videoMetadata';
+import { fetchVideoMetadata, openInstagramReelsPopup, type VideoMetadataResult } from '../lib/videoMetadata';
+import InstagramRecentPostsDialog from '../components/InstagramRecentPostsDialog';
 import type { WorkspaceType, ThemeStyle } from '../types';
 
 const WS_COLORS = ['#818CF8', '#34D399', '#F59E0B', '#F87171', '#A78BFA', '#60A5FA', '#FB7185', '#4ADE80'];
@@ -220,6 +221,8 @@ export default function SettingsView() {
   const [metaTestUrl, setMetaTestUrl] = useState('');
   const [metaTesting, setMetaTesting] = useState(false);
   const [metaTestResult, setMetaTestResult] = useState<VideoMetadataResult | null>(null);
+  const [metaTestHandle, setMetaTestHandle] = useState('leoholidays.in');
+  const [metaTestHandleOpen, setMetaTestHandleOpen] = useState(false);
 
   useEffect(() => {
     if (settings.meta_app_id !== undefined) setMetaAppId(settings.meta_app_id || '');
@@ -1068,6 +1071,54 @@ export default function SettingsView() {
             )}
           </Box>
 
+          {/* Test Client Handle (Last 3 Videos & Option 3 Reels Inspector) */}
+          <Box sx={{ p: 2, bgcolor: 'action.hover', borderRadius: 2, border: '1px solid', borderColor: 'divider', mb: 2 }}>
+            <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.5 }}>
+              Test Client Handle (Last 3 Videos & Live Reels Inspector)
+            </Typography>
+            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1.5 }}>
+              Enter an Instagram handle to test the mini panel (Option 1 Discovery API &amp; Option 3 Live Reels Popout).
+            </Typography>
+            <Box sx={{ display: 'flex', gap: 1.5, flexWrap: { xs: 'wrap', sm: 'nowrap' }, alignItems: 'center' }}>
+              <TextField
+                size="small"
+                fullWidth
+                placeholder="@username (e.g. leoholidays.in)"
+                value={metaTestHandle}
+                onChange={e => setMetaTestHandle(e.target.value)}
+              />
+              <Button
+                variant="contained"
+                onClick={() => setMetaTestHandleOpen(true)}
+                disabled={!metaTestHandle.trim()}
+                sx={{
+                  bgcolor: '#E1306C',
+                  '&:hover': { bgcolor: '#C13584' },
+                  textTransform: 'none',
+                  fontWeight: 700,
+                  whiteSpace: 'nowrap',
+                  minWidth: 150,
+                }}
+              >
+                Open Mini Panel
+              </Button>
+              <Button
+                variant="outlined"
+                onClick={() => openInstagramReelsPopup(metaTestHandle)}
+                disabled={!metaTestHandle.trim()}
+                sx={{
+                  borderColor: 'rgba(225, 48, 108, 0.4)',
+                  color: '#E1306C',
+                  textTransform: 'none',
+                  fontWeight: 700,
+                  whiteSpace: 'nowrap',
+                }}
+              >
+                Popout Reels (Option 3)
+              </Button>
+            </Box>
+          </Box>
+
           {/* Quick Setup Instructions */}
           <Alert severity="info" sx={{ fontSize: '0.78rem', '& .MuiAlert-message': { width: '100%' } }}>
             <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.5 }}>
@@ -1274,6 +1325,15 @@ export default function SettingsView() {
             </Button>
           </DialogActions>
         </Dialog>
+
+        {/* Instagram Recent Posts Dialog Tester */}
+        {metaTestHandle.trim() && (
+          <InstagramRecentPostsDialog
+            open={metaTestHandleOpen}
+            onClose={() => setMetaTestHandleOpen(false)}
+            handle={metaTestHandle.trim()}
+          />
+        )}
 
         {/* Toast Snackbar for Success Notification */}
         <Snackbar

@@ -12,13 +12,15 @@ import InstagramIcon from '@mui/icons-material/Instagram';
 import MovieRoundedIcon from '@mui/icons-material/MovieRounded';
 import LayersRoundedIcon from '@mui/icons-material/LayersRounded';
 import { useApp } from '../../contexts/AppContext';
-import { CLIENT_COLORS } from '../../types';
+import { CLIENT_COLORS, type BatchflowClient } from '../../types';
+import InstagramRecentPostsDialog from '../../components/InstagramRecentPostsDialog';
 
 export default function BatchflowClients() {
   const { batchflowClients, batchflowBatches, batchflowVideos, addBatchflowClient, updateBatchflowClient, canEdit } = useApp();
   const [search, setSearch] = useState('');
   const [dialogOpen, setDialogOpen] = useState(false);
   const [editingClient, setEditingClient] = useState<{ id?: string; name: string; color: string; instagram_id: string } | null>(null);
+  const [selectedIgClient, setSelectedIgClient] = useState<BatchflowClient | null>(null);
 
   const activeClients = batchflowClients.filter(c => !c.archived);
   const filteredClients = activeClients.filter(c =>
@@ -145,27 +147,57 @@ export default function BatchflowClients() {
                       {c.name}
                     </Typography>
                     {c.instagram_id ? (
-                      <Box
-                        component="a"
-                        href={`https://instagram.com/${c.instagram_id.replace('@', '')}`}
-                        target="_blank"
-                        rel="noreferrer"
-                        onClick={(e) => e.stopPropagation()}
-                        onDoubleClick={(e) => e.stopPropagation()}
-                        sx={{
-                          display: 'inline-flex',
-                          alignItems: 'center',
-                          gap: 0.5,
-                          mt: 0.5,
-                          fontSize: '0.75rem',
-                          color: '#F43F5E',
-                          textDecoration: 'none',
-                          fontWeight: 600,
-                          '&:hover': { textDecoration: 'underline' },
-                        }}
-                      >
-                        <InstagramIcon sx={{ fontSize: 14 }} />
-                        {c.instagram_id.startsWith('@') ? c.instagram_id : `@${c.instagram_id}`}
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.5, flexWrap: 'wrap' }}>
+                        <Box
+                          component="a"
+                          href={`https://instagram.com/${c.instagram_id.replace('@', '')}`}
+                          target="_blank"
+                          rel="noreferrer"
+                          onClick={(e) => e.stopPropagation()}
+                          onDoubleClick={(e) => e.stopPropagation()}
+                          sx={{
+                            display: 'inline-flex',
+                            alignItems: 'center',
+                            gap: 0.5,
+                            fontSize: '0.75rem',
+                            color: '#F43F5E',
+                            textDecoration: 'none',
+                            fontWeight: 600,
+                            '&:hover': { textDecoration: 'underline' },
+                          }}
+                        >
+                          <InstagramIcon sx={{ fontSize: 14 }} />
+                          {c.instagram_id.startsWith('@') ? c.instagram_id : `@${c.instagram_id}`}
+                        </Box>
+                        <Button
+                          size="small"
+                          variant="outlined"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            setSelectedIgClient(c);
+                          }}
+                          onDoubleClick={(e) => e.stopPropagation()}
+                          startIcon={<InstagramIcon sx={{ fontSize: 13, color: '#E1306C' }} />}
+                          sx={{
+                            height: 20,
+                            fontSize: '0.66rem',
+                            textTransform: 'none',
+                            px: 0.75,
+                            py: 0,
+                            borderRadius: 1,
+                            borderColor: 'rgba(225, 48, 108, 0.35)',
+                            color: '#F43F5E',
+                            bgcolor: 'rgba(225, 48, 108, 0.08)',
+                            fontWeight: 700,
+                            lineHeight: 1,
+                            '&:hover': {
+                              borderColor: '#E1306C',
+                              bgcolor: 'rgba(225, 48, 108, 0.18)',
+                            },
+                          }}
+                        >
+                          Last 3 Videos
+                        </Button>
                       </Box>
                     ) : (
                       <Typography variant="caption" sx={{ color: 'text.disabled', mt: 0.5, fontSize: '0.72rem', display: 'block' }}>
@@ -302,6 +334,20 @@ export default function BatchflowClients() {
           </Button>
         </DialogActions>
       </Dialog>
+
+      {selectedIgClient && selectedIgClient.instagram_id && (
+        <InstagramRecentPostsDialog
+          open={Boolean(selectedIgClient)}
+          onClose={() => setSelectedIgClient(null)}
+          handle={selectedIgClient.instagram_id}
+          clientName={selectedIgClient.name}
+          clientColor={selectedIgClient.color}
+          existingVideos={batchflowVideos.filter(v => {
+            const b = batchflowBatches.find(batch => batch.id === v.batch_id);
+            return b && b.client_id === selectedIgClient.id;
+          })}
+        />
+      )}
     </Box>
   );
 }

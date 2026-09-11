@@ -238,3 +238,174 @@ export async function fetchVideoMetadata(
     error: 'Unsupported platform for automatic metadata extraction.',
   };
 }
+
+export interface InstagramRecentPost {
+  id?: string;
+  permalink: string;
+  thumbnailUrl?: string;
+  postedDate?: string;
+  postedDateTime?: string;
+  caption?: string;
+  likesCount?: string | number | null;
+  commentsCount?: string | number | null;
+  mediaType?: string;
+}
+
+export interface RecentPostsResult {
+  posts: InstagramRecentPost[];
+  source: 'business_discovery' | 'cache' | 'empty';
+  error?: string;
+  accountName?: string;
+  profilePicUrl?: string;
+}
+
+export function cleanInstagramHandle(handle: string): string {
+  let h = handle.trim();
+  if (h.startsWith('@')) h = h.slice(1);
+  if (h.includes('instagram.com/')) {
+    try {
+      const u = new URL(h.startsWith('http') ? h : `https://${h}`);
+      const parts = u.pathname.split('/').filter(Boolean);
+      if (parts[0]) h = parts[0];
+    } catch {
+      // ignore
+    }
+  }
+  return h.replace(/[^a-zA-Z0-9._]/g, '');
+}
+
+export function openInstagramReelsPopup(handle: string) {
+  const clean = cleanInstagramHandle(handle);
+  if (!clean) return null;
+  const url = `https://www.instagram.com/${clean}/reels/`;
+  const width = 450;
+  const height = 750;
+  const left = window.screen.width ? (window.screen.width - width) / 2 : 100;
+  const top = window.screen.height ? (window.screen.height - height) / 2 : 100;
+  return window.open(
+    url,
+    `ig_reels_${clean}`,
+    `width=${width},height=${height},top=${top},left=${left},status=no,menubar=no,toolbar=no,location=no`
+  );
+}
+
+export function getStoredRecentPosts(handle: string): InstagramRecentPost[] {
+  const clean = cleanInstagramHandle(handle);
+  if (!clean) return [];
+  try {
+    const raw = localStorage.getItem(`trackrr_recent_ig_${clean}`);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed)) return parsed;
+    }
+  } catch {
+    // ignore
+  }
+  return [];
+}
+
+export function saveRecentPostsForHandle(handle: string, posts: InstagramRecentPost[]) {
+  const clean = cleanInstagramHandle(handle);
+  if (!clean) return;
+  try {
+    localStorage.setItem(`trackrr_recent_ig_${clean}`, JSON.stringify(posts.slice(0, 10)));
+  } catch {
+    // ignore
+  }
+}
+
+export function addRecentPostForHandle(handle: string, post: InstagramRecentPost) {
+  const clean = cleanInstagramHandle(handle);
+  if (!clean) return;
+  const existing = getStoredRecentPosts(clean);
+  // Dedup by permalink
+  const filtered = existing.filter(p => cleanVideoUrl(p.permalink) !== cleanVideoUrl(post.permalink));
+  const updated = [post, ...filtered].slice(0, 6);
+  saveRecentPostsForHandle(clean, updated);
+  return updated;
+}
+
+export async function fetchClientRecentInstagramPosts(
+  rawHandle: string,
+  credentials?: MetaApiCredentials & { igUserId?: string; userToken?: string }
+): Promise<RecentPostsResult> {
+  const cleanHandle = cleanInstagramHandle(rawHandle);
+  if (!cleanHandle) {
+    return { posts: [], source: 'empty', error: 'Invalid or empty Instagram handle.' };
+  }
+
+  // Stored cache for immediate fallback or speed
+  const cached = getStoredRecentPosts(cleanHandle);
+
+  const metaToken = credentials?.userToken || getMetaAccessToken(credentials);
+  const igUserId = credentials?.igUserId || localStorage.getItem('trackrr_meta_ig_user_id') || 'me';
+
+  if (metaToken) {
+    try {
+      const fields = `business_discovery.username(${cleanHandle}){id,name,username,profile_picture_url,media.limit(3){id,caption,media_type,media_url,permalink,timestamp,thumbnail_url,like_count,comments_count}}`;
+      const url = `https://graph.facebook.com/v19.0/${igUserId}?fields=${encodeURIComponent(fields)}&access_token=${metaToken}`;
+      const resp = await fetch(url);
+
+      if (resp.ok) {
+        const data = await resp.json();
+        const disc = data?.business_discovery;
+        const mediaList = disc?.media?.data || [];
+
+        const posts: InstagramRecentPost[] = mediaList.map((m: any) => {
+          let dateStr: string | undefined = undefined;
+          if (m.timestamp) {
+            dateStr = m.timestamp.split('T')[0];
+          }
+          return {
+            id: m.id,
+            permalink: m.permalink || `https://www.instagram.com/reel/${m.id}/`,
+            thumbnailUrl: m.thumbnail_url || m.media_url || undefined,
+            postedDate: dateStr,
+            postedDateTime: m.timestamp || undefined,
+            caption: m.caption || undefined,
+            likesCount: m.like_count !== undefined ? String(m.like_count) : null,
+            commentsCount: m.comments_count !== undefined ? String(m.comments_count) : null,
+            mediaType: m.media_type,
+          };
+        });
+
+        if (posts.length > 0) {
+          saveRecentPostsForHandle(cleanHandle, posts);
+          return {
+            posts,
+            source: 'business_discovery',
+            accountName: disc.name || disc.username,
+            profilePicUrl: disc.profile_picture_url,
+          };
+        }
+      } else {
+        const errJson = await resp.json().catch(() => ({}));
+        console.warn('Meta Business Discovery API error:', errJson);
+        const errMsg = errJson?.error?.message || 'Meta Business Discovery API request failed.';
+        if (cached.length > 0) {
+          return { posts: cached, source: 'cache', error: errMsg };
+        }
+        return { posts: [], source: 'empty', error: errMsg };
+      }
+    } catch (err: any) {
+      console.warn('Network error calling Meta Business Discovery:', err);
+      if (cached.length > 0) {
+        return { posts: cached, source: 'cache', error: err?.message };
+      }
+    }
+  }
+
+  if (cached.length > 0) {
+    return {
+      posts: cached,
+      source: 'cache',
+      error: 'Meta Graph API credentials not configured. Showing cached/saved recent videos.',
+    };
+  }
+
+  return {
+    posts: [],
+    source: 'empty',
+    error: 'Meta Business Discovery API requires an Instagram Creator/Business account token. Use the 1-Click Live Reels Feed (Popup) to browse and copy links directly.',
+  };
+}
