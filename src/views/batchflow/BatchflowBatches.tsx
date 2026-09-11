@@ -607,257 +607,7 @@ export default function BatchflowBatches() {
         overflow: 'hidden',
       }}
     >
-      {/* FIXED AT TOP: Big Title & Thick KPI Card (Unscrollable) */}
-      <Box
-        sx={{
-          flexShrink: 0,
-          pb: 1.25,
-        }}
-      >
-        <Card
-          onDoubleClick={() => {
-            if (canEdit && selectedBatch) handleOpenEditBatch();
-          }}
-          title={canEdit && selectedBatch ? 'Double-click to edit batch' : undefined}
-          sx={{
-            p: { xs: 1.25, sm: 1.5 },
-            borderRadius: 1,
-            borderLeft: `5px solid ${selectedClient?.color || '#818CF8'}`,
-            bgcolor: 'background.paper',
-            boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
-            cursor: canEdit && selectedBatch ? 'pointer' : 'default',
-          }}
-        >
-          {/* Top Row: Batch Title, Client Tag, Shoot Date, Action Buttons */}
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1.5, mb: 1.75 }}>
-            <Box sx={{ minWidth: 200 }}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                <Typography variant="h5" sx={{ fontWeight: 900, letterSpacing: '-0.02em' }}>
-                  {selectedBatch ? selectedBatch.name : 'No Batch Selected'}
-                </Typography>
-                {selectedClient && (
-                  <Chip
-                    label={selectedClient.name}
-                    size="small"
-                    sx={{
-                      bgcolor: `${selectedClient.color || '#818CF8'}20`,
-                      color: selectedClient.color || '#818CF8',
-                      fontWeight: 800,
-                      fontSize: '0.75rem',
-                    }}
-                  />
-                )}
-              </Box>
-              {selectedBatch && (
-                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.5 }}>
-                  <CalendarMonthRoundedIcon sx={{ fontSize: 15 }} />
-                  Shoot Date: <strong>{selectedBatch.shoot_date || 'Not set'}</strong> • {currentBatchVideos.length} Videos in pipeline
-                </Typography>
-              )}
-            </Box>
-
-            {/* Action Buttons */}
-            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }} onDoubleClick={(e) => e.stopPropagation()}>
-              {canEdit && (
-                <Button
-                  size="small"
-                  variant="contained"
-                  startIcon={<AddRoundedIcon />}
-                  onClick={() => {
-                    setNewBatchForm({
-                      clientId: activeClients[0]?.id || '',
-                      name: '',
-                      shootDate: new Date().toISOString().slice(0, 10),
-                      videoCount: 10,
-                      namingMethod: 'ClientName',
-                      script: '',
-                    });
-                    setNewBatchOpen(true);
-                  }}
-                  sx={{ textTransform: 'none', borderRadius: 1, fontWeight: 700 }}
-                >
-                  New Batch
-                </Button>
-              )}
-              <Button
-                size="small"
-                variant="outlined"
-                startIcon={<PictureAsPdfRoundedIcon />}
-                onClick={handleExportPDF}
-                disabled={!selectedBatch}
-                sx={{ textTransform: 'none', borderRadius: 1, fontWeight: 600 }}
-              >
-                Export PDF
-              </Button>
-              <Button
-                size="small"
-                variant="outlined"
-                startIcon={<DownloadRoundedIcon />}
-                onClick={handleExportPNG}
-                disabled={!selectedBatch}
-                sx={{ textTransform: 'none', borderRadius: 1, fontWeight: 600 }}
-              >
-                PNG
-              </Button>
-              {canEdit && selectedBatch && (
-                <>
-                  <Tooltip title="Edit Batch">
-                    <IconButton size="small" onClick={() => handleOpenEditBatch()} sx={{ color: 'text.secondary' }}>
-                      <EditRoundedIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                  <Tooltip title="Delete Batch">
-                    <IconButton
-                      size="small"
-                      onClick={async () => {
-                        if (window.confirm(`Delete batch "${selectedBatch.name}"?`)) {
-                          await deleteBatchflowBatch(selectedBatch.id);
-                        }
-                      }}
-                      sx={{ color: '#F87171' }}
-                    >
-                      <DeleteOutlineRoundedIcon fontSize="small" />
-                    </IconButton>
-                  </Tooltip>
-                </>
-              )}
-            </Box>
-          </Box>
-
-          {/* Bottom Row: BIG THICK KPI STATS BLOCK */}
-          {selectedBatch ? (
-            <>
-              <Grid container spacing={1.5} alignItems="stretch">
-                <Grid size={{ xs: 6, sm: 3 }}>
-                  <Box
-                    sx={{
-                      p: 1.5,
-                      borderRadius: 1,
-                      bgcolor: 'rgba(255,255,255,0.03)',
-                      border: '1px solid rgba(255,255,255,0.08)',
-                      height: '100%',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: '0.68rem' }}>
-                      TOTAL VIDEOS
-                    </Typography>
-                    <Typography variant="h3" sx={{ fontWeight: 900, color: 'text.primary', mt: 0.25, lineHeight: 1 }}>
-                      {currentBatchVideos.length}
-                    </Typography>
-                    <Typography variant="caption" sx={{ color: 'text.disabled', mt: 0.5, fontSize: '0.68rem' }}>
-                      {currentBatchVideos.length} videos total
-                    </Typography>
-                  </Box>
-                </Grid>
-
-                <Grid size={{ xs: 6, sm: 3 }}>
-                  <Box
-                    sx={{
-                      p: 1.5,
-                      borderRadius: 1,
-                      bgcolor: 'rgba(245, 158, 11, 0.08)',
-                      border: '1px solid rgba(245, 158, 11, 0.25)',
-                      height: '100%',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <Typography variant="caption" sx={{ fontWeight: 800, color: '#F59E0B', letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: '0.68rem' }}>
-                      PENDING
-                    </Typography>
-                    <Typography variant="h3" sx={{ fontWeight: 900, color: '#F59E0B', mt: 0.25, lineHeight: 1 }}>
-                      {pendingCount}
-                    </Typography>
-                    <Typography variant="caption" sx={{ color: 'text.secondary', mt: 0.5, fontSize: '0.68rem' }}>
-                      {currentBatchVideos.length > 0 ? Math.round((pendingCount / currentBatchVideos.length) * 100) : 0}% of batch
-                    </Typography>
-                  </Box>
-                </Grid>
-
-                <Grid size={{ xs: 6, sm: 3 }}>
-                  <Box
-                    sx={{
-                      p: 1.5,
-                      borderRadius: 1,
-                      bgcolor: 'rgba(59, 130, 246, 0.08)',
-                      border: '1px solid rgba(59, 130, 246, 0.25)',
-                      height: '100%',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <Typography variant="caption" sx={{ fontWeight: 800, color: '#3B82F6', letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: '0.68rem' }}>
-                      EDITED
-                    </Typography>
-                    <Typography variant="h3" sx={{ fontWeight: 900, color: '#3B82F6', mt: 0.25, lineHeight: 1 }}>
-                      {editedCount}
-                    </Typography>
-                    <Typography variant="caption" sx={{ color: 'text.secondary', mt: 0.5, fontSize: '0.68rem' }}>
-                      {currentBatchVideos.length > 0 ? Math.round((editedCount / currentBatchVideos.length) * 100) : 0}% of batch
-                    </Typography>
-                  </Box>
-                </Grid>
-
-                <Grid size={{ xs: 6, sm: 3 }}>
-                  <Box
-                    sx={{
-                      p: 1.5,
-                      borderRadius: 1,
-                      bgcolor: 'rgba(16, 185, 129, 0.08)',
-                      border: '1px solid rgba(16, 185, 129, 0.25)',
-                      height: '100%',
-                      display: 'flex',
-                      flexDirection: 'column',
-                      justifyContent: 'center',
-                    }}
-                  >
-                    <Typography variant="caption" sx={{ fontWeight: 800, color: '#10B981', letterSpacing: '0.06em', textTransform: 'uppercase', fontSize: '0.68rem' }}>
-                      POSTED
-                    </Typography>
-                    <Typography variant="h3" sx={{ fontWeight: 900, color: '#10B981', mt: 0.25, lineHeight: 1 }}>
-                      {postedCount}
-                    </Typography>
-                    <Typography variant="caption" sx={{ color: 'text.secondary', mt: 0.5, fontSize: '0.68rem' }}>
-                      {currentBatchVideos.length > 0 ? Math.round((postedCount / currentBatchVideos.length) * 100) : 0}% completed
-                    </Typography>
-                  </Box>
-                </Grid>
-              </Grid>
-
-              {/* Progress bar */}
-              <Box sx={{ mt: 1.5 }}>
-                <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                  <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.68rem' }}>Production Completion</Typography>
-                  <Typography variant="caption" sx={{ fontWeight: 700, fontSize: '0.68rem', color: '#10B981' }}>
-                    {currentBatchVideos.length > 0 ? Math.round((postedCount / currentBatchVideos.length) * 100) : 0}%
-                  </Typography>
-                </Box>
-                <LinearProgress
-                  variant="determinate"
-                  value={currentBatchVideos.length > 0 ? Math.round((postedCount / currentBatchVideos.length) * 100) : 0}
-                  sx={{
-                    height: 5,
-                    borderRadius: 1,
-                    bgcolor: 'rgba(255,255,255,0.06)',
-                    '& .MuiLinearProgress-bar': { bgcolor: selectedClient?.color || '#10B981', borderRadius: 1 },
-                  }}
-                />
-              </Box>
-            </>
-          ) : (
-            <Typography variant="body2" sx={{ color: 'text.secondary', py: 1 }}>
-              No batch active. Create a new batch or select an existing one below.
-            </Typography>
-          )}
-        </Card>
-      </Box>
-
-      {/* 3-COLUMN WORKSTATION LAYOUT WITH SEPARATE SCROLLING */}
+      {/* 3-COLUMN WORKSTATION LAYOUT - STARTS AT THE VERY TOP */}
       <Box
         sx={{
           flex: 1,
@@ -967,7 +717,7 @@ export default function BatchflowBatches() {
           </Card>
         </Box>
 
-        {/* Column 2: Video Pipeline (Middle Column) */}
+        {/* Column 2: Video Pipeline & Batch Overview (Middle Column) */}
         <Box
           sx={{
             flex: 1,
@@ -976,9 +726,258 @@ export default function BatchflowBatches() {
             minHeight: 0,
             display: 'flex',
             flexDirection: 'column',
+            gap: 1.25,
+            overflow: 'hidden',
           }}
         >
-          <Card sx={{ p: 1.75, borderRadius: 1, height: '100%', minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden' }}>
+          {/* Top Card: Batch Title & Thick KPI Card (Width matches Video Pipeline Column!) */}
+          <Box sx={{ flexShrink: 0 }}>
+            <Card
+              onDoubleClick={() => {
+                if (canEdit && selectedBatch) handleOpenEditBatch();
+              }}
+              title={canEdit && selectedBatch ? 'Double-click to edit batch' : undefined}
+              sx={{
+                p: { xs: 1.25, sm: 1.5 },
+                borderRadius: 1,
+                borderLeft: `5px solid ${selectedClient?.color || '#818CF8'}`,
+                bgcolor: 'background.paper',
+                boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                cursor: canEdit && selectedBatch ? 'pointer' : 'default',
+              }}
+            >
+              {/* Top Row: Batch Title, Client Tag, Shoot Date, Action Buttons */}
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1, mb: 1.25 }}>
+                <Box sx={{ minWidth: 160, flex: 1 }}>
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                    <Typography variant="h6" sx={{ fontWeight: 900, letterSpacing: '-0.02em', fontSize: { xs: '1.05rem', sm: '1.2rem' } }}>
+                      {selectedBatch ? selectedBatch.name : 'No Batch Selected'}
+                    </Typography>
+                    {selectedClient && (
+                      <Chip
+                        label={selectedClient.name}
+                        size="small"
+                        sx={{
+                          bgcolor: `${selectedClient.color || '#818CF8'}20`,
+                          color: selectedClient.color || '#818CF8',
+                          fontWeight: 800,
+                          fontSize: '0.72rem',
+                          height: 22,
+                        }}
+                      />
+                    )}
+                  </Box>
+                  {selectedBatch && (
+                    <Typography variant="caption" sx={{ color: 'text.secondary', display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.25, fontSize: '0.72rem' }}>
+                      <CalendarMonthRoundedIcon sx={{ fontSize: 14 }} />
+                      Shoot Date: <strong>{selectedBatch.shoot_date || 'Not set'}</strong> • {currentBatchVideos.length} Videos in pipeline
+                    </Typography>
+                  )}
+                </Box>
+
+                {/* Action Buttons */}
+                <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', alignItems: 'center' }} onDoubleClick={(e) => e.stopPropagation()}>
+                  {canEdit && (
+                    <Button
+                      size="small"
+                      variant="contained"
+                      startIcon={<AddRoundedIcon sx={{ fontSize: 15 }} />}
+                      onClick={() => {
+                        setNewBatchForm({
+                          clientId: activeClients[0]?.id || '',
+                          name: '',
+                          shootDate: new Date().toISOString().slice(0, 10),
+                          videoCount: 10,
+                          namingMethod: 'ClientName',
+                          script: '',
+                        });
+                        setNewBatchOpen(true);
+                      }}
+                      sx={{ textTransform: 'none', borderRadius: 1, fontWeight: 700, fontSize: '0.72rem', height: 28, px: 1 }}
+                    >
+                      New Batch
+                    </Button>
+                  )}
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<PictureAsPdfRoundedIcon sx={{ fontSize: 14 }} />}
+                    onClick={handleExportPDF}
+                    disabled={!selectedBatch}
+                    sx={{ textTransform: 'none', borderRadius: 1, fontWeight: 600, fontSize: '0.72rem', height: 28, px: 1 }}
+                  >
+                    Export PDF
+                  </Button>
+                  <Button
+                    size="small"
+                    variant="outlined"
+                    startIcon={<DownloadRoundedIcon sx={{ fontSize: 14 }} />}
+                    onClick={handleExportPNG}
+                    disabled={!selectedBatch}
+                    sx={{ textTransform: 'none', borderRadius: 1, fontWeight: 600, fontSize: '0.72rem', height: 28, px: 1 }}
+                  >
+                    PNG
+                  </Button>
+                  {canEdit && selectedBatch && (
+                    <>
+                      <Tooltip title="Edit Batch">
+                        <IconButton size="small" onClick={() => handleOpenEditBatch()} sx={{ color: 'text.secondary', p: 0.5 }}>
+                          <EditRoundedIcon sx={{ fontSize: 16 }} />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Delete Batch">
+                        <IconButton
+                          size="small"
+                          onClick={async () => {
+                            if (window.confirm(`Delete batch "${selectedBatch.name}"?`)) {
+                              await deleteBatchflowBatch(selectedBatch.id);
+                            }
+                          }}
+                          sx={{ color: '#F87171', p: 0.5 }}
+                        >
+                          <DeleteOutlineRoundedIcon sx={{ fontSize: 16 }} />
+                        </IconButton>
+                      </Tooltip>
+                    </>
+                  )}
+                </Box>
+              </Box>
+
+              {/* Bottom Row: BIG THICK KPI STATS BLOCK */}
+              {selectedBatch ? (
+                <>
+                  <Grid container spacing={1} alignItems="stretch">
+                    <Grid size={{ xs: 6, sm: 3 }}>
+                      <Box
+                        sx={{
+                          p: 1.25,
+                          borderRadius: 1,
+                          bgcolor: 'rgba(255,255,255,0.03)',
+                          border: '1px solid rgba(255,255,255,0.08)',
+                          height: '100%',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', letterSpacing: '0.05em', textTransform: 'uppercase', fontSize: '0.62rem' }}>
+                          TOTAL VIDEOS
+                        </Typography>
+                        <Typography variant="h4" sx={{ fontWeight: 900, color: 'text.primary', mt: 0.25, lineHeight: 1, fontSize: { xs: '1.4rem', sm: '1.6rem' } }}>
+                          {currentBatchVideos.length}
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: 'text.disabled', mt: 0.25, fontSize: '0.62rem' }}>
+                          {currentBatchVideos.length} videos total
+                        </Typography>
+                      </Box>
+                    </Grid>
+
+                    <Grid size={{ xs: 6, sm: 3 }}>
+                      <Box
+                        sx={{
+                          p: 1.25,
+                          borderRadius: 1,
+                          bgcolor: 'rgba(245, 158, 11, 0.08)',
+                          border: '1px solid rgba(245, 158, 11, 0.25)',
+                          height: '100%',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <Typography variant="caption" sx={{ fontWeight: 800, color: '#F59E0B', letterSpacing: '0.05em', textTransform: 'uppercase', fontSize: '0.62rem' }}>
+                          PENDING
+                        </Typography>
+                        <Typography variant="h4" sx={{ fontWeight: 900, color: '#F59E0B', mt: 0.25, lineHeight: 1, fontSize: { xs: '1.4rem', sm: '1.6rem' } }}>
+                          {pendingCount}
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: 'text.secondary', mt: 0.25, fontSize: '0.62rem' }}>
+                          {currentBatchVideos.length > 0 ? Math.round((pendingCount / currentBatchVideos.length) * 100) : 0}% of batch
+                        </Typography>
+                      </Box>
+                    </Grid>
+
+                    <Grid size={{ xs: 6, sm: 3 }}>
+                      <Box
+                        sx={{
+                          p: 1.25,
+                          borderRadius: 1,
+                          bgcolor: 'rgba(59, 130, 246, 0.08)',
+                          border: '1px solid rgba(59, 130, 246, 0.25)',
+                          height: '100%',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <Typography variant="caption" sx={{ fontWeight: 800, color: '#3B82F6', letterSpacing: '0.05em', textTransform: 'uppercase', fontSize: '0.62rem' }}>
+                          EDITED
+                        </Typography>
+                        <Typography variant="h4" sx={{ fontWeight: 900, color: '#3B82F6', mt: 0.25, lineHeight: 1, fontSize: { xs: '1.4rem', sm: '1.6rem' } }}>
+                          {editedCount}
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: 'text.secondary', mt: 0.25, fontSize: '0.62rem' }}>
+                          {currentBatchVideos.length > 0 ? Math.round((editedCount / currentBatchVideos.length) * 100) : 0}% of batch
+                        </Typography>
+                      </Box>
+                    </Grid>
+
+                    <Grid size={{ xs: 6, sm: 3 }}>
+                      <Box
+                        sx={{
+                          p: 1.25,
+                          borderRadius: 1,
+                          bgcolor: 'rgba(16, 185, 129, 0.08)',
+                          border: '1px solid rgba(16, 185, 129, 0.25)',
+                          height: '100%',
+                          display: 'flex',
+                          flexDirection: 'column',
+                          justifyContent: 'center',
+                        }}
+                      >
+                        <Typography variant="caption" sx={{ fontWeight: 800, color: '#10B981', letterSpacing: '0.05em', textTransform: 'uppercase', fontSize: '0.62rem' }}>
+                          POSTED
+                        </Typography>
+                        <Typography variant="h4" sx={{ fontWeight: 900, color: '#10B981', mt: 0.25, lineHeight: 1, fontSize: { xs: '1.4rem', sm: '1.6rem' } }}>
+                          {postedCount}
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: 'text.secondary', mt: 0.25, fontSize: '0.62rem' }}>
+                          {currentBatchVideos.length > 0 ? Math.round((postedCount / currentBatchVideos.length) * 100) : 0}% completed
+                        </Typography>
+                      </Box>
+                    </Grid>
+                  </Grid>
+
+                  {/* Progress bar */}
+                  <Box sx={{ mt: 1 }}>
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
+                      <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.65rem' }}>Production Completion</Typography>
+                      <Typography variant="caption" sx={{ fontWeight: 700, fontSize: '0.65rem', color: '#10B981' }}>
+                        {currentBatchVideos.length > 0 ? Math.round((postedCount / currentBatchVideos.length) * 100) : 0}%
+                      </Typography>
+                    </Box>
+                    <LinearProgress
+                      variant="determinate"
+                      value={currentBatchVideos.length > 0 ? Math.round((postedCount / currentBatchVideos.length) * 100) : 0}
+                      sx={{
+                        height: 4,
+                        borderRadius: 1,
+                        bgcolor: 'rgba(255,255,255,0.06)',
+                        '& .MuiLinearProgress-bar': { bgcolor: selectedClient?.color || '#10B981', borderRadius: 1 },
+                      }}
+                    />
+                  </Box>
+                </>
+              ) : (
+                <Typography variant="body2" sx={{ color: 'text.secondary', py: 1 }}>
+                  No batch active. Create a new batch or select an existing one below.
+                </Typography>
+              )}
+            </Card>
+          </Box>
+
+          {/* Video Pipeline Card: Takes remaining height, scrolls separately, cards NEVER squeezed */}
+          <Card sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', p: 1.75, borderRadius: 1 }}>
             {/* Videos Toolbar */}
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.25, flexWrap: 'wrap', gap: 1, flexShrink: 0 }}>
               <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
@@ -1046,6 +1045,8 @@ export default function BatchflowBatches() {
                     }}
                     title={canEdit ? 'Double-click to edit video' : undefined}
                     sx={{
+                      flexShrink: 0,
+                      minHeight: { xs: 50, sm: 54 },
                       p: 1.5,
                       borderRadius: 1,
                       cursor: canEdit ? 'pointer' : 'default',
