@@ -3,7 +3,7 @@ import {
   Box, Card, Typography, Button, TextField, Chip, IconButton,
   Dialog, DialogTitle, DialogContent, DialogActions,
   Select, MenuItem, InputLabel, FormControl, Divider, Tooltip,
-  Paper, Alert, LinearProgress,
+  Paper, Alert, LinearProgress, Menu,
 } from '@mui/material';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import EditRoundedIcon from '@mui/icons-material/EditRounded';
@@ -18,11 +18,14 @@ import AccessTimeRoundedIcon from '@mui/icons-material/AccessTimeRounded';
 import AutoFixHighRoundedIcon from '@mui/icons-material/AutoFixHighRounded';
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import VideoLibraryRoundedIcon from '@mui/icons-material/VideoLibraryRounded';
+import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded';
+import LinkRoundedIcon from '@mui/icons-material/LinkRounded';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
+import { registerOkineFont } from '../../lib/okineFont';
 import { useApp } from '../../contexts/AppContext';
 import { usePersistedState } from '../../lib/usePersistedState';
-import type { BatchflowVideo, BatchflowVideoStatus } from '../../types';
+import type { BatchflowBatch, BatchflowVideo, BatchflowVideoStatus } from '../../types';
 
 const STATUS_COLORS: Record<BatchflowVideoStatus, { bg: string; text: string; border: string }> = {
   Pending: { bg: 'rgba(245, 158, 11, 0.15)', text: '#F59E0B', border: 'rgba(245, 158, 11, 0.4)' },
@@ -300,8 +303,20 @@ export default function BatchflowBatches() {
     setEditBatchOpen(false);
   };
 
+  const [statusFilter, setStatusFilter] = useState<'ALL' | BatchflowVideoStatus>('ALL');
+
   const [editVideoOpen, setEditVideoOpen] = useState(false);
-  const [editingVideo, setEditingVideo] = useState<{ id: string; name: string; script_number: number } | null>(null);
+  const [editingVideo, setEditingVideo] = useState<{ id: string; name: string; script_number: number; video_url?: string } | null>(null);
+
+  const [postedLinkDialogOpen, setPostedLinkDialogOpen] = useState(false);
+  const [postedTargetVideo, setPostedTargetVideo] = useState<BatchflowVideo | null>(null);
+  const [postedVideoUrl, setPostedVideoUrl] = useState('');
+
+  const [contextMenu, setContextMenu] = useState<{
+    mouseX: number;
+    mouseY: number;
+    video: BatchflowVideo;
+  } | null>(null);
 
   const [addVideoOpen, setAddVideoOpen] = useState(false);
   const [newVideoName, setNewVideoName] = useState('');
@@ -327,6 +342,8 @@ export default function BatchflowBatches() {
     }
     return a.name.localeCompare(b.name, undefined, { numeric: true });
   });
+
+  const filteredVideos = sortedVideos.filter(v => statusFilter === 'ALL' || v.status === statusFilter);
 
   const pendingCount = currentBatchVideos.filter(v => v.status === 'Pending').length;
   const editedCount = currentBatchVideos.filter(v => v.status === 'Edited').length;
@@ -357,7 +374,34 @@ export default function BatchflowBatches() {
     const order: BatchflowVideoStatus[] = ['Pending', 'Edited', 'Posted'];
     const curIdx = order.indexOf(v.status);
     const nextStatus = order[(curIdx + 1) % order.length];
+    if (nextStatus === 'Posted') {
+      setPostedTargetVideo(v);
+      setPostedVideoUrl(v.video_url || '');
+      setPostedLinkDialogOpen(true);
+      return;
+    }
     await updateBatchflowVideoStatus(v.id, nextStatus);
+  };
+
+  const handleSavePostedLink = async (skip = false) => {
+    if (!postedTargetVideo) return;
+    const urlToSave = skip ? null : (postedVideoUrl.trim() || null);
+    if (postedTargetVideo.status !== 'Posted') {
+      await updateBatchflowVideoStatus(postedTargetVideo.id, 'Posted', urlToSave);
+    } else {
+      await updateBatchflowVideo(postedTargetVideo.id, {
+        video_url: skip ? null : urlToSave,
+      });
+    }
+    setPostedLinkDialogOpen(false);
+    setPostedTargetVideo(null);
+    setPostedVideoUrl('');
+  };
+
+  const handleCancelPostedLink = () => {
+    setPostedLinkDialogOpen(false);
+    setPostedTargetVideo(null);
+    setPostedVideoUrl('');
   };
 
   const handleSaveScript = async () => {
@@ -383,25 +427,30 @@ export default function BatchflowBatches() {
     }
   };
 
-  const handleExportPDF = () => {
-    if (!selectedBatch) return;
-    const doc = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4',
-    });
-
+  const renderBatchReport = (
+    doc: jsPDF,
+    batch: BatchflowBatch,
+    client: typeof activeClients[0] | undefined,
+    videos: BatchflowVideo[],
+    isFirstPage = true
+  ) => {
     const pageWidth = 210;
     const pageHeight = 297;
     const margin = 14;
     const contentWidth = pageWidth - margin * 2; // 182mm
 
-    const pCount = currentBatchVideos.filter(v => v.status === 'Pending').length;
-    const eCount = currentBatchVideos.filter(v => v.status === 'Edited').length;
-    const postedCount = currentBatchVideos.filter(v => v.status === 'Posted').length;
-    const totalCount = currentBatchVideos.length;
+    if (!isFirstPage) {
+      doc.addPage();
+    }
 
-    const clientColorHex = selectedClient?.color || '#6366F1';
+    registerOkineFont(doc);
+
+    const pCount = videos.filter(v => v.status === 'Pending').length;
+    const eCount = videos.filter(v => v.status === 'Edited').length;
+    const pPostedCount = videos.filter(v => v.status === 'Posted').length;
+    const totalCount = videos.length;
+
+    const clientColorHex = client?.color || '#6366F1';
     const [cr, cg, cb] = hexToRgb(clientColorHex);
 
     // --- Top Dark Header Banner ---
@@ -416,17 +465,17 @@ export default function BatchflowBatches() {
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.5);
     doc.setTextColor(148, 163, 184); // #94A3B8
-    doc.text('BATCHFLOW PRODUCTION REPORT', margin, 12);
+    doc.text('TRACKRR STUDIO • BATCHFLOW PRODUCTION REPORT', margin, 12);
 
     // Batch Name Title
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(16);
     doc.setTextColor(255, 255, 255);
-    const titleText = doc.splitTextToSize(selectedBatch.name, 115)[0] || selectedBatch.name;
+    const titleText = doc.splitTextToSize(batch.name, 115)[0] || batch.name;
     doc.text(titleText, margin, 21);
 
     // Client pill / tag on right
-    const clientName = selectedClient?.name || 'Unassigned Client';
+    const clientName = client?.name || 'Unassigned Client';
     doc.setFontSize(8.5);
     doc.setFont('helvetica', 'bold');
     const clientTag = `CLIENT: ${clientName.toUpperCase()}`;
@@ -441,24 +490,24 @@ export default function BatchflowBatches() {
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(148, 163, 184);
-    const shootDateStr = selectedBatch.shoot_date ? `Shoot Date: ${selectedBatch.shoot_date}` : 'Shoot Date: Not specified';
+    const shootDateStr = batch.shoot_date ? `Shoot Date: ${batch.shoot_date}` : 'Shoot Date: Not specified';
     doc.text(shootDateStr, pageWidth - margin, 26, { align: 'right' });
 
     // Subtitle / generated timestamp
     const dateStr = `Exported on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
     doc.text(dateStr, margin, 29);
 
-    // --- Executive KPI Metric Cards (4 cards) ---
+    // --- Executive KPI Metric Cards (4 cards) - Big Bold Okine Numbers ---
     const cardY = 44;
     const cardGap = 3.5;
     const cardWidth = (contentWidth - cardGap * 3) / 4; // ~42.8mm
-    const cardHeight = 22;
+    const cardHeight = 20;
 
     const kpis = [
-      { label: 'TOTAL VIDEOS', val: totalCount, pct: '100%', bg: [248, 250, 252], border: [226, 232, 240], text: [15, 23, 42] },
-      { label: 'PENDING EDIT', val: pCount, pct: totalCount > 0 ? `${Math.round((pCount / totalCount) * 100)}%` : '0%', bg: [254, 243, 199], border: [253, 230, 138], text: [180, 83, 9] },
-      { label: 'EDITED', val: eCount, pct: totalCount > 0 ? `${Math.round((eCount / totalCount) * 100)}%` : '0%', bg: [219, 234, 254], border: [191, 219, 254], text: [29, 78, 216] },
-      { label: 'POSTED', val: postedCount, pct: totalCount > 0 ? `${Math.round((postedCount / totalCount) * 100)}%` : '0%', bg: [209, 250, 229], border: [167, 243, 208], text: [4, 120, 87] },
+      { label: 'TOTAL', val: totalCount, bg: [248, 250, 252], border: [226, 232, 240], text: [15, 23, 42], badgeBg: [226, 232, 240], dot: [100, 116, 139] },
+      { label: 'PENDING', val: pCount, bg: [254, 243, 199], border: [253, 230, 138], text: [180, 83, 9], badgeBg: [254, 215, 170], dot: [217, 119, 6] },
+      { label: 'EDITED', val: eCount, bg: [239, 246, 255], border: [191, 219, 254], text: [29, 78, 216], badgeBg: [191, 219, 254], dot: [37, 99, 235] },
+      { label: 'POSTED', val: pPostedCount, bg: [236, 253, 245], border: [167, 243, 208], text: [4, 120, 87], badgeBg: [167, 243, 208], dot: [5, 150, 105] },
     ];
 
     kpis.forEach((kpi, i) => {
@@ -466,29 +515,29 @@ export default function BatchflowBatches() {
       // Card background
       doc.setFillColor(kpi.bg[0], kpi.bg[1], kpi.bg[2]);
       doc.setDrawColor(kpi.border[0], kpi.border[1], kpi.border[2]);
-      doc.setLineWidth(0.3);
-      doc.roundedRect(kX, cardY, cardWidth, cardHeight, 2, 2, 'FD');
+      doc.setLineWidth(0.35);
+      doc.roundedRect(kX, cardY, cardWidth, cardHeight, 1.8, 1.8, 'FD');
 
-      // Caption
+      // Left portion: Status indicator badge dot + Uppercase Label
+      doc.setFillColor(kpi.badgeBg[0], kpi.badgeBg[1], kpi.badgeBg[2]);
+      doc.circle(kX + 5.5, cardY + cardHeight / 2, 2.8, 'F');
+      doc.setFillColor(kpi.dot[0], kpi.dot[1], kpi.dot[2]);
+      doc.circle(kX + 5.5, cardY + cardHeight / 2, 1.4, 'F');
+
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(6.5);
-      doc.setTextColor(100, 116, 139); // #64748B
-      doc.text(kpi.label, kX + 3.5, cardY + 5.5);
-
-      // Number
-      doc.setFontSize(13);
+      doc.setFontSize(7.5);
       doc.setTextColor(kpi.text[0], kpi.text[1], kpi.text[2]);
-      doc.text(String(kpi.val), kX + 3.5, cardY + 13);
+      doc.text(kpi.label, kX + 10.5, cardY + cardHeight / 2 + 2.5);
 
-      // Percentage Pill / Subtext
-      doc.setFontSize(6.5);
-      doc.setFont('helvetica', 'normal');
-      doc.setTextColor(100, 116, 139);
-      doc.text(`${kpi.pct} of batch`, kX + 3.5, cardY + 18.5);
+      // Right portion: Big Bold Number in Okine Font!
+      doc.setFont('Okine', 'bold');
+      doc.setFontSize(20);
+      doc.setTextColor(kpi.text[0], kpi.text[1], kpi.text[2]);
+      doc.text(String(kpi.val), kX + cardWidth - 4.5, cardY + cardHeight / 2 + 6.2, { align: 'right' });
     });
 
-    // --- Table Section ---
-    let curY = 72;
+    // --- Table Section: Aligned Headers & Columns ---
+    let curY = 70;
 
     const drawTableHeader = (yPos: number) => {
       doc.setFillColor(30, 41, 59); // #1E293B
@@ -497,16 +546,19 @@ export default function BatchflowBatches() {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(7.5);
       doc.setTextColor(241, 245, 249); // #F1F5F9
-      doc.text('Script no.', margin + 3, yPos + 5.2);
-      doc.text('VIDEO TITLE', margin + 26, yPos + 5.2);
-      doc.text('STATUS', margin + 120, yPos + 5.2);
-      doc.text('PIPELINE DATE', margin + 152, yPos + 5.2);
+      doc.text('SL NO.', margin + 4, yPos + 5.5);
+      doc.text('VIDEO TITLE', margin + 20, yPos + 5.5);
+      doc.text('SCRIPT NO.', margin + 116, yPos + 5.5);
+      doc.text('STATUS', margin + 142, yPos + 5.5, { align: 'center' });
+      doc.text('PIPELINE DATE', margin + 160, yPos + 5.5);
     };
 
     drawTableHeader(curY);
     curY += 8;
 
-    sortedVideos.forEach((v, index) => {
+    const bSortedVideos = [...videos].sort((a, b) => (a.script_number || 0) - (b.script_number || 0));
+
+    bSortedVideos.forEach((v, index) => {
       const rowHeight = 9.5;
       if (curY + rowHeight > pageHeight - 20) {
         doc.addPage();
@@ -525,24 +577,30 @@ export default function BatchflowBatches() {
       doc.setLineWidth(0.2);
       doc.rect(margin, curY, contentWidth, rowHeight, 'FD');
 
-      // Script no.
+      // Col 1: SL NO.
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8);
-      doc.setTextColor(71, 85, 105);
-      doc.text(String(v.script_number ?? '-'), margin + 7, curY + 6);
+      doc.setTextColor(100, 116, 139);
+      doc.text(String(index + 1), margin + 4, curY + 6.0);
 
-      // Video Title
+      // Col 2: Video Title
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8);
       doc.setTextColor(15, 23, 42);
       const title = v.name || `Video #${v.script_number || index + 1}`;
       const truncatedTitle = doc.splitTextToSize(title, 88)[0];
-      doc.text(truncatedTitle, margin + 26, curY + 6);
+      doc.text(truncatedTitle, margin + 20, curY + 6.0);
 
-      // Status Pill
-      const pillX = margin + 120;
-      const pillY = curY + 2;
-      const pillW = 24;
+      // Col 3: SCRIPT NO.
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(71, 85, 105);
+      doc.text(String(v.script_number ?? '-'), margin + 116, curY + 6.0);
+
+      // Col 4: Status Pill
+      const pillX = margin + 131;
+      const pillY = curY + 2.0;
+      const pillW = 22;
       const pillH = 5.5;
 
       if (v.status === 'Posted') {
@@ -571,19 +629,32 @@ export default function BatchflowBatches() {
         doc.text('PENDING', pillX + pillW / 2, pillY + 3.8, { align: 'center' });
       }
 
-      // Date / Details
+      // Col 5: Date / Details
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
       doc.setTextColor(100, 116, 139);
       const dateText = v.status === 'Posted' && v.posted_date ? new Date(v.posted_date).toLocaleDateString() :
                        v.status === 'Edited' && v.edited_date ? new Date(v.edited_date).toLocaleDateString() :
-                       selectedBatch.shoot_date ? `Shoot: ${selectedBatch.shoot_date}` : '-';
-      doc.text(dateText, margin + 152, curY + 6);
+                       batch.shoot_date ? `Shoot: ${batch.shoot_date}` : '-';
+      doc.text(dateText, margin + 160, curY + 6.0);
 
       curY += rowHeight;
     });
+  };
 
-    // Footer for all pages
+  const handleExportPDF = () => {
+    if (!selectedBatch) return;
+    const doc = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4',
+    });
+
+    renderBatchReport(doc, selectedBatch, selectedClient, currentBatchVideos, true);
+
+    const margin = 14;
+    const pageWidth = 210;
+    const pageHeight = 297;
     const totalPages = doc.getNumberOfPages();
     for (let p = 1; p <= totalPages; p++) {
       doc.setPage(p);
@@ -599,6 +670,40 @@ export default function BatchflowBatches() {
     }
 
     doc.save(`${selectedBatch.name.replace(/[^a-zA-Z0-9_-]/g, '_')}_Report.pdf`);
+  };
+
+  const handleExportAllBatchesPDF = () => {
+    if (activeBatches.length === 0) return;
+    const doc = new jsPDF({
+      orientation: 'portrait',
+      unit: 'mm',
+      format: 'a4',
+    });
+
+    activeBatches.forEach((b, idx) => {
+      const client = activeClients.find(c => c.id === b.client_id);
+      const bVids = batchflowVideos.filter(v => v.batch_id === b.id);
+      renderBatchReport(doc, b, client, bVids, idx === 0);
+    });
+
+    const margin = 14;
+    const pageWidth = 210;
+    const pageHeight = 297;
+    const totalPages = doc.getNumberOfPages();
+    for (let p = 1; p <= totalPages; p++) {
+      doc.setPage(p);
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.3);
+      doc.line(margin, pageHeight - 12, pageWidth - margin, pageHeight - 12);
+
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(7.5);
+      doc.setTextColor(148, 163, 184);
+      doc.text('Trackrr Studio • Consolidated Batches Production Report', margin, pageHeight - 7);
+      doc.text(`Page ${p} of ${totalPages}`, pageWidth - margin, pageHeight - 7, { align: 'right' });
+    }
+
+    doc.save(`Trackrr_All_Batches_Report_${new Date().toISOString().slice(0, 10)}.pdf`);
   };
 
   return (
@@ -638,27 +743,45 @@ export default function BatchflowBatches() {
               <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
                 Batches ({activeBatches.length})
               </Typography>
-              {canEdit && (
-                <Button
-                  size="small"
-                  variant="text"
-                  startIcon={<AddRoundedIcon sx={{ fontSize: 16 }} />}
-                  onClick={() => {
-                    setNewBatchForm({
-                      clientId: activeClients[0]?.id || '',
-                      name: '',
-                      shootDate: new Date().toISOString().slice(0, 10),
-                      videoCount: 10,
-                      namingMethod: 'ClientName',
-                      script: '',
-                    });
-                    setNewBatchOpen(true);
-                  }}
-                  sx={{ fontSize: '0.72rem', py: 0.25, px: 1, textTransform: 'none', fontWeight: 700 }}
-                >
-                  New
-                </Button>
-              )}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <Tooltip title="Export All Batches to Single PDF">
+                  <span>
+                    <IconButton
+                      size="small"
+                      onClick={handleExportAllBatchesPDF}
+                      disabled={activeBatches.length === 0}
+                      sx={{
+                        p: 0.5,
+                        color: 'text.secondary',
+                        '&:hover': { color: 'primary.light', bgcolor: 'rgba(255,255,255,0.06)' },
+                      }}
+                    >
+                      <PictureAsPdfRoundedIcon sx={{ fontSize: 16 }} />
+                    </IconButton>
+                  </span>
+                </Tooltip>
+                {canEdit && (
+                  <Button
+                    size="small"
+                    variant="text"
+                    startIcon={<AddRoundedIcon sx={{ fontSize: 16 }} />}
+                    onClick={() => {
+                      setNewBatchForm({
+                        clientId: activeClients[0]?.id || '',
+                        name: '',
+                        shootDate: new Date().toISOString().slice(0, 10),
+                        videoCount: 10,
+                        namingMethod: 'ClientName',
+                        script: '',
+                      });
+                      setNewBatchOpen(true);
+                    }}
+                    sx={{ fontSize: '0.72rem', py: 0.25, px: 1, textTransform: 'none', fontWeight: 700 }}
+                  >
+                    New
+                  </Button>
+                )}
+              </Box>
             </Box>
 
             {/* Separately scrollable Batches List - ONLY scrolls if content requires it */}
@@ -787,27 +910,6 @@ export default function BatchflowBatches() {
 
                 {/* Action Buttons: Minimal & Modern */}
                 <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', alignItems: 'center' }} onDoubleClick={(e) => e.stopPropagation()}>
-                  {canEdit && (
-                    <Button
-                      size="small"
-                      variant="contained"
-                      startIcon={<AddRoundedIcon sx={{ fontSize: 16 }} />}
-                      onClick={() => {
-                        setNewBatchForm({
-                          clientId: activeClients[0]?.id || '',
-                          name: '',
-                          shootDate: new Date().toISOString().slice(0, 10),
-                          videoCount: 10,
-                          namingMethod: 'ClientName',
-                          script: '',
-                        });
-                        setNewBatchOpen(true);
-                      }}
-                      sx={{ textTransform: 'none', borderRadius: 1, fontWeight: 700, fontSize: '0.75rem', height: 30, px: 1.25 }}
-                    >
-                      New Batch
-                    </Button>
-                  )}
                   <Button
                     size="small"
                     variant="outlined"
@@ -866,12 +968,16 @@ export default function BatchflowBatches() {
                   >
                     {/* TOTAL */}
                     <Box
+                      onClick={() => setStatusFilter('ALL')}
+                      title={statusFilter === 'ALL' ? 'Showing all videos' : 'Click to show all videos'}
                       sx={{
                         p: { xs: 1.25, sm: 1.5 },
                         px: { xs: 1.5, sm: 2 },
                         borderRadius: 1.25,
-                        bgcolor: 'rgba(255, 255, 255, 0.025)',
-                        border: '1px solid rgba(255, 255, 255, 0.08)',
+                        cursor: 'pointer',
+                        bgcolor: statusFilter === 'ALL' ? 'rgba(255, 255, 255, 0.08)' : 'rgba(255, 255, 255, 0.025)',
+                        border: statusFilter === 'ALL' ? '1.5px solid rgba(255, 255, 255, 0.45)' : '1px solid rgba(255, 255, 255, 0.08)',
+                        boxShadow: statusFilter === 'ALL' ? '0 0 14px rgba(255, 255, 255, 0.12)' : 'none',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
@@ -879,8 +985,9 @@ export default function BatchflowBatches() {
                         minHeight: { xs: 56, sm: 62 },
                         transition: 'all 0.2s ease',
                         '&:hover': {
-                          bgcolor: 'rgba(255, 255, 255, 0.04)',
-                          borderColor: 'rgba(255, 255, 255, 0.16)',
+                          bgcolor: 'rgba(255, 255, 255, 0.06)',
+                          borderColor: 'rgba(255, 255, 255, 0.35)',
+                          transform: 'translateY(-1px)',
                         },
                       }}
                     >
@@ -928,12 +1035,16 @@ export default function BatchflowBatches() {
 
                     {/* PENDING */}
                     <Box
+                      onClick={() => setStatusFilter(prev => prev === 'Pending' ? 'ALL' : 'Pending')}
+                      title={statusFilter === 'Pending' ? 'Filtered by Pending (Click to reset)' : 'Click to filter by Pending'}
                       sx={{
                         p: { xs: 1.25, sm: 1.5 },
                         px: { xs: 1.5, sm: 2 },
                         borderRadius: 1.25,
-                        bgcolor: 'rgba(245, 158, 11, 0.04)',
-                        border: '1px solid rgba(245, 158, 11, 0.25)',
+                        cursor: 'pointer',
+                        bgcolor: statusFilter === 'Pending' ? 'rgba(245, 158, 11, 0.14)' : 'rgba(245, 158, 11, 0.04)',
+                        border: statusFilter === 'Pending' ? '1.5px solid #F59E0B' : '1px solid rgba(245, 158, 11, 0.25)',
+                        boxShadow: statusFilter === 'Pending' ? '0 0 16px rgba(245, 158, 11, 0.3)' : 'none',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
@@ -941,8 +1052,9 @@ export default function BatchflowBatches() {
                         minHeight: { xs: 56, sm: 62 },
                         transition: 'all 0.2s ease',
                         '&:hover': {
-                          bgcolor: 'rgba(245, 158, 11, 0.08)',
-                          borderColor: 'rgba(245, 158, 11, 0.45)',
+                          bgcolor: 'rgba(245, 158, 11, 0.09)',
+                          borderColor: 'rgba(245, 158, 11, 0.55)',
+                          transform: 'translateY(-1px)',
                         },
                       }}
                     >
@@ -990,12 +1102,16 @@ export default function BatchflowBatches() {
 
                     {/* EDITED */}
                     <Box
+                      onClick={() => setStatusFilter(prev => prev === 'Edited' ? 'ALL' : 'Edited')}
+                      title={statusFilter === 'Edited' ? 'Filtered by Edited (Click to reset)' : 'Click to filter by Edited'}
                       sx={{
                         p: { xs: 1.25, sm: 1.5 },
                         px: { xs: 1.5, sm: 2 },
                         borderRadius: 1.25,
-                        bgcolor: 'rgba(59, 130, 246, 0.04)',
-                        border: '1px solid rgba(59, 130, 246, 0.25)',
+                        cursor: 'pointer',
+                        bgcolor: statusFilter === 'Edited' ? 'rgba(59, 130, 246, 0.14)' : 'rgba(59, 130, 246, 0.04)',
+                        border: statusFilter === 'Edited' ? '1.5px solid #3B82F6' : '1px solid rgba(59, 130, 246, 0.25)',
+                        boxShadow: statusFilter === 'Edited' ? '0 0 16px rgba(59, 130, 246, 0.3)' : 'none',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
@@ -1003,8 +1119,9 @@ export default function BatchflowBatches() {
                         minHeight: { xs: 56, sm: 62 },
                         transition: 'all 0.2s ease',
                         '&:hover': {
-                          bgcolor: 'rgba(59, 130, 246, 0.08)',
-                          borderColor: 'rgba(59, 130, 246, 0.45)',
+                          bgcolor: 'rgba(59, 130, 246, 0.09)',
+                          borderColor: 'rgba(59, 130, 246, 0.55)',
+                          transform: 'translateY(-1px)',
                         },
                       }}
                     >
@@ -1052,12 +1169,16 @@ export default function BatchflowBatches() {
 
                     {/* POSTED */}
                     <Box
+                      onClick={() => setStatusFilter(prev => prev === 'Posted' ? 'ALL' : 'Posted')}
+                      title={statusFilter === 'Posted' ? 'Filtered by Posted (Click to reset)' : 'Click to filter by Posted'}
                       sx={{
                         p: { xs: 1.25, sm: 1.5 },
                         px: { xs: 1.5, sm: 2 },
                         borderRadius: 1.25,
-                        bgcolor: 'rgba(16, 185, 129, 0.04)',
-                        border: '1px solid rgba(16, 185, 129, 0.25)',
+                        cursor: 'pointer',
+                        bgcolor: statusFilter === 'Posted' ? 'rgba(16, 185, 129, 0.14)' : 'rgba(16, 185, 129, 0.04)',
+                        border: statusFilter === 'Posted' ? '1.5px solid #10B981' : '1px solid rgba(16, 185, 129, 0.25)',
+                        boxShadow: statusFilter === 'Posted' ? '0 0 16px rgba(16, 185, 129, 0.3)' : 'none',
                         display: 'flex',
                         alignItems: 'center',
                         justifyContent: 'space-between',
@@ -1065,8 +1186,9 @@ export default function BatchflowBatches() {
                         minHeight: { xs: 56, sm: 62 },
                         transition: 'all 0.2s ease',
                         '&:hover': {
-                          bgcolor: 'rgba(16, 185, 129, 0.08)',
-                          borderColor: 'rgba(16, 185, 129, 0.45)',
+                          bgcolor: 'rgba(16, 185, 129, 0.09)',
+                          borderColor: 'rgba(16, 185, 129, 0.55)',
+                          transform: 'translateY(-1px)',
                         },
                       }}
                     >
@@ -1147,9 +1269,26 @@ export default function BatchflowBatches() {
           <Card sx={{ flex: 1, minHeight: 0, display: 'flex', flexDirection: 'column', overflow: 'hidden', p: 1.75, borderRadius: 1 }}>
             {/* Videos Toolbar */}
             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.25, flexWrap: 'wrap', gap: 1, flexShrink: 0 }}>
-              <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                Video Pipeline ({currentBatchVideos.length})
-              </Typography>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                  Video Pipeline ({filteredVideos.length}{statusFilter !== 'ALL' ? ` of ${currentBatchVideos.length}` : ''})
+                </Typography>
+                {statusFilter !== 'ALL' && (
+                  <Chip
+                    size="small"
+                    label={`Filter: ${statusFilter}`}
+                    onDelete={() => setStatusFilter('ALL')}
+                    sx={{
+                      height: 22,
+                      fontSize: '0.68rem',
+                      fontWeight: 800,
+                      bgcolor: STATUS_COLORS[statusFilter]?.bg,
+                      color: STATUS_COLORS[statusFilter]?.text,
+                      border: `1px solid ${STATUS_COLORS[statusFilter]?.border}`,
+                    }}
+                  />
+                )}
+              </Box>
 
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <Select
@@ -1197,7 +1336,7 @@ export default function BatchflowBatches() {
                 '&::-webkit-scrollbar-thumb': { bgcolor: 'rgba(255,255,255,0.15)', borderRadius: 2 },
               }}
             >
-              {sortedVideos.map(v => {
+              {filteredVideos.map(v => {
                 const cardStyle = VIDEO_CARD_STYLES[v.status] || VIDEO_CARD_STYLES.Pending;
                 const st = STATUS_COLORS[v.status] || STATUS_COLORS.Pending;
 
@@ -1206,11 +1345,15 @@ export default function BatchflowBatches() {
                     key={v.id}
                     onDoubleClick={() => {
                       if (canEdit) {
-                        setEditingVideo({ id: v.id, name: v.name, script_number: v.script_number });
+                        setEditingVideo({ id: v.id, name: v.name, script_number: v.script_number, video_url: v.video_url || '' });
                         setEditVideoOpen(true);
                       }
                     }}
-                    title={canEdit ? 'Double-click to edit video' : undefined}
+                    onContextMenu={(e) => {
+                      e.preventDefault();
+                      setContextMenu({ mouseX: e.clientX + 2, mouseY: e.clientY - 6, video: v });
+                    }}
+                    title={canEdit ? 'Double-click to edit • Right-click for video options' : undefined}
                     sx={{
                       flexShrink: 0,
                       minHeight: { xs: 50, sm: 54 },
@@ -1252,10 +1395,34 @@ export default function BatchflowBatches() {
                       >
                         #{v.script_number}
                       </Box>
-                      <Box sx={{ minWidth: 0 }}>
-                        <Typography variant="body2" noWrap sx={{ fontWeight: 700 }}>
-                          {v.name}
-                        </Typography>
+                      <Box sx={{ minWidth: 0, flex: 1 }}>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+                          <Typography variant="body2" noWrap sx={{ fontWeight: 700 }}>
+                            {v.name}
+                          </Typography>
+                          {v.video_url && (
+                            <Tooltip title={`Go to Video: ${v.video_url}`}>
+                              <IconButton
+                                size="small"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  window.open(v.video_url!, '_blank', 'noopener,noreferrer');
+                                }}
+                                onDoubleClick={(e) => e.stopPropagation()}
+                                sx={{
+                                  p: 0.35,
+                                  color: '#38BDF8',
+                                  bgcolor: 'rgba(56, 189, 248, 0.12)',
+                                  border: '1px solid rgba(56, 189, 248, 0.3)',
+                                  borderRadius: 1,
+                                  '&:hover': { bgcolor: 'rgba(56, 189, 248, 0.25)' },
+                                }}
+                              >
+                                <OpenInNewRoundedIcon sx={{ fontSize: 13 }} />
+                              </IconButton>
+                            </Tooltip>
+                          )}
+                        </Box>
                         <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.68rem', display: 'block' }}>
                           {v.status === 'Posted' && v.posted_date ? `Posted: ${new Date(v.posted_date).toLocaleDateString()}` :
                            v.status === 'Edited' && v.edited_date ? `Edited: ${new Date(v.edited_date).toLocaleDateString()}` :
@@ -1299,7 +1466,7 @@ export default function BatchflowBatches() {
                             size="small"
                             onClick={(e) => {
                               e.stopPropagation();
-                              setEditingVideo({ id: v.id, name: v.name, script_number: v.script_number });
+                              setEditingVideo({ id: v.id, name: v.name, script_number: v.script_number, video_url: v.video_url || '' });
                               setEditVideoOpen(true);
                             }}
                             onDoubleClick={(e) => e.stopPropagation()}
@@ -1325,13 +1492,22 @@ export default function BatchflowBatches() {
                 );
               })}
 
-              {sortedVideos.length === 0 && (
+              {currentBatchVideos.length === 0 ? (
                 <Box sx={{ p: 4, textAlign: 'center', bgcolor: 'rgba(255,255,255,0.02)', borderRadius: 1 }}>
                   <Typography variant="body2" sx={{ color: 'text.secondary' }}>
                     {selectedBatch ? 'No videos in this batch yet. Click "Add Video" above to create one.' : 'Select a batch to view its videos.'}
                   </Typography>
                 </Box>
-              )}
+              ) : filteredVideos.length === 0 ? (
+                <Box sx={{ py: 4, textAlign: 'center' }}>
+                  <Typography variant="body2" sx={{ color: 'text.disabled' }}>
+                    No videos with "{statusFilter}" status in this batch.
+                  </Typography>
+                  <Button size="small" variant="text" onClick={() => setStatusFilter('ALL')} sx={{ mt: 1, textTransform: 'none', fontWeight: 700 }}>
+                    Show all videos
+                  </Button>
+                </Box>
+              ) : null}
             </Box>
           </Card>
         </Box>
@@ -1561,6 +1737,13 @@ script 2
             value={editingVideo?.script_number || 1}
             onChange={e => setEditingVideo(prev => prev ? { ...prev, script_number: parseInt(e.target.value) || 1 } : null)}
           />
+          <TextField
+            label="Video URL (Optional)"
+            placeholder="https://..."
+            fullWidth
+            value={editingVideo?.video_url || ''}
+            onChange={e => setEditingVideo(prev => prev ? { ...prev, video_url: e.target.value } : null)}
+          />
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setEditVideoOpen(false)}>Cancel</Button>
@@ -1571,6 +1754,7 @@ script 2
                 await updateBatchflowVideo(editingVideo.id, {
                   name: editingVideo.name.trim(),
                   script_number: editingVideo.script_number,
+                  video_url: editingVideo.video_url?.trim() || null,
                 });
                 setEditVideoOpen(false);
               }
@@ -1613,6 +1797,180 @@ script 2
           </Button>
         </DialogActions>
       </Dialog>
+
+      {/* Optional Video Link Dialog (when setting to Posted or editing link) */}
+      <Dialog
+        open={postedLinkDialogOpen}
+        onClose={handleCancelPostedLink}
+        maxWidth="xs"
+        fullWidth
+      >
+        <DialogTitle sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 1 }}>
+          <LinkRoundedIcon sx={{ color: '#10B981' }} />
+          {postedTargetVideo?.status === 'Posted' ? 'Edit Video Link' : 'Add Video Link (Optional)'}
+        </DialogTitle>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, pt: 1 }}>
+          <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.82rem' }}>
+            Video: <strong>{postedTargetVideo?.name}</strong> (#{postedTargetVideo?.script_number})
+          </Typography>
+          <Typography variant="caption" sx={{ color: 'text.disabled' }}>
+            Paste the published reel, post, or drive video link below. You can also right-click this card anytime to access "Go to Video".
+          </Typography>
+          <TextField
+            label="Video URL"
+            placeholder="https://instagram.com/reel/... or https://youtube.com/..."
+            fullWidth
+            value={postedVideoUrl}
+            onChange={(e) => setPostedVideoUrl(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleSavePostedLink(false);
+              }
+            }}
+            autoFocus
+          />
+        </DialogContent>
+        <DialogActions sx={{ px: 3, pb: 2, justifyContent: 'space-between' }}>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button
+              onClick={handleCancelPostedLink}
+              sx={{ textTransform: 'none', color: 'text.disabled' }}
+            >
+              Cancel
+            </Button>
+            {postedTargetVideo?.status !== 'Posted' && (
+              <Button
+                onClick={() => handleSavePostedLink(true)}
+                sx={{ textTransform: 'none', color: 'text.secondary' }}
+              >
+                Skip
+              </Button>
+            )}
+          </Box>
+          <Button
+            variant="contained"
+            onClick={() => handleSavePostedLink(false)}
+            sx={{
+              bgcolor: '#10B981',
+              '&:hover': { bgcolor: '#059669' },
+              fontWeight: 700,
+              textTransform: 'none',
+              px: 2.5,
+            }}
+          >
+            {postedTargetVideo?.status === 'Posted' ? 'Save Link' : 'Save & Post'}
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Video Context Menu (Right-Click) */}
+      <Menu
+        open={Boolean(contextMenu)}
+        onClose={() => setContextMenu(null)}
+        anchorReference="anchorPosition"
+        anchorPosition={
+          contextMenu !== null
+            ? { top: contextMenu.mouseY, left: contextMenu.mouseX }
+            : undefined
+        }
+        slotProps={{
+          paper: {
+            sx: {
+              bgcolor: 'background.paper',
+              border: '1px solid rgba(255,255,255,0.1)',
+              boxShadow: '0 8px 32px rgba(0,0,0,0.5)',
+              minWidth: 200,
+              py: 0.5,
+            },
+          },
+        }}
+      >
+        {contextMenu?.video.video_url && (
+          <MenuItem
+            onClick={() => {
+              if (contextMenu?.video.video_url) {
+                window.open(contextMenu.video.video_url, '_blank', 'noopener,noreferrer');
+              }
+              setContextMenu(null);
+            }}
+            sx={{ gap: 1.25, fontSize: '0.85rem', fontWeight: 700, color: '#38BDF8' }}
+          >
+            <OpenInNewRoundedIcon sx={{ fontSize: 18 }} />
+            Go to Video
+          </MenuItem>
+        )}
+
+        {contextMenu?.video.video_url && (
+          <MenuItem
+            onClick={() => {
+              if (contextMenu?.video.video_url) {
+                navigator.clipboard.writeText(contextMenu.video.video_url);
+              }
+              setContextMenu(null);
+            }}
+            sx={{ gap: 1.25, fontSize: '0.85rem' }}
+          >
+            <ContentCopyRoundedIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+            Copy Video Link
+          </MenuItem>
+        )}
+
+        {canEdit && (
+          <MenuItem
+            onClick={() => {
+              if (contextMenu?.video) {
+                const v = contextMenu.video;
+                setPostedTargetVideo(v);
+                setPostedVideoUrl(v.video_url || '');
+                setPostedLinkDialogOpen(true);
+              }
+              setContextMenu(null);
+            }}
+            sx={{ gap: 1.25, fontSize: '0.85rem' }}
+          >
+            <LinkRoundedIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+            {contextMenu?.video.video_url ? 'Edit Video Link' : 'Add Video Link'}
+          </MenuItem>
+        )}
+
+        <Divider sx={{ my: 0.5 }} />
+
+        {canEdit && (
+          <MenuItem
+            onClick={() => {
+              if (contextMenu?.video) {
+                const v = contextMenu.video;
+                setEditingVideo({ id: v.id, name: v.name, script_number: v.script_number, video_url: v.video_url || '' });
+                setEditVideoOpen(true);
+              }
+              setContextMenu(null);
+            }}
+            sx={{ gap: 1.25, fontSize: '0.85rem' }}
+          >
+            <EditRoundedIcon sx={{ fontSize: 18, color: 'text.secondary' }} />
+            Edit Video
+          </MenuItem>
+        )}
+
+        {canEdit && (
+          <MenuItem
+            onClick={async () => {
+              if (contextMenu?.video) {
+                const v = contextMenu.video;
+                if (window.confirm(`Delete video "${v.name}"?`)) {
+                  await deleteBatchflowVideo(v.id);
+                }
+              }
+              setContextMenu(null);
+            }}
+            sx={{ gap: 1.25, fontSize: '0.85rem', color: '#F87171' }}
+          >
+            <DeleteOutlineRoundedIcon sx={{ fontSize: 18 }} />
+            Delete Video
+          </MenuItem>
+        )}
+      </Menu>
     </Box>
   );
 }

@@ -136,6 +136,7 @@ export interface BatchflowVideo {
   waiting_date?: string | null;
   edited_date?: string | null;
   posted_date?: string | null;
+  video_url?: string | null;
   created_at: string;
 }
 

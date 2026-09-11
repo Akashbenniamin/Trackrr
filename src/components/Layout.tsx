@@ -27,6 +27,7 @@ import AuthDialog from './AuthDialog';
 import OfflineBanner from './OfflineBanner';
 import PendingInvitesBanner from './PendingInvitesBanner';
 import CollaboratorsDialog from './CollaboratorsDialog';
+import Logo from './Logo';
 import { useApp } from '../contexts/AppContext';
 import type { ViewName, WorkspaceType } from '../types';
 
@@ -89,7 +90,13 @@ export default function Layout({ children }: LayoutProps) {
       {/* Top AppBar */}
       <AppBar position="sticky" elevation={0} sx={{ flexShrink: 0 }}>
         <Toolbar sx={{ gap: 1, minHeight: { xs: 56, sm: 64 } }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Logo
+              size={isMobile ? 26 : 30}
+              showWordmark={!isMobile}
+              subtitle={isBatchflow ? 'Studio' : undefined}
+            />
+            <Divider orientation="vertical" flexItem sx={{ height: 20, my: 'auto', borderColor: 'rgba(255,255,255,0.12)' }} />
             <Tooltip title="Switch Workspace">
               <Chip
                 avatar={
