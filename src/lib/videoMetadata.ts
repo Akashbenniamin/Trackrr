@@ -120,9 +120,9 @@ export async function fetchVideoMetadata(
       }
     }
 
-    // Fallback: Free public metadata service (Microlink) if Meta token is missing or failed
+    // Fallback: Free public metadata service (Microlink) if Meta token is missing, pending review, or failed
     try {
-      const fallbackUrl = `https://api.microlink.io?url=${encodeURIComponent(cleanUrl)}&data=date,title,publisher,author,image`;
+      const fallbackUrl = `https://api.microlink.io?url=${encodeURIComponent(cleanUrl)}`;
       const fbResponse = await fetch(fallbackUrl);
       if (fbResponse.ok) {
         const fbData = await fbResponse.json();
@@ -130,28 +130,35 @@ export async function fetchVideoMetadata(
         let pDate: string | null = null;
         if (d?.date) {
           pDate = String(d.date).split('T')[0];
+        } else if (d?.description) {
+          const dateMatch = String(d.description).match(/on\s+([A-Za-z]+\s+\d{1,2},\s+\d{4})/i);
+          if (dateMatch && dateMatch[1]) {
+            const parsed = new Date(dateMatch[1]);
+            if (!isNaN(parsed.getTime())) {
+              pDate = parsed.toISOString().slice(0, 10);
+            }
+          }
         }
 
-        return {
-          postedDate: pDate,
-          postedDateTime: d?.date || null,
-          title: d?.title || undefined,
-          author: d?.author || d?.publisher || undefined,
-          thumbnailUrl: d?.image?.url || undefined,
-          provider: 'instagram',
-          usedOfficialMetaApi: false,
-          error: metaToken ? undefined : 'Fetched via fallback resolver. Add your Meta App Token in Settings for direct official Meta API.',
-        };
+        if (pDate) {
+          return {
+            postedDate: pDate,
+            postedDateTime: d?.date || null,
+            title: d?.title || (d?.description ? String(d.description).slice(0, 80) : undefined),
+            author: d?.author || d?.publisher || undefined,
+            thumbnailUrl: d?.image?.url || undefined,
+            provider: 'instagram',
+            usedOfficialMetaApi: false,
+          };
+        }
       }
-    } catch {
-      // Ignore fallback error
+    } catch (err) {
+      console.warn('Fallback resolver error:', err);
     }
 
     return {
       provider: 'instagram',
-      error: metaToken
-        ? 'Could not fetch metadata from Meta. Ensure the post is public and your Meta App Token is valid.'
-        : 'Meta App Token not configured. Go to Settings > Meta API to add your App ID & Client Token.',
+      error: 'Could not extract metadata from this Instagram URL. Please verify the post or reel is public.',
     };
   }
 
