@@ -251,7 +251,7 @@ export default function BatchflowBatches() {
     batchflowClients, batchflowBatches, batchflowVideos,
     addBatchflowBatch, updateBatchflowBatch, deleteBatchflowBatch,
     addBatchflowVideo, updateBatchflowVideo, updateBatchflowVideoStatus, deleteBatchflowVideo,
-    canEdit,
+    canEdit, activeWorkspace,
   } = useApp();
 
   const activeClients = batchflowClients.filter(c => !c.archived);
@@ -427,6 +427,67 @@ export default function BatchflowBatches() {
     }
   };
 
+  const drawCardWatermark = (
+    doc: jsPDF,
+    type: 'TOTAL' | 'PENDING' | 'EDITED' | 'POSTED',
+    cx: number,
+    cy: number,
+    size: number,
+    color: [number, number, number]
+  ) => {
+    doc.setDrawColor(color[0], color[1], color[2]);
+    doc.setFillColor(color[0], color[1], color[2]);
+    const s = size;
+
+    if (type === 'TOTAL') {
+      const w = s * 1.05;
+      const h = s * 0.74;
+      const x = cx - w / 2;
+      const y = cy - h / 2;
+      doc.setLineWidth(0.65);
+      doc.roundedRect(x, y, w, h, 1.8, 1.8, 'D');
+      doc.line(cx - s * 0.25, cy + h / 2 + 1.2, cx + s * 0.25, cy + h / 2 + 1.2);
+      doc.line(cx, cy + h / 2, cx, cy + h / 2 + 1.2);
+      const tw = s * 0.28;
+      const th = s * 0.32;
+      const tx = cx - tw / 3;
+      doc.triangle(tx, cy - th / 2, tx, cy + th / 2, tx + tw, cy, 'FD');
+    } else if (type === 'PENDING') {
+      const r = s * 0.40;
+      doc.setLineWidth(0.65);
+      doc.circle(cx, cy, r, 'D');
+      doc.circle(cx, cy, 0.6, 'F');
+      doc.line(cx, cy, cx, cy - r * 0.55);
+      doc.line(cx, cy, cx + r * 0.48, cy);
+    } else if (type === 'EDITED') {
+      const draw4Star = (sx: number, sy: number, rad: number) => {
+        const inner = rad * 0.28;
+        const pts = [
+          [sx, sy - rad],
+          [sx + inner, sy - inner],
+          [sx + rad, sy],
+          [sx + inner, sy + inner],
+          [sx, sy + rad],
+          [sx - inner, sy + inner],
+          [sx - rad, sy],
+          [sx - inner, sy - inner]
+        ];
+        const rel = pts.map((p, i) => i === 0 ? [p[0] - sx, p[1] - sy] : [p[0] - pts[i-1][0], p[1] - pts[i-1][1]]);
+        doc.lines(rel, sx, sy, [1, 1], 'FD');
+      };
+      doc.setLineWidth(0.4);
+      draw4Star(cx - s * 0.08, cy + s * 0.05, s * 0.38);
+      draw4Star(cx + s * 0.26, cy - s * 0.22, s * 0.20);
+    } else if (type === 'POSTED') {
+      const r = s * 0.40;
+      doc.setLineWidth(0.65);
+      doc.circle(cx, cy, r, 'D');
+      doc.setLineWidth(0.85);
+      doc.line(cx - r * 0.38, cy + r * 0.02, cx - r * 0.05, cy + r * 0.32);
+      doc.line(cx - r * 0.05, cy + r * 0.32, cx + r * 0.42, cy - r * 0.28);
+    }
+  };
+
   const renderBatchReport = (
     doc: jsPDF,
     batch: BatchflowBatch,
@@ -455,85 +516,155 @@ export default function BatchflowBatches() {
 
     // --- Top Dark Header Banner ---
     doc.setFillColor(15, 23, 42); // #0F172A
-    doc.rect(0, 0, pageWidth, 38, 'F');
+    doc.rect(0, 0, pageWidth, 35, 'F');
 
     // Top accent bar
     doc.setFillColor(cr, cg, cb);
     doc.rect(0, 0, pageWidth, 3.5, 'F');
 
-    // Header Subtitle / Tag
+    // Top Brand: "TRACKRR"
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(8.5);
     doc.setTextColor(148, 163, 184); // #94A3B8
-    doc.text('TRACKRR STUDIO • BATCHFLOW PRODUCTION REPORT', margin, 12);
+    doc.text('TRACKRR', margin, 10.5);
 
-    // Batch Name Title
+    // Workspace name above client name
+    const wsName = (activeWorkspace?.name || 'Workspace').toUpperCase();
+    doc.setFont('helvetica', 'bold');
+    doc.setFontSize(7.5);
+    doc.setTextColor(129, 140, 248);
+    doc.text(wsName, margin, 15.5);
+
+    // Client Name as Large Main Title
+    const clientName = client?.name || 'Unassigned Client';
     doc.setFont('helvetica', 'bold');
     doc.setFontSize(16);
     doc.setTextColor(255, 255, 255);
-    const titleText = doc.splitTextToSize(batch.name, 115)[0] || batch.name;
-    doc.text(titleText, margin, 21);
+    const clientTitle = doc.splitTextToSize(clientName, 115)[0] || clientName;
+    doc.text(clientTitle, margin, 23.5);
 
-    // Client pill / tag on right
-    const clientName = client?.name || 'Unassigned Client';
-    doc.setFontSize(8.5);
+    // Subtitle / generated timestamp
+    const dateStr = `Exported on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
+    doc.setFont('helvetica', 'normal');
+    doc.setFontSize(7.5);
+    doc.setTextColor(148, 163, 184);
+    doc.text(dateStr, margin, 29.5);
+
+    // Right Tag: Batch Name in dark pill without "Client:" or "Batch:" prefix
+    const batchTag = batch.name.toUpperCase();
+    doc.setFontSize(8);
     doc.setFont('helvetica', 'bold');
-    const clientTag = `CLIENT: ${clientName.toUpperCase()}`;
-    const tagWidth = doc.getTextWidth(clientTag) + 8;
+    const tagWidth = doc.getTextWidth(batchTag) + 10;
     const tagX = pageWidth - margin - tagWidth;
     doc.setFillColor(30, 41, 59); // #1E293B
-    doc.roundedRect(tagX, 11, tagWidth, 7, 1.5, 1.5, 'F');
+    doc.roundedRect(tagX, 10, tagWidth, 7, 1.5, 1.5, 'F');
     doc.setTextColor(cr, cg, cb);
-    doc.text(clientTag, tagX + 4, 15.7);
+    doc.text(batchTag, tagX + 5, 14.7);
 
     // Shoot Date on header right
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(148, 163, 184);
     const shootDateStr = batch.shoot_date ? `Shoot Date: ${batch.shoot_date}` : 'Shoot Date: Not specified';
-    doc.text(shootDateStr, pageWidth - margin, 26, { align: 'right' });
+    doc.text(shootDateStr, pageWidth - margin, 23.5, { align: 'right' });
 
-    // Subtitle / generated timestamp
-    const dateStr = `Exported on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
-    doc.text(dateStr, margin, 29);
-
-    // --- Executive KPI Metric Cards (4 cards) - Big Bold Okine Numbers ---
-    const cardY = 44;
+    // --- Executive KPI Metric Cards (4 cards) - Golden Ratio, Faded Watermarks & Standout Okine Numbers ---
+    const cardY = 40;
     const cardGap = 3.5;
-    const cardWidth = (contentWidth - cardGap * 3) / 4; // ~42.8mm
-    const cardHeight = 20;
+    const cardWidth = (contentWidth - cardGap * 3) / 4; // ~42.875mm
+    const cardHeight = 25; // Golden Ratio proportion with cardWidth (42.875 / 25 = 1.715)
 
-    const kpis = [
-      { label: 'TOTAL', val: totalCount, bg: [248, 250, 252], border: [226, 232, 240], text: [15, 23, 42], badgeBg: [226, 232, 240], dot: [100, 116, 139] },
-      { label: 'PENDING', val: pCount, bg: [254, 243, 199], border: [253, 230, 138], text: [180, 83, 9], badgeBg: [254, 215, 170], dot: [217, 119, 6] },
-      { label: 'EDITED', val: eCount, bg: [239, 246, 255], border: [191, 219, 254], text: [29, 78, 216], badgeBg: [191, 219, 254], dot: [37, 99, 235] },
-      { label: 'POSTED', val: pPostedCount, bg: [236, 253, 245], border: [167, 243, 208], text: [4, 120, 87], badgeBg: [167, 243, 208], dot: [5, 150, 105] },
+    const kpis: Array<{
+      label: string;
+      val: number;
+      bg: [number, number, number];
+      border: [number, number, number];
+      text: [number, number, number];
+      dot: [number, number, number];
+      badgeBg: [number, number, number];
+      wmColor: [number, number, number];
+      icon: 'TOTAL' | 'PENDING' | 'EDITED' | 'POSTED';
+    }> = [
+      {
+        label: 'TOTAL',
+        val: totalCount,
+        bg: [248, 250, 252],
+        border: [226, 232, 240],
+        text: [15, 23, 42],
+        dot: [100, 116, 139],
+        badgeBg: [226, 232, 240],
+        wmColor: [225, 232, 240],
+        icon: 'TOTAL',
+      },
+      {
+        label: 'PENDING',
+        val: pCount,
+        bg: [254, 243, 199],
+        border: [253, 230, 138],
+        text: [180, 83, 9],
+        dot: [217, 119, 6],
+        badgeBg: [254, 215, 170],
+        wmColor: [252, 220, 145],
+        icon: 'PENDING',
+      },
+      {
+        label: 'EDITED',
+        val: eCount,
+        bg: [239, 246, 255],
+        border: [191, 219, 254],
+        text: [29, 78, 216],
+        dot: [37, 99, 235],
+        badgeBg: [191, 219, 254],
+        wmColor: [205, 225, 254],
+        icon: 'EDITED',
+      },
+      {
+        label: 'POSTED',
+        val: pPostedCount,
+        bg: [236, 253, 245],
+        border: [167, 243, 208],
+        text: [4, 120, 87],
+        dot: [5, 150, 105],
+        badgeBg: [167, 243, 208],
+        wmColor: [185, 235, 210],
+        icon: 'POSTED',
+      },
     ];
 
     kpis.forEach((kpi, i) => {
       const kX = margin + i * (cardWidth + cardGap);
-      // Card background
+      const cardCenterY = cardY + cardHeight / 2;
+
+      // 1. Card Container (Golden Ratio geometry)
       doc.setFillColor(kpi.bg[0], kpi.bg[1], kpi.bg[2]);
       doc.setDrawColor(kpi.border[0], kpi.border[1], kpi.border[2]);
       doc.setLineWidth(0.35);
-      doc.roundedRect(kX, cardY, cardWidth, cardHeight, 1.8, 1.8, 'FD');
+      doc.roundedRect(kX, cardY, cardWidth, cardHeight, 2.0, 2.0, 'FD');
 
-      // Left portion: Status indicator badge dot + Uppercase Label
+      // 2. Faded Watermark Icon behind the right portion
+      const wmX = kX + cardWidth - 11.5;
+      drawCardWatermark(doc, kpi.icon, wmX, cardCenterY, 15, kpi.wmColor);
+
+      // 3. Status Indicator Dot + Label on Left (Golden Ratio aligned)
+      const dotX = kX + 5.2;
       doc.setFillColor(kpi.badgeBg[0], kpi.badgeBg[1], kpi.badgeBg[2]);
-      doc.circle(kX + 5.5, cardY + cardHeight / 2, 2.8, 'F');
+      doc.circle(dotX, cardCenterY, 2.0, 'F');
       doc.setFillColor(kpi.dot[0], kpi.dot[1], kpi.dot[2]);
-      doc.circle(kX + 5.5, cardY + cardHeight / 2, 1.4, 'F');
+      doc.circle(dotX, cardCenterY, 1.0, 'F');
 
+      // Category Label: vertically centered on cardCenterY
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(7.5);
+      doc.setFontSize(7.2);
       doc.setTextColor(kpi.text[0], kpi.text[1], kpi.text[2]);
-      doc.text(kpi.label, kX + 10.5, cardY + cardHeight / 2 + 2.5);
+      doc.text(kpi.label, dotX + 3.6, cardCenterY, { baseline: 'middle' });
 
-      // Right portion: Big Bold Number in Okine Font!
+      // 4. Large Standout Number in Okine Bold on the Right (2.3x larger = 44pt), Centered Vertically
       doc.setFont('Okine', 'bold');
-      doc.setFontSize(20);
+      const numFontSize = kpi.val >= 100 ? 30 : kpi.val >= 10 ? 38 : 44;
+      doc.setFontSize(numFontSize);
       doc.setTextColor(kpi.text[0], kpi.text[1], kpi.text[2]);
-      doc.text(String(kpi.val), kX + cardWidth - 4.5, cardY + cardHeight / 2 + 6.2, { align: 'right' });
+      const numX = kX + cardWidth - 4.5;
+      doc.text(String(kpi.val), numX, cardCenterY, { align: 'right', baseline: 'middle' });
     });
 
     // --- Table Section: Aligned Headers & Columns ---
