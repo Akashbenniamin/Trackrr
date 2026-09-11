@@ -22,6 +22,7 @@ import SearchRoundedIcon from '@mui/icons-material/SearchRounded';
 import ArchiveRoundedIcon from '@mui/icons-material/ArchiveRounded';
 import MovieCreationRoundedIcon from '@mui/icons-material/MovieCreationRounded';
 import WorkOutlineRoundedIcon from '@mui/icons-material/WorkOutlineRounded';
+import UnfoldMoreRoundedIcon from '@mui/icons-material/UnfoldMoreRounded';
 import { useAuth } from '../contexts/AuthContext';
 import AuthDialog from './AuthDialog';
 import OfflineBanner from './OfflineBanner';
@@ -98,34 +99,78 @@ export default function Layout({ children }: LayoutProps) {
             />
             <Divider orientation="vertical" flexItem sx={{ height: 20, my: 'auto', borderColor: 'rgba(255,255,255,0.12)' }} />
             <Tooltip title="Switch Workspace">
-              <Chip
-                avatar={
-                  <Avatar sx={{ bgcolor: activeWorkspace?.color || '#818CF8', width: 24, height: 24, fontSize: '0.7rem' }}>
-                    {isBatchflow ? <MovieCreationRoundedIcon sx={{ fontSize: 13 }} /> : (activeWorkspace?.name?.[0]?.toUpperCase() ?? 'W')}
-                  </Avatar>
-                }
-                label={
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                    <span>{activeWorkspace?.name ?? 'Workspace'}</span>
-                    <Typography component="span" sx={{ fontSize: '0.62rem', opacity: 0.6, fontWeight: 700, textTransform: 'uppercase' }}>
-                      {isBatchflow ? 'BatchFlow' : 'Tracker'}
-                    </Typography>
-                  </Box>
-                }
+              <Box
+                component="button"
                 onClick={() => setWsDrawerOpen(true)}
-                size="small"
                 sx={{
-                  bgcolor: 'action.hover',
-                  border: '1px solid',
-                  borderColor: 'divider',
-                  color: 'text.primary',
-                  fontWeight: 600,
+                  display: 'flex',
+                  alignItems: 'center',
+                  gap: 1,
+                  px: 1.25,
+                  py: 0.5,
+                  borderRadius: '10px',
+                  background: 'rgba(255, 255, 255, 0.04)',
+                  backdropFilter: 'blur(12px)',
+                  border: '1px solid rgba(255, 255, 255, 0.08)',
                   cursor: 'pointer',
-                  '&:hover': { bgcolor: 'action.selected' },
-                  maxWidth: 180,
-                  '& .MuiChip-label': { overflow: 'hidden', textOverflow: 'ellipsis' },
+                  color: 'text.primary',
+                  transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                  outline: 'none',
+                  '&:hover': {
+                    background: 'rgba(255, 255, 255, 0.08)',
+                    borderColor: 'rgba(255, 255, 255, 0.16)',
+                    transform: 'translateY(-1px)',
+                    boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+                  },
+                  '&:active': {
+                    transform: 'translateY(0)',
+                  },
                 }}
-              />
+              >
+                <Avatar
+                  sx={{
+                    bgcolor: activeWorkspace?.color || '#818CF8',
+                    width: 22,
+                    height: 22,
+                    fontSize: '0.68rem',
+                    boxShadow: `0 0 8px ${activeWorkspace?.color ? activeWorkspace.color + '66' : 'rgba(129,140,248,0.4)'}`,
+                  }}
+                >
+                  {isBatchflow ? (
+                    <MovieCreationRoundedIcon sx={{ fontSize: 12 }} />
+                  ) : (
+                    activeWorkspace?.name?.[0]?.toUpperCase() ?? 'W'
+                  )}
+                </Avatar>
+                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-start', textAlign: 'left', lineHeight: 1.1 }}>
+                  <Typography
+                    sx={{
+                      fontSize: '0.78rem',
+                      fontWeight: 700,
+                      color: 'text.primary',
+                      maxWidth: 120,
+                      overflow: 'hidden',
+                      textOverflow: 'ellipsis',
+                      whiteSpace: 'nowrap',
+                      letterSpacing: '-0.01em',
+                    }}
+                  >
+                    {activeWorkspace?.name ?? 'Workspace'}
+                  </Typography>
+                  <Typography
+                    sx={{
+                      fontSize: '0.58rem',
+                      fontWeight: 700,
+                      letterSpacing: '0.05em',
+                      color: isBatchflow ? '#818CF8' : '#34D399',
+                      textTransform: 'uppercase',
+                    }}
+                  >
+                    {isBatchflow ? 'Studio' : 'Freelance'}
+                  </Typography>
+                </Box>
+                <UnfoldMoreRoundedIcon sx={{ fontSize: 14, opacity: 0.45, ml: 0.25 }} />
+              </Box>
             </Tooltip>
             {currentRole !== 'owner' && (
               <Chip

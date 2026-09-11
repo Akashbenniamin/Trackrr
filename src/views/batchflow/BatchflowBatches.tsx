@@ -87,13 +87,19 @@ function hexToRgb(hex: string): [number, number, number] {
 }
 
 // Formatted Script Parser Component
-function FormattedScriptViewer({ text }: { text: string }) {
+function FormattedScriptViewer({
+  text,
+  highlightedScriptNum,
+}: {
+  text: string;
+  highlightedScriptNum?: number | null;
+}) {
   const [copiedSection, setCopiedSection] = useState<string | null>(null);
 
   if (!text || !text.trim()) {
     return (
       <Typography variant="body2" sx={{ color: 'text.disabled', fontStyle: 'italic', py: 3, textAlign: 'center' }}>
-        No script written for this batch yet. Click "Edit Script" above to paste or write your master script.
+        No script written for this batch yet. Click the edit icon above to paste or write your master script.
       </Typography>
     );
   }
@@ -140,34 +146,27 @@ function FormattedScriptViewer({ text }: { text: string }) {
   const sections = text.split(/(?=script\s*[-\s]?\s*\d+)/gi).filter(s => s.trim().length > 0);
 
   return (
-    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <Box sx={{ display: 'flex', justifyContent: 'flex-end', mb: 1 }}>
-        <Button
-          size="small"
-          variant="outlined"
-          startIcon={copiedSection === 'full' ? <CheckRoundedIcon /> : <ContentCopyRoundedIcon />}
-          onClick={() => handleCopy(text, 'full')}
-          sx={{ textTransform: 'none', fontSize: '0.75rem', borderRadius: 1 }}
-        >
-          {copiedSection === 'full' ? 'Copied Full Script!' : 'Copy Entire Script'}
-        </Button>
-      </Box>
-
+    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
       {sections.map((section, sIdx) => {
         const lines = section.trim().split('\n');
         const firstLine = lines[0];
-        const match = firstLine.match(/^(script\s*[-\s]?\s*\d+)(.*)/i);
+        const match = firstLine.match(/^(script\s*[-\s]?\s*(\d+))(.*)/i);
+        const scriptNum = match ? parseInt(match[2], 10) : null;
+        const isHighlighted = scriptNum !== null && highlightedScriptNum === scriptNum;
         const sectionId = `sec-${sIdx}`;
 
         return (
           <Paper
             key={sIdx}
+            id={scriptNum !== null ? `script-sec-${scriptNum}` : undefined}
             elevation={0}
             sx={{
               borderRadius: 1,
               overflow: 'hidden',
-              border: '1px solid rgba(255,255,255,0.08)',
-              bgcolor: 'rgba(255,255,255,0.02)',
+              border: isHighlighted ? '1.5px solid #818CF8' : '1px solid rgba(255,255,255,0.08)',
+              boxShadow: isHighlighted ? '0 0 0 2px rgba(129,140,248,0.4), 0 0 16px rgba(129,140,248,0.3)' : undefined,
+              bgcolor: isHighlighted ? 'rgba(129,140,248,0.06)' : 'rgba(255,255,255,0.02)',
+              transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
             }}
           >
             {match ? (
@@ -281,6 +280,22 @@ export default function BatchflowBatches() {
 
   const [scriptEditOpen, setScriptEditOpen] = useState(false);
   const [scriptDraft, setScriptDraft] = useState('');
+  const [highlightedScriptNum, setHighlightedScriptNum] = useState<number | null>(null);
+  const [copiedFullScript, setCopiedFullScript] = useState(false);
+
+  const handleJumpToScript = (scriptNum?: number | null) => {
+    if (!scriptNum) return;
+    setHighlightedScriptNum(scriptNum);
+    setTimeout(() => {
+      const target = document.getElementById(`script-sec-${scriptNum}`);
+      if (target) {
+        target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      }
+    }, 50);
+    setTimeout(() => {
+      setHighlightedScriptNum(null);
+    }, 2500);
+  };
 
   const [editBatchOpen, setEditBatchOpen] = useState(false);
   const [editingBatch, setEditingBatch] = useState<{ id: string; name: string; shoot_date: string; client_id: string } | null>(null);
@@ -317,6 +332,7 @@ export default function BatchflowBatches() {
     video_url?: string;
     posted_date?: string;
     status?: BatchflowVideoStatus;
+    views?: string | number | null;
   } | null>(null);
   const [editingMetaLoading, setEditingMetaLoading] = useState(false);
   const [editingMetaResult, setEditingMetaResult] = useState<VideoMetadataResult | null>(null);
@@ -377,6 +393,9 @@ export default function BatchflowBatches() {
 
       if (res.postedDate) {
         setEditingVideo(prev => prev ? { ...prev, posted_date: res.postedDate || undefined } : null);
+      }
+      if (res.viewsCount) {
+        setEditingVideo(prev => prev ? { ...prev, views: res.viewsCount } : null);
       }
     } catch (err: any) {
       setEditingMetaResult({
@@ -469,10 +488,14 @@ export default function BatchflowBatches() {
 
     if (postedTargetVideo.status !== 'Posted') {
       await updateBatchflowVideoStatus(postedTargetVideo.id, 'Posted', urlToSave, dateToSave);
+      if (postedMetaResult?.viewsCount) {
+        await updateBatchflowVideo(postedTargetVideo.id, { views: postedMetaResult.viewsCount });
+      }
     } else {
       await updateBatchflowVideo(postedTargetVideo.id, {
         video_url: skip ? null : urlToSave,
         posted_date: dateToSave.includes('T') ? dateToSave : `${dateToSave}T12:00:00.000Z`,
+        ...(postedMetaResult?.viewsCount ? { views: postedMetaResult.viewsCount } : {}),
       });
     }
     setPostedLinkDialogOpen(false);
@@ -517,58 +540,99 @@ export default function BatchflowBatches() {
     cx: number,
     cy: number,
     size: number,
-    color: [number, number, number]
+    color: [number, number, number],
+    angleDeg: number = -16
   ) => {
     doc.setDrawColor(color[0], color[1], color[2]);
     doc.setFillColor(color[0], color[1], color[2]);
     const s = size;
 
+    const rad = (angleDeg * Math.PI) / 180;
+    const cosA = Math.cos(rad);
+    const sinA = Math.sin(rad);
+    const rot = (x: number, y: number): [number, number] => {
+      const dx = x - cx;
+      const dy = y - cy;
+      return [cx + dx * cosA - dy * sinA, cy + dx * sinA + dy * cosA];
+    };
+
     if (type === 'TOTAL') {
-      const w = s * 1.05;
-      const h = s * 0.74;
-      const x = cx - w / 2;
-      const y = cy - h / 2;
-      doc.setLineWidth(0.65);
-      doc.roundedRect(x, y, w, h, 1.8, 1.8, 'D');
-      doc.line(cx - s * 0.25, cy + h / 2 + 1.2, cx + s * 0.25, cy + h / 2 + 1.2);
-      doc.line(cx, cy + h / 2, cx, cy + h / 2 + 1.2);
+      const w = s * 1.1;
+      const h = s * 0.78;
+      const p0 = rot(cx - w / 2, cy - h / 2);
+      const p1 = rot(cx + w / 2, cy - h / 2);
+      const p2 = rot(cx + w / 2, cy + h / 2);
+      const p3 = rot(cx - w / 2, cy + h / 2);
+
+      doc.setLineWidth(0.75);
+      doc.lines(
+        [
+          [p1[0] - p0[0], p1[1] - p0[1]],
+          [p2[0] - p1[0], p2[1] - p1[1]],
+          [p3[0] - p2[0], p3[1] - p2[1]],
+        ],
+        p0[0],
+        p0[1],
+        [1, 1],
+        'D',
+        true
+      );
+
+      const s1 = rot(cx, cy + h / 2);
+      const s2 = rot(cx, cy + h / 2 + 1.4);
+      doc.line(s1[0], s1[1], s2[0], s2[1]);
+      const b1 = rot(cx - s * 0.28, cy + h / 2 + 1.4);
+      const b2 = rot(cx + s * 0.28, cy + h / 2 + 1.4);
+      doc.line(b1[0], b1[1], b2[0], b2[1]);
+
       const tw = s * 0.28;
       const th = s * 0.32;
       const tx = cx - tw / 3;
-      doc.triangle(tx, cy - th / 2, tx, cy + th / 2, tx + tw, cy, 'FD');
+      const t0 = rot(tx, cy - th / 2);
+      const t1 = rot(tx, cy + th / 2);
+      const t2 = rot(tx + tw, cy);
+      doc.triangle(t0[0], t0[1], t1[0], t1[1], t2[0], t2[1], 'FD');
     } else if (type === 'PENDING') {
-      const r = s * 0.40;
-      doc.setLineWidth(0.65);
+      const r = s * 0.42;
+      doc.setLineWidth(0.75);
       doc.circle(cx, cy, r, 'D');
-      doc.circle(cx, cy, 0.6, 'F');
-      doc.line(cx, cy, cx, cy - r * 0.55);
-      doc.line(cx, cy, cx + r * 0.48, cy);
+      doc.circle(cx, cy, 0.7, 'F');
+      const hEnd = rot(cx, cy - r * 0.58);
+      doc.setLineWidth(0.8);
+      doc.line(cx, cy, hEnd[0], hEnd[1]);
+      const mEnd = rot(cx + r * 0.5, cy);
+      doc.line(cx, cy, mEnd[0], mEnd[1]);
     } else if (type === 'EDITED') {
-      const draw4Star = (sx: number, sy: number, rad: number) => {
-        const inner = rad * 0.28;
+      const draw4Star = (sx: number, sy: number, starR: number) => {
+        const inner = starR * 0.28;
         const pts = [
-          [sx, sy - rad],
-          [sx + inner, sy - inner],
-          [sx + rad, sy],
-          [sx + inner, sy + inner],
-          [sx, sy + rad],
-          [sx - inner, sy + inner],
-          [sx - rad, sy],
-          [sx - inner, sy - inner]
+          rot(sx, sy - starR),
+          rot(sx + inner, sy - inner),
+          rot(sx + starR, sy),
+          rot(sx + inner, sy + inner),
+          rot(sx, sy + starR),
+          rot(sx - inner, sy + inner),
+          rot(sx - starR, sy),
+          rot(sx - inner, sy - inner),
         ];
-        const rel = pts.map((p, i) => i === 0 ? [p[0] - sx, p[1] - sy] : [p[0] - pts[i-1][0], p[1] - pts[i-1][1]]);
-        doc.lines(rel, sx, sy, [1, 1], 'FD');
+        const rel = pts.map((p, i) =>
+          i === 0 ? [0, 0] : [p[0] - pts[i - 1][0], p[1] - pts[i - 1][1]]
+        );
+        doc.lines(rel.slice(1), pts[0][0], pts[0][1], [1, 1], 'FD', true);
       };
       doc.setLineWidth(0.4);
-      draw4Star(cx - s * 0.08, cy + s * 0.05, s * 0.38);
-      draw4Star(cx + s * 0.26, cy - s * 0.22, s * 0.20);
+      draw4Star(cx - s * 0.08, cy + s * 0.05, s * 0.4);
+      draw4Star(cx + s * 0.3, cy - s * 0.24, s * 0.22);
     } else if (type === 'POSTED') {
-      const r = s * 0.40;
-      doc.setLineWidth(0.65);
+      const r = s * 0.42;
+      doc.setLineWidth(0.75);
       doc.circle(cx, cy, r, 'D');
-      doc.setLineWidth(0.85);
-      doc.line(cx - r * 0.38, cy + r * 0.02, cx - r * 0.05, cy + r * 0.32);
-      doc.line(cx - r * 0.05, cy + r * 0.32, cx + r * 0.42, cy - r * 0.28);
+      const p1 = rot(cx - r * 0.4, cy + r * 0.02);
+      const p2 = rot(cx - r * 0.06, cy + r * 0.34);
+      const p3 = rot(cx + r * 0.44, cy - r * 0.3);
+      doc.setLineWidth(1.0);
+      doc.line(p1[0], p1[1], p2[0], p2[1]);
+      doc.line(p2[0], p2[1], p3[0], p3[1]);
     }
   };
 
@@ -577,7 +641,8 @@ export default function BatchflowBatches() {
     batch: BatchflowBatch,
     client: typeof activeClients[0] | undefined,
     videos: BatchflowVideo[],
-    isFirstPage = true
+    isFirstPage = true,
+    viewsMap?: Map<string, string>
   ) => {
     const pageWidth = 210;
     const pageHeight = 297;
@@ -602,48 +667,42 @@ export default function BatchflowBatches() {
     doc.setFillColor(15, 23, 42); // #0F172A
     doc.rect(0, 0, pageWidth, 35, 'F');
 
-    // Top accent bar
+    // Top accent bar in client's color
     doc.setFillColor(cr, cg, cb);
     doc.rect(0, 0, pageWidth, 3.5, 'F');
-
-    // Top Brand: "TRACKRR"
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(8.5);
-    doc.setTextColor(148, 163, 184); // #94A3B8
-    doc.text('TRACKRR', margin, 10.5);
 
     // Workspace name above client name
     const wsName = (activeWorkspace?.name || 'Workspace').toUpperCase();
     doc.setFont('helvetica', 'bold');
-    doc.setFontSize(7.5);
+    doc.setFontSize(8);
     doc.setTextColor(129, 140, 248);
-    doc.text(wsName, margin, 15.5);
+    doc.text(wsName, margin, 11.5);
 
-    // Client Name as Large Main Title
+    // Client Name as Large Main Title (Thick and bigger in Okine Bold)
     const clientName = client?.name || 'Unassigned Client';
-    doc.setFont('helvetica', 'bold');
-    doc.setFontSize(16);
+    doc.setFont('Okine', 'bold');
+    doc.setFontSize(22);
     doc.setTextColor(255, 255, 255);
     const clientTitle = doc.splitTextToSize(clientName, 115)[0] || clientName;
-    doc.text(clientTitle, margin, 23.5);
+    doc.text(clientTitle, margin, 21.5);
 
     // Subtitle / generated timestamp
     const dateStr = `Exported on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
     doc.setFont('helvetica', 'normal');
     doc.setFontSize(7.5);
     doc.setTextColor(148, 163, 184);
-    doc.text(dateStr, margin, 29.5);
+    doc.text(dateStr, margin, 28);
 
     // Right Tag: Batch Name in dark pill without "Client:" or "Batch:" prefix
     const batchTag = batch.name.toUpperCase();
-    doc.setFontSize(8);
+    doc.setFontSize(8.5);
     doc.setFont('helvetica', 'bold');
-    const tagWidth = doc.getTextWidth(batchTag) + 10;
+    const tagWidth = doc.getTextWidth(batchTag) + 12;
     const tagX = pageWidth - margin - tagWidth;
     doc.setFillColor(30, 41, 59); // #1E293B
-    doc.roundedRect(tagX, 10, tagWidth, 7, 1.5, 1.5, 'F');
+    doc.roundedRect(tagX, 9.5, tagWidth, 7.5, 1.5, 1.5, 'F');
     doc.setTextColor(cr, cg, cb);
-    doc.text(batchTag, tagX + 5, 14.7);
+    doc.text(batchTag, tagX + 6, 14.8);
 
     // Shoot Date on header right
     doc.setFont('helvetica', 'normal');
@@ -652,11 +711,12 @@ export default function BatchflowBatches() {
     const shootDateStr = batch.shoot_date ? `Shoot Date: ${batch.shoot_date}` : 'Shoot Date: Not specified';
     doc.text(shootDateStr, pageWidth - margin, 23.5, { align: 'right' });
 
-    // --- Executive KPI Metric Cards (4 cards) - Golden Ratio, Faded Watermarks & Standout Okine Numbers ---
-    const cardY = 40;
+    // --- Executive KPI Metric Cards (4 cards) - Bottom-Left Watermarks & Standout Okine Numbers ---
+    const cardY = 39;
     const cardGap = 3.5;
     const cardWidth = (contentWidth - cardGap * 3) / 4; // ~42.875mm
-    const cardHeight = 25; // Golden Ratio proportion with cardWidth (42.875 / 25 = 1.715)
+    const cardHeight = 26;
+    const cardCenterY = cardY + cardHeight / 2;
 
     const kpis: Array<{
       label: string;
@@ -717,30 +777,48 @@ export default function BatchflowBatches() {
 
     kpis.forEach((kpi, i) => {
       const kX = margin + i * (cardWidth + cardGap);
-      const cardCenterY = cardY + cardHeight / 2;
 
-      // 1. Card Container (Golden Ratio geometry)
+      // 1. Card Container
       doc.setFillColor(kpi.bg[0], kpi.bg[1], kpi.bg[2]);
       doc.setDrawColor(kpi.border[0], kpi.border[1], kpi.border[2]);
       doc.setLineWidth(0.35);
       doc.roundedRect(kX, cardY, cardWidth, cardHeight, 2.0, 2.0, 'FD');
 
-      // 2. Faded Watermark Icon behind the right portion
-      const wmX = kX + cardWidth - 11.5;
-      drawCardWatermark(doc, kpi.icon, wmX, cardCenterY, 15, kpi.wmColor);
+      // 2. Faded Watermark Icon in bottom-left corner with rotation, overflowing edge and clipped to card
+      doc.saveGraphicsState();
+      doc.roundedRect(kX, cardY, cardWidth, cardHeight, 2.0, 2.0);
+      doc.clip();
 
-      // 3. Status Indicator Dot + Label on Left (Golden Ratio aligned)
+      const wmX = kX + 4;
+      const wmY = cardY + cardHeight - 2;
+      drawCardWatermark(doc, kpi.icon, wmX, wmY, 24, kpi.wmColor, -16);
+
+      // Linear fade effect at the bottom of the card
+      const fadeSteps = 8;
+      const fadeH = 9;
+      const startFadeY = cardY + cardHeight - fadeH;
+      for (let s = 0; s < fadeSteps; s++) {
+        const alpha = ((s + 1) / fadeSteps) * 0.65;
+        const stripY = startFadeY + (s * fadeH) / fadeSteps;
+        const stripH = fadeH / fadeSteps + 0.1;
+        doc.setGState(new (doc as any).GState({ opacity: alpha }));
+        doc.setFillColor(kpi.bg[0], kpi.bg[1], kpi.bg[2]);
+        doc.rect(kX, stripY, cardWidth, stripH, 'F');
+      }
+      doc.restoreGraphicsState();
+
+      // 3. Status Indicator Dot + Label at top-left
       const dotX = kX + 5.2;
+      const dotY = cardY + 6.0;
       doc.setFillColor(kpi.badgeBg[0], kpi.badgeBg[1], kpi.badgeBg[2]);
-      doc.circle(dotX, cardCenterY, 2.0, 'F');
+      doc.circle(dotX, dotY, 2.0, 'F');
       doc.setFillColor(kpi.dot[0], kpi.dot[1], kpi.dot[2]);
-      doc.circle(dotX, cardCenterY, 1.0, 'F');
+      doc.circle(dotX, dotY, 1.0, 'F');
 
-      // Category Label: vertically centered on cardCenterY
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(7.2);
       doc.setTextColor(kpi.text[0], kpi.text[1], kpi.text[2]);
-      doc.text(kpi.label, dotX + 3.6, cardCenterY, { baseline: 'middle' });
+      doc.text(kpi.label, dotX + 3.8, dotY, { baseline: 'middle' });
 
       // 4. Large Standout Number in Okine Bold on the Right (2.3x larger = 44pt), Centered Vertically
       doc.setFont('Okine', 'bold');
@@ -748,11 +826,11 @@ export default function BatchflowBatches() {
       doc.setFontSize(numFontSize);
       doc.setTextColor(kpi.text[0], kpi.text[1], kpi.text[2]);
       const numX = kX + cardWidth - 4.5;
-      doc.text(String(kpi.val), numX, cardCenterY, { align: 'right', baseline: 'middle' });
+      doc.text(String(kpi.val), numX, cardCenterY + 1.0, { align: 'right', baseline: 'middle' });
     });
 
     // --- Table Section: Aligned Headers & Columns ---
-    let curY = 70;
+    let curY = 69;
 
     const drawTableHeader = (yPos: number) => {
       doc.setFillColor(30, 41, 59); // #1E293B
@@ -761,11 +839,12 @@ export default function BatchflowBatches() {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(7.5);
       doc.setTextColor(241, 245, 249); // #F1F5F9
-      doc.text('SL NO.', margin + 4, yPos + 5.5);
-      doc.text('VIDEO TITLE', margin + 20, yPos + 5.5);
+      doc.text('SL NO.', margin + 3, yPos + 5.5);
+      doc.text('VIDEO TITLE', margin + 16, yPos + 5.5);
+      doc.text('VIEWS', margin + 94, yPos + 5.5);
       doc.text('SCRIPT NO.', margin + 116, yPos + 5.5);
-      doc.text('STATUS', margin + 142, yPos + 5.5, { align: 'center' });
-      doc.text('PIPELINE DATE', margin + 160, yPos + 5.5);
+      doc.text('STATUS', margin + 143, yPos + 5.5, { align: 'center' });
+      doc.text('PIPELINE DATE', margin + 158, yPos + 5.5);
     };
 
     drawTableHeader(curY);
@@ -796,26 +875,41 @@ export default function BatchflowBatches() {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8);
       doc.setTextColor(100, 116, 139);
-      doc.text(String(index + 1), margin + 4, curY + 6.0);
+      doc.text(String(index + 1), margin + 3, curY + 6.0);
 
-      // Col 2: Video Title
+      // Col 2: Video Title (clickable if video_url exists)
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8);
       doc.setTextColor(15, 23, 42);
       const title = v.name || `Video #${v.script_number || index + 1}`;
-      const truncatedTitle = doc.splitTextToSize(title, 88)[0];
-      doc.text(truncatedTitle, margin + 20, curY + 6.0);
+      const truncatedTitle = doc.splitTextToSize(title, 74)[0];
+      doc.text(truncatedTitle, margin + 16, curY + 6.0);
+      if (v.video_url) {
+        doc.link(margin + 16, curY + 1.5, 74, 6.5, { url: v.video_url });
+      }
 
-      // Col 3: SCRIPT NO.
+      // Col 3: Views
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      const vViews = viewsMap?.get(v.id) || (v.views ? String(v.views) : null);
+      if (vViews) {
+        doc.setTextColor(15, 23, 42);
+        doc.text(vViews, margin + 94, curY + 6.0);
+      } else {
+        doc.setTextColor(148, 163, 184);
+        doc.text('N/A', margin + 94, curY + 6.0);
+      }
+
+      // Col 4: SCRIPT NO.
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8);
       doc.setTextColor(71, 85, 105);
-      doc.text(String(v.script_number ?? '-'), margin + 116, curY + 6.0);
+      doc.text(String(v.script_number ?? '-'), margin + 118, curY + 6.0);
 
-      // Col 4: Status Pill
-      const pillX = margin + 131;
+      // Col 5: Status Pill (Clickable if video_url exists)
+      const pillX = margin + 133;
       const pillY = curY + 2.0;
-      const pillW = 22;
+      const pillW = 20;
       const pillH = 5.5;
 
       if (v.status === 'Posted') {
@@ -826,6 +920,9 @@ export default function BatchflowBatches() {
         doc.setFontSize(7);
         doc.setTextColor(4, 120, 87);
         doc.text('POSTED', pillX + pillW / 2, pillY + 3.8, { align: 'center' });
+        if (v.video_url) {
+          doc.link(pillX, pillY, pillW, pillH, { url: v.video_url });
+        }
       } else if (v.status === 'Edited') {
         doc.setFillColor(219, 234, 254);
         doc.setDrawColor(191, 219, 254);
@@ -844,28 +941,56 @@ export default function BatchflowBatches() {
         doc.text('PENDING', pillX + pillW / 2, pillY + 3.8, { align: 'center' });
       }
 
-      // Col 5: Date / Details
+      // Col 6: Date / Details
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
       doc.setTextColor(100, 116, 139);
       const dateText = v.status === 'Posted' && v.posted_date ? new Date(v.posted_date).toLocaleDateString() :
                        v.status === 'Edited' && v.edited_date ? new Date(v.edited_date).toLocaleDateString() :
                        batch.shoot_date ? `Shoot: ${batch.shoot_date}` : '-';
-      doc.text(dateText, margin + 160, curY + 6.0);
+      doc.text(dateText, margin + 158, curY + 6.0);
 
       curY += rowHeight;
     });
   };
 
-  const handleExportPDF = () => {
+  const handleExportPDF = async () => {
     if (!selectedBatch) return;
+
+    // Fetch current views for any video that has a video_url at time of export
+    const viewsMap = new Map<string, string>();
+    await Promise.all(
+      currentBatchVideos.map(async (v) => {
+        if (v.views) {
+          viewsMap.set(v.id, String(v.views));
+        } else if (v.video_url) {
+          try {
+            const metaPromise = fetchVideoMetadata(v.video_url, {
+              metaAppId: settings.meta_app_id,
+              metaClientToken: settings.meta_client_token,
+            });
+            const meta = await Promise.race([
+              metaPromise,
+              new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500)),
+            ]);
+            if (meta?.viewsCount) {
+              viewsMap.set(v.id, meta.viewsCount);
+              updateBatchflowVideo(v.id, { views: meta.viewsCount }).catch(() => {});
+            }
+          } catch {
+            // Ignore error
+          }
+        }
+      })
+    );
+
     const doc = new jsPDF({
       orientation: 'portrait',
       unit: 'mm',
       format: 'a4',
     });
 
-    renderBatchReport(doc, selectedBatch, selectedClient, currentBatchVideos, true);
+    renderBatchReport(doc, selectedBatch, selectedClient, currentBatchVideos, true, viewsMap);
 
     const margin = 14;
     const pageWidth = 210;
@@ -887,8 +1012,36 @@ export default function BatchflowBatches() {
     doc.save(`${selectedBatch.name.replace(/[^a-zA-Z0-9_-]/g, '_')}_Report.pdf`);
   };
 
-  const handleExportAllBatchesPDF = () => {
+  const handleExportAllBatchesPDF = async () => {
     if (activeBatches.length === 0) return;
+
+    // Collect current views for all active batch videos that have a video_url
+    const viewsMap = new Map<string, string>();
+    await Promise.all(
+      batchflowVideos.map(async (v) => {
+        if (v.views) {
+          viewsMap.set(v.id, String(v.views));
+        } else if (v.video_url) {
+          try {
+            const metaPromise = fetchVideoMetadata(v.video_url, {
+              metaAppId: settings.meta_app_id,
+              metaClientToken: settings.meta_client_token,
+            });
+            const meta = await Promise.race([
+              metaPromise,
+              new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500)),
+            ]);
+            if (meta?.viewsCount) {
+              viewsMap.set(v.id, meta.viewsCount);
+              updateBatchflowVideo(v.id, { views: meta.viewsCount }).catch(() => {});
+            }
+          } catch {
+            // Ignore error
+          }
+        }
+      })
+    );
+
     const doc = new jsPDF({
       orientation: 'portrait',
       unit: 'mm',
@@ -898,7 +1051,7 @@ export default function BatchflowBatches() {
     activeBatches.forEach((b, idx) => {
       const client = activeClients.find(c => c.id === b.client_id);
       const bVids = batchflowVideos.filter(v => v.batch_id === b.id);
-      renderBatchReport(doc, b, client, bVids, idx === 0);
+      renderBatchReport(doc, b, client, bVids, idx === 0, viewsMap);
     });
 
     const margin = 14;
@@ -1028,24 +1181,78 @@ export default function BatchflowBatches() {
                     title={canEdit ? 'Double-click to edit batch' : undefined}
                     sx={{
                       p: 1.5,
-                      borderRadius: 1,
+                      borderRadius: 1.25,
                       cursor: 'pointer',
                       bgcolor: isSelected ? 'rgba(129,140,248,0.12)' : 'rgba(255,255,255,0.03)',
-                      border: isSelected ? '1px solid rgba(129,140,248,0.4)' : '1px solid rgba(255,255,255,0.05)',
+                      border: isSelected ? '1px solid rgba(129,140,248,0.45)' : '1px solid rgba(255,255,255,0.06)',
                       borderLeft: `4px solid ${client?.color || '#818CF8'}`,
-                      transition: 'all 0.15s ease',
-                      '&:hover': { bgcolor: 'rgba(255,255,255,0.06)' },
+                      boxShadow: isSelected ? '0 4px 14px rgba(0,0,0,0.25)' : 'none',
+                      transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                      '&:hover': {
+                        bgcolor: isSelected ? 'rgba(129,140,248,0.16)' : 'rgba(255,255,255,0.06)',
+                        transform: 'translateY(-1px)',
+                        boxShadow: '0 4px 12px rgba(0,0,0,0.2)',
+                      },
                     }}
                   >
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}>
-                      <Typography variant="body2" noWrap sx={{ fontWeight: 700, color: isSelected ? 'primary.light' : 'text.primary' }}>
+                    <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                      {/* Top Row: Client Name (Bigger, Thicker, Signature Color) & Video Count Chip */}
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 1 }}>
+                        <Typography
+                          variant="subtitle2"
+                          noWrap
+                          sx={{
+                            fontWeight: 800,
+                            fontSize: '0.92rem',
+                            letterSpacing: '-0.01em',
+                            color: client?.color || '#818CF8',
+                          }}
+                        >
+                          {client?.name || 'Client'}
+                        </Typography>
+                        <Chip
+                          label={`${bVids.length} ${bVids.length === 1 ? 'vid' : 'vids'}`}
+                          size="small"
+                          sx={{
+                            height: 18,
+                            fontSize: '0.64rem',
+                            fontWeight: 700,
+                            bgcolor: isSelected ? 'rgba(129,140,248,0.25)' : 'rgba(255,255,255,0.06)',
+                            color: isSelected ? 'primary.light' : 'text.secondary',
+                            border: '1px solid',
+                            borderColor: isSelected ? 'rgba(129,140,248,0.35)' : 'rgba(255,255,255,0.06)',
+                          }}
+                        />
+                      </Box>
+
+                      {/* Second Row: Batch Name (Smaller, secondary) */}
+                      <Typography
+                        variant="body2"
+                        noWrap
+                        sx={{
+                          fontWeight: 600,
+                          fontSize: '0.78rem',
+                          color: isSelected ? 'text.primary' : 'text.secondary',
+                          lineHeight: 1.25,
+                        }}
+                      >
                         {b.name}
                       </Typography>
-                      <Chip label={client?.name || 'Client'} size="small" sx={{ height: 18, fontSize: '0.65rem', bgcolor: `${client?.color || '#818CF8'}20`, color: client?.color || '#818CF8' }} />
+
+                      {/* Third Row: Shoot date */}
+                      {b.shoot_date ? (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.25 }}>
+                          <CalendarMonthRoundedIcon sx={{ fontSize: 13, color: 'text.disabled', opacity: 0.8 }} />
+                          <Typography variant="caption" sx={{ fontSize: '0.68rem', color: 'text.disabled', fontWeight: 500 }}>
+                            {b.shoot_date}
+                          </Typography>
+                        </Box>
+                      ) : (
+                        <Typography variant="caption" sx={{ fontSize: '0.68rem', color: 'text.disabled', fontStyle: 'italic', mt: 0.25 }}>
+                          No shoot date
+                        </Typography>
+                      )}
                     </Box>
-                    <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5 }}>
-                      {b.shoot_date || 'No shoot date'} • {bVids.length} videos
-                    </Typography>
                   </Box>
                 );
               })}
@@ -1596,6 +1803,7 @@ export default function BatchflowBatches() {
                           video_url: v.video_url || '',
                           posted_date: v.posted_date ? v.posted_date.slice(0, 10) : '',
                           status: v.status,
+                          views: v.views || null,
                         });
                         setEditingMetaResult(null);
                         setEditingMetaLoading(false);
@@ -1630,24 +1838,38 @@ export default function BatchflowBatches() {
                   >
                     {/* Video Info */}
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 160, flex: 1 }}>
-                      <Box
-                        sx={{
-                          width: 32,
-                          height: 32,
-                          borderRadius: 1,
-                          bgcolor: cardStyle.badgeBg,
-                          color: cardStyle.badgeColor,
-                          display: 'flex',
-                          alignItems: 'center',
-                          justifyContent: 'center',
-                          fontWeight: 800,
-                          fontSize: '0.8rem',
-                          flexShrink: 0,
-                          transition: 'all 0.2s ease',
-                        }}
-                      >
-                        #{v.script_number}
-                      </Box>
+                      <Tooltip title={`Jump to Script #${v.script_number}`}>
+                        <Box
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            handleJumpToScript(v.script_number);
+                          }}
+                          onDoubleClick={(e) => e.stopPropagation()}
+                          sx={{
+                            width: 32,
+                            height: 32,
+                            borderRadius: 1,
+                            bgcolor: cardStyle.badgeBg,
+                            color: cardStyle.badgeColor,
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            fontWeight: 800,
+                            fontSize: '0.8rem',
+                            flexShrink: 0,
+                            transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
+                            cursor: 'pointer',
+                            userSelect: 'none',
+                            '&:hover': {
+                              transform: 'scale(1.12)',
+                              boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
+                              filter: 'brightness(1.25)',
+                            },
+                          }}
+                        >
+                          #{v.script_number}
+                        </Box>
+                      </Tooltip>
                       <Box sx={{ minWidth: 0, flex: 1 }}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
                           <Typography variant="body2" noWrap sx={{ fontWeight: 700 }}>
@@ -1732,6 +1954,7 @@ export default function BatchflowBatches() {
                                 video_url: v.video_url || '',
                                 posted_date: v.posted_date ? v.posted_date.slice(0, 10) : '',
                                 status: v.status,
+                                views: v.views || null,
                               });
                               setEditingMetaResult(null);
                               setEditingMetaLoading(false);
@@ -1801,20 +2024,55 @@ export default function BatchflowBatches() {
                 </Typography>
               </Box>
 
-              {canEdit && selectedBatch && (
-                <Button
-                  size="small"
-                  variant="outlined"
-                  startIcon={<EditRoundedIcon sx={{ fontSize: 15 }} />}
-                  onClick={() => {
-                    setScriptDraft(selectedBatch?.script || '');
-                    setScriptEditOpen(true);
-                  }}
-                  sx={{ textTransform: 'none', borderRadius: 1, height: 28, fontSize: '0.72rem', fontWeight: 700 }}
-                >
-                  Edit Script
-                </Button>
-              )}
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
+                <Tooltip title={copiedFullScript ? 'Copied Full Script!' : 'Copy Entire Script'}>
+                  <span>
+                    <IconButton
+                      size="small"
+                      disabled={!selectedBatch?.script}
+                      onClick={() => {
+                        if (selectedBatch?.script) {
+                          navigator.clipboard.writeText(selectedBatch.script);
+                          setCopiedFullScript(true);
+                          setTimeout(() => setCopiedFullScript(false), 2000);
+                        }
+                      }}
+                      sx={{
+                        width: 28,
+                        height: 28,
+                        border: '1px solid rgba(255,255,255,0.12)',
+                        borderRadius: 1,
+                        color: copiedFullScript ? '#34D399' : 'text.secondary',
+                        '&:hover': { bgcolor: 'rgba(255,255,255,0.08)', color: 'text.primary' },
+                      }}
+                    >
+                      {copiedFullScript ? <CheckRoundedIcon sx={{ fontSize: 15 }} /> : <ContentCopyRoundedIcon sx={{ fontSize: 15 }} />}
+                    </IconButton>
+                  </span>
+                </Tooltip>
+
+                {canEdit && selectedBatch && (
+                  <Tooltip title="Edit Script">
+                    <IconButton
+                      size="small"
+                      onClick={() => {
+                        setScriptDraft(selectedBatch?.script || '');
+                        setScriptEditOpen(true);
+                      }}
+                      sx={{
+                        width: 28,
+                        height: 28,
+                        border: '1px solid rgba(255,255,255,0.12)',
+                        borderRadius: 1,
+                        color: 'text.secondary',
+                        '&:hover': { bgcolor: 'rgba(255,255,255,0.08)', color: 'text.primary' },
+                      }}
+                    >
+                      <EditRoundedIcon sx={{ fontSize: 15 }} />
+                    </IconButton>
+                  </Tooltip>
+                )}
+              </Box>
             </Box>
 
             {/* Separately scrollable Script Content - ONLY scrolls if content requires it */}
@@ -1828,7 +2086,7 @@ export default function BatchflowBatches() {
                 '&::-webkit-scrollbar-thumb': { bgcolor: 'rgba(255,255,255,0.15)', borderRadius: 2 },
               }}
             >
-              <FormattedScriptViewer text={selectedBatch?.script || ''} />
+              <FormattedScriptViewer text={selectedBatch?.script || ''} highlightedScriptNum={highlightedScriptNum} />
             </Box>
           </Card>
         </Box>
@@ -2088,6 +2346,7 @@ script 2
                   name: editingVideo.name.trim(),
                   script_number: editingVideo.script_number,
                   video_url: clean,
+                  ...(editingVideo.views !== undefined ? { views: editingVideo.views } : {}),
                   ...(dateVal ? { posted_date: dateVal } : {}),
                 });
                 setEditVideoOpen(false);
@@ -2413,6 +2672,7 @@ script 2
                   video_url: v.video_url || '',
                   posted_date: v.posted_date ? v.posted_date.slice(0, 10) : '',
                   status: v.status,
+                  views: v.views || null,
                 });
                 setEditingMetaResult(null);
                 setEditingMetaLoading(false);

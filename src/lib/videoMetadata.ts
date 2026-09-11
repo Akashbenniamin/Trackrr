@@ -7,6 +7,7 @@ export interface VideoMetadataResult {
   thumbnailUrl?: string;
   likesCount?: string | null;
   commentsCount?: string | null;
+  viewsCount?: string | null;
   caption?: string | null;
   provider: 'instagram' | 'youtube' | 'other';
   rawHtml?: string;
@@ -80,6 +81,9 @@ export function parseInstagramDescription(text?: string | null) {
   const commentsMatch = text.match(/([\d,KMkm.]+)\s+comments/i);
   const commentsCount = commentsMatch ? commentsMatch[1] : null;
 
+  const viewsMatch = text.match(/([\d,KMkm.]+)\s+(?:views|plays)/i);
+  const viewsCount = viewsMatch ? viewsMatch[1] : null;
+
   const handleDateMatch = text.match(/-\s+([^\s]+)\s+on\s+([A-Za-z]+\s+\d{1,2},\s+\d{4}):/i);
   const creatorHandle = handleDateMatch ? handleDateMatch[1] : null;
   const dateStr = handleDateMatch ? handleDateMatch[2] : null;
@@ -97,7 +101,7 @@ export function parseInstagramDescription(text?: string | null) {
     }
   }
 
-  return { likesCount, commentsCount, creatorHandle, dateStr, caption };
+  return { likesCount, commentsCount, viewsCount, creatorHandle, dateStr, caption };
 }
 
 /**
@@ -189,6 +193,7 @@ export async function fetchVideoMetadata(
             thumbnailUrl: d?.image?.url || undefined,
             likesCount: parsed.likesCount || null,
             commentsCount: parsed.commentsCount || null,
+            viewsCount: parsed.viewsCount || null,
             caption: parsed.caption || d?.description || null,
             provider: 'instagram',
             usedOfficialMetaApi: false,
