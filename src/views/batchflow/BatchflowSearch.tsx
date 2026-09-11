@@ -23,7 +23,7 @@ export default function BatchflowSearch({
 
   const matchedClients = q ? batchflowClients.filter(c => !c.archived && c.name.toLowerCase().includes(q)) : [];
   const matchedBatches = q ? batchflowBatches.filter(b => !b.archived && (b.name.toLowerCase().includes(q) || (b.script && b.script.toLowerCase().includes(q)))) : [];
-  const matchedVideos = q ? batchflowVideos.filter(v => v.name.toLowerCase().includes(q)) : [];
+  const matchedVideos = q ? batchflowVideos.filter(v => v.name.toLowerCase().includes(q) || (v.description && v.description.toLowerCase().includes(q))) : [];
 
   return (
     <Box sx={{ pb: 4 }}>
@@ -169,7 +169,14 @@ export default function BatchflowSearch({
                   >
                     <Box>
                       <Typography variant="body2" sx={{ fontWeight: 700 }}>{v.name}</Typography>
-                      <Typography variant="caption" sx={{ color: 'text.disabled' }}>Script #{v.script_number}</Typography>
+                      <Typography variant="caption" sx={{ color: 'text.disabled' }}>
+                        {v.script_number > 0 ? `Script #${v.script_number}` : 'No Script'}
+                      </Typography>
+                      {v.description && (
+                        <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '0.72rem', mt: 0.25 }}>
+                          {v.description}
+                        </Typography>
+                      )}
                     </Box>
                     <Chip
                       label={v.status}

@@ -329,6 +329,7 @@ export default function BatchflowBatches() {
     id: string;
     name: string;
     script_number: number;
+    description?: string | null;
     video_url?: string;
     posted_date?: string;
     status?: BatchflowVideoStatus;
@@ -419,6 +420,65 @@ export default function BatchflowBatches() {
 
   const [addVideoOpen, setAddVideoOpen] = useState(false);
   const [newVideoName, setNewVideoName] = useState('');
+  const [newVideoScriptNum, setNewVideoScriptNum] = useState<number | string>(1);
+  const [newVideoDescription, setNewVideoDescription] = useState('');
+  const addVideoFormRef = useRef<HTMLDivElement>(null);
+  const addVideoSaveBtnRef = useRef<HTMLButtonElement>(null);
+
+  const handleAddSingleVideo = async () => {
+    if (!selectedBatch || !newVideoName.trim()) return;
+    const sNum = typeof newVideoScriptNum === 'number'
+      ? newVideoScriptNum
+      : (newVideoScriptNum === '' ? 0 : (parseInt(String(newVideoScriptNum), 10) || 0));
+
+    await addBatchflowVideo({
+      batch_id: selectedBatch.id,
+      name: newVideoName.trim(),
+      script_number: Math.max(0, sNum),
+      description: newVideoDescription.trim() || null,
+    });
+    setAddVideoOpen(false);
+  };
+
+  const handleAddVideoKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && (e.ctrlKey || e.metaKey)) {
+      e.preventDefault();
+      if (selectedBatch && newVideoName.trim()) {
+        handleAddSingleVideo();
+      }
+      return;
+    }
+
+    if (e.key === 'Enter') {
+      e.preventDefault();
+      if (!addVideoFormRef.current) return;
+
+      // Find all non-locked (enabled, editable, visible) input and textarea elements
+      const allInputs = Array.from(
+        addVideoFormRef.current.querySelectorAll<HTMLInputElement | HTMLTextAreaElement>(
+          'input:not([disabled]):not([readonly]):not([type="hidden"]), textarea:not([disabled]):not([readonly])'
+        )
+      ).filter(el => el.offsetParent !== null && !el.disabled && !el.readOnly);
+
+      const activeEl = document.activeElement as HTMLElement;
+      const currentIndex = allInputs.findIndex(el => el === activeEl || el.contains(activeEl));
+
+      if (currentIndex >= 0 && currentIndex < allInputs.length - 1) {
+        const nextEl = allInputs[currentIndex + 1];
+        nextEl.focus();
+        if ('select' in nextEl && typeof nextEl.select === 'function') {
+          nextEl.select();
+        }
+      } else {
+        // Jump to the save/final button
+        if (addVideoSaveBtnRef.current && !addVideoSaveBtnRef.current.disabled) {
+          addVideoSaveBtnRef.current.focus();
+        } else if (allInputs[0]) {
+          allInputs[0].focus();
+        }
+      }
+    }
+  };
 
   const reportRef = useRef<HTMLDivElement>(null);
 
@@ -923,7 +983,7 @@ export default function BatchflowBatches() {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8);
       doc.setTextColor(71, 85, 105);
-      doc.text(String(v.script_number ?? '-'), margin + 118, curY + 6.0);
+      doc.text(v.script_number === 0 ? '-' : String(v.script_number ?? '-'), margin + 118, curY + 6.0);
 
       // Col 5: Status Pill (Clickable if video_url exists)
       const pillX = margin + 133;
@@ -1780,7 +1840,10 @@ export default function BatchflowBatches() {
                     variant="contained"
                     startIcon={<AddRoundedIcon sx={{ fontSize: 16 }} />}
                     onClick={() => {
-                      setNewVideoName(`${selectedClient?.name || 'Video'} ${currentBatchVideos.length + 1}`);
+                      const nextNum = currentBatchVideos.length + 1;
+                      setNewVideoName(`${selectedClient?.name || 'Video'} ${nextNum}`);
+                      setNewVideoScriptNum(nextNum);
+                      setNewVideoDescription('');
                       setAddVideoOpen(true);
                     }}
                     sx={{ textTransform: 'none', borderRadius: 1, height: 28, fontSize: '0.72rem', fontWeight: 700 }}
@@ -1819,6 +1882,7 @@ export default function BatchflowBatches() {
                           id: v.id,
                           name: v.name,
                           script_number: v.script_number,
+                          description: v.description || '',
                           video_url: v.video_url || '',
                           posted_date: v.posted_date ? v.posted_date.slice(0, 10) : '',
                           status: v.status,
@@ -1857,11 +1921,13 @@ export default function BatchflowBatches() {
                   >
                     {/* Video Info */}
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 160, flex: 1 }}>
-                      <Tooltip title={`Jump to Script #${v.script_number}`}>
+                      <Tooltip title={v.script_number > 0 ? `Jump to Script #${v.script_number}` : 'No script attached (#0)'}>
                         <Box
                           onClick={(e) => {
                             e.stopPropagation();
-                            handleJumpToScript(v.script_number);
+                            if (v.script_number > 0) {
+                              handleJumpToScript(v.script_number);
+                            }
                           }}
                           onDoubleClick={(e) => e.stopPropagation()}
                           sx={{
@@ -1877,13 +1943,13 @@ export default function BatchflowBatches() {
                             fontSize: '0.8rem',
                             flexShrink: 0,
                             transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
-                            cursor: 'pointer',
+                            cursor: v.script_number > 0 ? 'pointer' : 'default',
                             userSelect: 'none',
-                            '&:hover': {
+                            '&:hover': v.script_number > 0 ? {
                               transform: 'scale(1.12)',
                               boxShadow: '0 2px 8px rgba(0,0,0,0.3)',
                               filter: 'brightness(1.25)',
-                            },
+                            } : {},
                           }}
                         >
                           #{v.script_number}
@@ -1929,6 +1995,24 @@ export default function BatchflowBatches() {
                            'Ready for editing'}
                           {v.views ? ` • ${v.views} views` : ''}
                         </Typography>
+                        {v.description && (
+                          <Typography
+                            variant="caption"
+                            sx={{
+                              color: 'text.secondary',
+                              fontSize: '0.72rem',
+                              display: '-webkit-box',
+                              WebkitLineClamp: 1,
+                              WebkitBoxOrient: 'vertical',
+                              overflow: 'hidden',
+                              textOverflow: 'ellipsis',
+                              mt: 0.25,
+                            }}
+                            title={v.description}
+                          >
+                            {v.description}
+                          </Typography>
+                        )}
                       </Box>
                     </Box>
 
@@ -1971,6 +2055,7 @@ export default function BatchflowBatches() {
                                 id: v.id,
                                 name: v.name,
                                 script_number: v.script_number,
+                                description: v.description || '',
                                 video_url: v.video_url || '',
                                 posted_date: v.posted_date ? v.posted_date.slice(0, 10) : '',
                                 status: v.status,
@@ -2282,8 +2367,24 @@ script 2
             type="number"
             fullWidth
             size="small"
-            value={editingVideo?.script_number || 1}
-            onChange={e => setEditingVideo(prev => prev ? { ...prev, script_number: parseInt(e.target.value) || 1 } : null)}
+            value={editingVideo?.script_number !== undefined ? editingVideo.script_number : 1}
+            onChange={e => {
+              const val = e.target.value;
+              setEditingVideo(prev => prev ? {
+                ...prev,
+                script_number: val === '' ? 0 : Math.max(0, parseInt(val, 10) || 0)
+              } : null);
+            }}
+            slotProps={{ htmlInput: { min: 0 } }}
+            helperText="Set to 0 if this video has no script"
+          />
+          <TextField
+            label="Description (Optional)"
+            placeholder="Key hook, notes, or talking points..."
+            fullWidth
+            size="small"
+            value={editingVideo?.description || ''}
+            onChange={e => setEditingVideo(prev => prev ? { ...prev, description: e.target.value } : null)}
           />
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
             <TextField
@@ -2375,6 +2476,7 @@ script 2
                 await updateBatchflowVideo(editingVideo.id, {
                   name: editingVideo.name.trim(),
                   script_number: editingVideo.script_number,
+                  description: editingVideo.description?.trim() || null,
                   video_url: clean,
                   views: editingVideo.views != null && String(editingVideo.views).trim() !== '' ? String(editingVideo.views).trim() : null,
                   ...(dateVal ? { posted_date: dateVal } : {}),
@@ -2391,27 +2493,56 @@ script 2
       {/* Add Single Video Dialog */}
       <Dialog open={addVideoOpen} onClose={() => setAddVideoOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ fontWeight: 800 }}>Add Video to Batch</DialogTitle>
-        <DialogContent sx={{ pt: 1 }}>
+        <DialogContent
+          ref={addVideoFormRef}
+          onKeyDown={handleAddVideoKeyDown}
+          sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}
+        >
           <TextField
             label="Video Title"
             fullWidth
+            size="small"
             value={newVideoName}
             onChange={e => setNewVideoName(e.target.value)}
             autoFocus
+          />
+          <TextField
+            label="Script Number"
+            type="number"
+            fullWidth
+            size="small"
+            value={newVideoScriptNum}
+            onChange={e => {
+              const val = e.target.value;
+              if (val === '') {
+                setNewVideoScriptNum('');
+              } else {
+                const n = parseInt(val, 10);
+                setNewVideoScriptNum(isNaN(n) ? 0 : Math.max(0, n));
+              }
+            }}
+            helperText="Enter 0 if this video has no script"
+            slotProps={{ htmlInput: { min: 0 } }}
+          />
+          <TextField
+            label="Description (Optional)"
+            placeholder="Key hook, notes, or talking points..."
+            fullWidth
+            size="small"
+            value={newVideoDescription}
+            onChange={e => setNewVideoDescription(e.target.value)}
           />
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setAddVideoOpen(false)}>Cancel</Button>
           <Button
+            ref={addVideoSaveBtnRef}
             variant="contained"
-            onClick={async () => {
-              if (selectedBatch && newVideoName.trim()) {
-                await addBatchflowVideo({
-                  batch_id: selectedBatch.id,
-                  name: newVideoName.trim(),
-                  script_number: currentBatchVideos.length + 1,
-                });
-                setAddVideoOpen(false);
+            onClick={handleAddSingleVideo}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                handleAddSingleVideo();
               }
             }}
             disabled={!newVideoName.trim()}
@@ -2710,6 +2841,7 @@ script 2
                   id: v.id,
                   name: v.name,
                   script_number: v.script_number,
+                  description: v.description || '',
                   video_url: v.video_url || '',
                   posted_date: v.posted_date ? v.posted_date.slice(0, 10) : '',
                   status: v.status,

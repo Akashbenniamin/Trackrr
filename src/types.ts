@@ -132,6 +132,7 @@ export interface BatchflowVideo {
   batch_id: string;
   name: string;
   script_number: number;
+  description?: string | null;
   status: BatchflowVideoStatus;
   waiting_date?: string | null;
   edited_date?: string | null;
