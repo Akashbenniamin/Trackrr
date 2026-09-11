@@ -3,7 +3,11 @@ export interface VideoMetadataResult {
   postedDateTime?: string | null;
   title?: string;
   author?: string;
+  creatorHandle?: string;
   thumbnailUrl?: string;
+  likesCount?: string | null;
+  commentsCount?: string | null;
+  caption?: string | null;
   provider: 'instagram' | 'youtube' | 'other';
   rawHtml?: string;
   error?: string;
@@ -64,6 +68,39 @@ export function getMetaAccessToken(credentials?: MetaApiCredentials): string | n
 }
 
 /**
+ * Parse Instagram description string into likes, comments, creator handle, date, and clean caption.
+ * Format: "122 likes, 0 comments - leoholidays.in on July 22, 2026: “Every Tamil festival...”"
+ */
+export function parseInstagramDescription(text?: string | null) {
+  if (!text) return {};
+
+  const likesMatch = text.match(/([\d,KMkm.]+)\s+likes/i);
+  const likesCount = likesMatch ? likesMatch[1] : null;
+
+  const commentsMatch = text.match(/([\d,KMkm.]+)\s+comments/i);
+  const commentsCount = commentsMatch ? commentsMatch[1] : null;
+
+  const handleDateMatch = text.match(/-\s+([^\s]+)\s+on\s+([A-Za-z]+\s+\d{1,2},\s+\d{4}):/i);
+  const creatorHandle = handleDateMatch ? handleDateMatch[1] : null;
+  const dateStr = handleDateMatch ? handleDateMatch[2] : null;
+
+  let caption: string | null = null;
+  const quoteMatch = text.match(/[:：]\s*[“\"]([\s\S]*)[”\"]\.?$/);
+  if (quoteMatch && quoteMatch[1]) {
+    caption = quoteMatch[1].trim();
+  } else {
+    const colonIdx = text.indexOf(':');
+    if (colonIdx !== -1) {
+      caption = text.slice(colonIdx + 1).replace(/^[“\"]|[”\"]\.?$/g, '').trim();
+    } else {
+      caption = text.trim();
+    }
+  }
+
+  return { likesCount, commentsCount, creatorHandle, dateStr, caption };
+}
+
+/**
  * Fetch video metadata via Meta oEmbed or YouTube oEmbed
  */
 export async function fetchVideoMetadata(
@@ -106,7 +143,9 @@ export async function fetchVideoMetadata(
             postedDateTime,
             title: data.title || undefined,
             author: data.author_name || undefined,
+            creatorHandle: data.author_name || undefined,
             thumbnailUrl: data.thumbnail_url || undefined,
+            caption: data.title || undefined,
             provider: 'instagram',
             rawHtml: data.html,
             usedOfficialMetaApi: true,
@@ -127,26 +166,30 @@ export async function fetchVideoMetadata(
       if (fbResponse.ok) {
         const fbData = await fbResponse.json();
         const d = fbData?.data;
+        const descText = d?.description || d?.title || '';
+        const parsed = parseInstagramDescription(descText);
+
         let pDate: string | null = null;
         if (d?.date) {
           pDate = String(d.date).split('T')[0];
-        } else if (d?.description) {
-          const dateMatch = String(d.description).match(/on\s+([A-Za-z]+\s+\d{1,2},\s+\d{4})/i);
-          if (dateMatch && dateMatch[1]) {
-            const parsed = new Date(dateMatch[1]);
-            if (!isNaN(parsed.getTime())) {
-              pDate = parsed.toISOString().slice(0, 10);
-            }
+        } else if (parsed.dateStr) {
+          const parsedD = new Date(parsed.dateStr);
+          if (!isNaN(parsedD.getTime())) {
+            pDate = parsedD.toISOString().slice(0, 10);
           }
         }
 
-        if (pDate) {
+        if (pDate || parsed.caption || d?.author) {
           return {
             postedDate: pDate,
             postedDateTime: d?.date || null,
-            title: d?.title || (d?.description ? String(d.description).slice(0, 80) : undefined),
+            title: d?.title || (parsed.caption ? parsed.caption.slice(0, 80) : undefined),
             author: d?.author || d?.publisher || undefined,
+            creatorHandle: parsed.creatorHandle || d?.author || undefined,
             thumbnailUrl: d?.image?.url || undefined,
+            likesCount: parsed.likesCount || null,
+            commentsCount: parsed.commentsCount || null,
+            caption: parsed.caption || d?.description || null,
             provider: 'instagram',
             usedOfficialMetaApi: false,
           };
@@ -173,7 +216,9 @@ export async function fetchVideoMetadata(
         return {
           title: data.title || undefined,
           author: data.author_name || undefined,
+          creatorHandle: data.author_name || undefined,
           thumbnailUrl: data.thumbnail_url || undefined,
+          caption: data.title || undefined,
           provider: 'youtube',
           rawHtml: data.html,
         };

@@ -23,6 +23,10 @@ import LightModeRoundedIcon from '@mui/icons-material/LightModeRounded';
 import WbSunnyRoundedIcon from '@mui/icons-material/WbSunnyRounded';
 import AirRoundedIcon from '@mui/icons-material/AirRounded';
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
+import FavoriteRoundedIcon from '@mui/icons-material/FavoriteRounded';
+import ChatBubbleOutlineRoundedIcon from '@mui/icons-material/ChatBubbleOutlineRounded';
+import CalendarTodayRoundedIcon from '@mui/icons-material/CalendarTodayRounded';
+import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
 import StorageRoundedIcon from '@mui/icons-material/StorageRounded';
 import DataObjectRoundedIcon from '@mui/icons-material/DataObjectRounded';
 import MovieCreationRoundedIcon from '@mui/icons-material/MovieCreationRounded';
@@ -906,35 +910,158 @@ export default function SettingsView() {
             </Box>
 
             {metaTestResult && (
-              <Box sx={{ mt: 1.5, p: 1.5, borderRadius: 1.5, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
-                {metaTestResult.postedDate ? (
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                      <CheckCircleRoundedIcon sx={{ color: '#10B981', fontSize: 18 }} />
-                      <Typography variant="body2" sx={{ fontWeight: 700, color: '#10B981' }}>
-                        Extracted Date: {metaTestResult.postedDate}
-                      </Typography>
+              <Box sx={{ mt: 2, p: 2, borderRadius: 2, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+                {!metaTestResult.error || metaTestResult.postedDate || metaTestResult.caption ? (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                    {/* Header bar with status badge */}
+                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <CheckCircleRoundedIcon sx={{ color: '#10B981', fontSize: 20 }} />
+                        <Typography variant="subtitle2" sx={{ fontWeight: 800, color: '#10B981' }}>
+                          Video Metadata Extracted Successfully
+                        </Typography>
+                      </Box>
                       <Chip
-                        label={metaTestResult.usedOfficialMetaApi ? 'Official Meta oEmbed API' : 'Fallback Resolver'}
+                        label={metaTestResult.usedOfficialMetaApi ? 'Official Meta oEmbed API' : 'Fallback Public Resolver'}
                         size="small"
                         color={metaTestResult.usedOfficialMetaApi ? 'success' : 'default'}
-                        sx={{ height: 20, fontSize: '0.65rem', fontWeight: 700 }}
+                        sx={{ height: 22, fontSize: '0.68rem', fontWeight: 700 }}
                       />
                     </Box>
-                    {metaTestResult.title && (
-                      <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                        Title / Caption: {metaTestResult.title}
-                      </Typography>
-                    )}
-                    {metaTestResult.author && (
-                      <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                        Author: @{metaTestResult.author}
-                      </Typography>
-                    )}
+
+                    {/* Main content: Thumbnail + Key Metrics */}
+                    <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
+                      {/* 1. Video Thumbnail Image */}
+                      {metaTestResult.thumbnailUrl ? (
+                        <Box sx={{ flexShrink: 0, textAlign: 'center' }}>
+                          <Box
+                            component="img"
+                            src={metaTestResult.thumbnailUrl}
+                            alt="Video Thumbnail"
+                            sx={{
+                              width: { xs: '100%', sm: 120 },
+                              maxHeight: 160,
+                              objectFit: 'cover',
+                              borderRadius: 2,
+                              border: '1px solid rgba(255,255,255,0.12)',
+                              boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
+                              display: 'block',
+                            }}
+                          />
+                          <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.65rem', mt: 0.5, display: 'block' }}>
+                            Cover Preview
+                          </Typography>
+                        </Box>
+                      ) : null}
+
+                      {/* Right Details Column */}
+                      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                        {/* 2. Publication Date & Creator Handle */}
+                        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+                          {metaTestResult.postedDate && (
+                            <Chip
+                              icon={<CalendarTodayRoundedIcon sx={{ fontSize: '15px !important', color: '#10B981 !important' }} />}
+                              label={`Posted Date: ${metaTestResult.postedDate}`}
+                              size="small"
+                              sx={{
+                                fontWeight: 800,
+                                bgcolor: 'rgba(16, 185, 129, 0.12)',
+                                color: '#10B981',
+                                border: '1px solid rgba(16, 185, 129, 0.3)',
+                              }}
+                            />
+                          )}
+
+                          {(metaTestResult.creatorHandle || metaTestResult.author) && (
+                            <Chip
+                              icon={<PersonRoundedIcon sx={{ fontSize: '15px !important', color: '#38BDF8 !important' }} />}
+                              label={`Creator: @${metaTestResult.creatorHandle || metaTestResult.author}`}
+                              size="small"
+                              sx={{
+                                fontWeight: 800,
+                                bgcolor: 'rgba(56, 189, 248, 0.12)',
+                                color: '#38BDF8',
+                                border: '1px solid rgba(56, 189, 248, 0.3)',
+                              }}
+                            />
+                          )}
+                        </Box>
+
+                        {/* 3. Likes Count & 4. Comments Count */}
+                        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                          <Chip
+                            icon={<FavoriteRoundedIcon sx={{ fontSize: '14px !important', color: '#F43F5E !important' }} />}
+                            label={metaTestResult.likesCount ? `${metaTestResult.likesCount} Likes` : 'Likes not public'}
+                            size="small"
+                            sx={{
+                              fontWeight: 700,
+                              fontSize: '0.75rem',
+                              bgcolor: 'rgba(244, 63, 94, 0.1)',
+                              color: '#F43F5E',
+                              border: '1px solid rgba(244, 63, 94, 0.25)',
+                            }}
+                          />
+
+                          <Chip
+                            icon={<ChatBubbleOutlineRoundedIcon sx={{ fontSize: '14px !important', color: '#FBBF24 !important' }} />}
+                            label={metaTestResult.commentsCount !== null && metaTestResult.commentsCount !== undefined ? `${metaTestResult.commentsCount} Comments` : 'Comments N/A'}
+                            size="small"
+                            sx={{
+                              fontWeight: 700,
+                              fontSize: '0.75rem',
+                              bgcolor: 'rgba(251, 191, 36, 0.1)',
+                              color: '#FBBF24',
+                              border: '1px solid rgba(251, 191, 36, 0.25)',
+                            }}
+                          />
+                        </Box>
+
+                        {/* 5. Full Caption Text */}
+                        {(metaTestResult.caption || metaTestResult.title) && (
+                          <Box sx={{ mt: 0.5 }}>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
+                              <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                                Full Caption Text:
+                              </Typography>
+                              <Button
+                                size="small"
+                                variant="text"
+                                startIcon={<ContentCopyRoundedIcon sx={{ fontSize: 13 }} />}
+                                onClick={() => {
+                                  const textToCopy = metaTestResult.caption || metaTestResult.title || '';
+                                  navigator.clipboard.writeText(textToCopy);
+                                  setToastMessage('Caption copied to clipboard!');
+                                }}
+                                sx={{ textTransform: 'none', fontSize: '0.7rem', py: 0, px: 0.75, minHeight: 22 }}
+                              >
+                                Copy Caption
+                              </Button>
+                            </Box>
+                            <Box
+                              sx={{
+                                p: 1.25,
+                                maxHeight: 130,
+                                overflowY: 'auto',
+                                borderRadius: 1.5,
+                                bgcolor: 'action.hover',
+                                border: '1px solid',
+                                borderColor: 'divider',
+                                '&::-webkit-scrollbar': { width: 4 },
+                                '&::-webkit-scrollbar-thumb': { bgcolor: 'rgba(255,255,255,0.2)', borderRadius: 2 },
+                              }}
+                            >
+                              <Typography variant="body2" sx={{ fontSize: '0.78rem', color: 'text.primary', whiteSpace: 'pre-wrap', lineHeight: 1.45 }}>
+                                {metaTestResult.caption || metaTestResult.title}
+                              </Typography>
+                            </Box>
+                          </Box>
+                        )}
+                      </Box>
+                    </Box>
                   </Box>
                 ) : (
-                  <Alert severity={metaTestResult.error ? 'warning' : 'info'} sx={{ width: '100%', py: 0.5, fontSize: '0.8rem' }}>
-                    {metaTestResult.error || 'No date found for this URL.'}
+                  <Alert severity="warning" sx={{ width: '100%', py: 0.5, fontSize: '0.8rem' }}>
+                    {metaTestResult.error || 'Could not extract metadata from this URL.'}
                   </Alert>
                 )}
               </Box>
