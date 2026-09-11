@@ -1,7 +1,7 @@
 import { useState, useRef } from 'react';
 import {
   Box, Card, Typography, Button, TextField, Chip, IconButton,
-  Dialog, DialogTitle, DialogContent, DialogActions, Grid,
+  Dialog, DialogTitle, DialogContent, DialogActions,
   Select, MenuItem, InputLabel, FormControl, Divider, Tooltip,
   Paper, Alert, LinearProgress,
 } from '@mui/material';
@@ -14,6 +14,10 @@ import PictureAsPdfRoundedIcon from '@mui/icons-material/PictureAsPdfRounded';
 import CalendarMonthRoundedIcon from '@mui/icons-material/CalendarMonthRounded';
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
 import DescriptionRoundedIcon from '@mui/icons-material/DescriptionRounded';
+import AccessTimeRoundedIcon from '@mui/icons-material/AccessTimeRounded';
+import AutoFixHighRoundedIcon from '@mui/icons-material/AutoFixHighRounded';
+import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
+import VideoLibraryRoundedIcon from '@mui/icons-material/VideoLibraryRounded';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import { useApp } from '../../contexts/AppContext';
@@ -730,7 +734,7 @@ export default function BatchflowBatches() {
             overflow: 'hidden',
           }}
         >
-          {/* Top Card: Batch Title & Thick KPI Card (Width matches Video Pipeline Column!) */}
+          {/* Top Card: Batch Title & Minimal Modern KPI Counters */}
           <Box sx={{ flexShrink: 0 }}>
             <Card
               onDoubleClick={() => {
@@ -738,19 +742,24 @@ export default function BatchflowBatches() {
               }}
               title={canEdit && selectedBatch ? 'Double-click to edit batch' : undefined}
               sx={{
-                p: { xs: 1.25, sm: 1.5 },
-                borderRadius: 1,
-                borderLeft: `5px solid ${selectedClient?.color || '#818CF8'}`,
+                p: { xs: 1.5, sm: 1.75 },
+                borderRadius: 1.25,
                 bgcolor: 'background.paper',
-                boxShadow: '0 4px 20px rgba(0,0,0,0.15)',
+                border: '1px solid rgba(255,255,255,0.08)',
+                boxShadow: '0 4px 20px rgba(0,0,0,0.25)',
                 cursor: canEdit && selectedBatch ? 'pointer' : 'default',
+                position: 'relative',
+                overflow: 'hidden',
               }}
             >
+              {/* Subtle top accent line using client's color */}
+              <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2.5, bgcolor: selectedClient?.color || 'primary.main', opacity: 0.8 }} />
+
               {/* Top Row: Batch Title, Client Tag, Shoot Date, Action Buttons */}
-              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1, mb: 1.25 }}>
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1.25, mb: 1.5 }}>
                 <Box sx={{ minWidth: 160, flex: 1 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
-                    <Typography variant="h6" sx={{ fontWeight: 900, letterSpacing: '-0.02em', fontSize: { xs: '1.05rem', sm: '1.2rem' } }}>
+                    <Typography variant="h5" sx={{ fontWeight: 900, letterSpacing: '-0.02em', fontSize: { xs: '1.15rem', sm: '1.3rem' } }}>
                       {selectedBatch ? selectedBatch.name : 'No Batch Selected'}
                     </Typography>
                     {selectedClient && (
@@ -758,8 +767,9 @@ export default function BatchflowBatches() {
                         label={selectedClient.name}
                         size="small"
                         sx={{
-                          bgcolor: `${selectedClient.color || '#818CF8'}20`,
+                          bgcolor: `${selectedClient.color || '#818CF8'}18`,
                           color: selectedClient.color || '#818CF8',
+                          border: `1px solid ${selectedClient.color || '#818CF8'}35`,
                           fontWeight: 800,
                           fontSize: '0.72rem',
                           height: 22,
@@ -768,20 +778,20 @@ export default function BatchflowBatches() {
                     )}
                   </Box>
                   {selectedBatch && (
-                    <Typography variant="caption" sx={{ color: 'text.secondary', display: 'flex', alignItems: 'center', gap: 0.5, mt: 0.25, fontSize: '0.72rem' }}>
-                      <CalendarMonthRoundedIcon sx={{ fontSize: 14 }} />
-                      Shoot Date: <strong>{selectedBatch.shoot_date || 'Not set'}</strong> • {currentBatchVideos.length} Videos in pipeline
+                    <Typography variant="caption" sx={{ color: 'text.secondary', display: 'flex', alignItems: 'center', gap: 0.6, mt: 0.4, fontSize: '0.74rem' }}>
+                      <CalendarMonthRoundedIcon sx={{ fontSize: 14, color: 'text.disabled' }} />
+                      Shoot Date: <strong style={{ color: 'rgba(255,255,255,0.9)' }}>{selectedBatch.shoot_date || 'Not set'}</strong> • {currentBatchVideos.length} Videos in pipeline
                     </Typography>
                   )}
                 </Box>
 
-                {/* Action Buttons */}
+                {/* Action Buttons: Minimal & Modern */}
                 <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', alignItems: 'center' }} onDoubleClick={(e) => e.stopPropagation()}>
                   {canEdit && (
                     <Button
                       size="small"
                       variant="contained"
-                      startIcon={<AddRoundedIcon sx={{ fontSize: 15 }} />}
+                      startIcon={<AddRoundedIcon sx={{ fontSize: 16 }} />}
                       onClick={() => {
                         setNewBatchForm({
                           clientId: activeClients[0]?.id || '',
@@ -793,7 +803,7 @@ export default function BatchflowBatches() {
                         });
                         setNewBatchOpen(true);
                       }}
-                      sx={{ textTransform: 'none', borderRadius: 1, fontWeight: 700, fontSize: '0.72rem', height: 28, px: 1 }}
+                      sx={{ textTransform: 'none', borderRadius: 1, fontWeight: 700, fontSize: '0.75rem', height: 30, px: 1.25 }}
                     >
                       New Batch
                     </Button>
@@ -801,27 +811,27 @@ export default function BatchflowBatches() {
                   <Button
                     size="small"
                     variant="outlined"
-                    startIcon={<PictureAsPdfRoundedIcon sx={{ fontSize: 14 }} />}
+                    startIcon={<PictureAsPdfRoundedIcon sx={{ fontSize: 15 }} />}
                     onClick={handleExportPDF}
                     disabled={!selectedBatch}
-                    sx={{ textTransform: 'none', borderRadius: 1, fontWeight: 600, fontSize: '0.72rem', height: 28, px: 1 }}
+                    sx={{ textTransform: 'none', borderRadius: 1, fontWeight: 600, fontSize: '0.75rem', height: 30, px: 1.25, borderColor: 'rgba(255,255,255,0.12)' }}
                   >
-                    Export PDF
+                    PDF
                   </Button>
                   <Button
                     size="small"
                     variant="outlined"
-                    startIcon={<DownloadRoundedIcon sx={{ fontSize: 14 }} />}
+                    startIcon={<DownloadRoundedIcon sx={{ fontSize: 15 }} />}
                     onClick={handleExportPNG}
                     disabled={!selectedBatch}
-                    sx={{ textTransform: 'none', borderRadius: 1, fontWeight: 600, fontSize: '0.72rem', height: 28, px: 1 }}
+                    sx={{ textTransform: 'none', borderRadius: 1, fontWeight: 600, fontSize: '0.75rem', height: 30, px: 1.25, borderColor: 'rgba(255,255,255,0.12)' }}
                   >
                     PNG
                   </Button>
                   {canEdit && selectedBatch && (
                     <>
                       <Tooltip title="Edit Batch">
-                        <IconButton size="small" onClick={() => handleOpenEditBatch()} sx={{ color: 'text.secondary', p: 0.5 }}>
+                        <IconButton size="small" onClick={() => handleOpenEditBatch()} sx={{ color: 'text.secondary', p: 0.6, bgcolor: 'rgba(255,255,255,0.04)', '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' } }}>
                           <EditRoundedIcon sx={{ fontSize: 16 }} />
                         </IconButton>
                       </Tooltip>
@@ -833,7 +843,7 @@ export default function BatchflowBatches() {
                               await deleteBatchflowBatch(selectedBatch.id);
                             }
                           }}
-                          sx={{ color: '#F87171', p: 0.5 }}
+                          sx={{ color: '#F87171', p: 0.6, bgcolor: 'rgba(248,113,113,0.08)', '&:hover': { bgcolor: 'rgba(248,113,113,0.16)' } }}
                         >
                           <DeleteOutlineRoundedIcon sx={{ fontSize: 16 }} />
                         </IconButton>
@@ -843,116 +853,273 @@ export default function BatchflowBatches() {
                 </Box>
               </Box>
 
-              {/* Bottom Row: BIG THICK KPI STATS BLOCK */}
+              {/* 4 Minimal Modern KPI Counter Cards */}
               {selectedBatch ? (
                 <>
-                  <Grid container spacing={1} alignItems="stretch">
-                    <Grid size={{ xs: 6, sm: 3 }}>
-                      <Box
-                        sx={{
-                          p: 1.25,
-                          borderRadius: 1,
-                          bgcolor: 'rgba(255,255,255,0.03)',
-                          border: '1px solid rgba(255,255,255,0.08)',
-                          height: '100%',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          justifyContent: 'center',
-                        }}
-                      >
-                        <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', letterSpacing: '0.05em', textTransform: 'uppercase', fontSize: '0.62rem' }}>
-                          TOTAL VIDEOS
-                        </Typography>
-                        <Typography variant="h4" sx={{ fontWeight: 900, color: 'text.primary', mt: 0.25, lineHeight: 1, fontSize: { xs: '1.4rem', sm: '1.6rem' } }}>
-                          {currentBatchVideos.length}
-                        </Typography>
-                        <Typography variant="caption" sx={{ color: 'text.disabled', mt: 0.25, fontSize: '0.62rem' }}>
-                          {currentBatchVideos.length} videos total
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gridTemplateColumns: { xs: '1fr 1fr', sm: 'repeat(4, 1fr)' },
+                      gap: 1.25,
+                      mt: 1.25,
+                    }}
+                  >
+                    {/* TOTAL */}
+                    <Box
+                      sx={{
+                        p: { xs: 1.25, sm: 1.5 },
+                        px: { xs: 1.5, sm: 2 },
+                        borderRadius: 1.25,
+                        bgcolor: 'rgba(255, 255, 255, 0.025)',
+                        border: '1px solid rgba(255, 255, 255, 0.08)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 1.5,
+                        minHeight: { xs: 56, sm: 62 },
+                        transition: 'all 0.2s ease',
+                        '&:hover': {
+                          bgcolor: 'rgba(255, 255, 255, 0.04)',
+                          borderColor: 'rgba(255, 255, 255, 0.16)',
+                        },
+                      }}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 0 }}>
+                        <Box
+                          sx={{
+                            width: 32,
+                            height: 32,
+                            borderRadius: '50%',
+                            bgcolor: 'rgba(255, 255, 255, 0.08)',
+                            color: 'text.primary',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                          }}
+                        >
+                          <VideoLibraryRoundedIcon sx={{ fontSize: 17 }} />
+                        </Box>
+                        <Typography
+                          sx={{
+                            fontWeight: 800,
+                            fontSize: '0.72rem',
+                            letterSpacing: '0.08em',
+                            color: 'text.secondary',
+                            textTransform: 'uppercase',
+                          }}
+                        >
+                          TOTAL
                         </Typography>
                       </Box>
-                    </Grid>
 
-                    <Grid size={{ xs: 6, sm: 3 }}>
-                      <Box
+                      <Typography
                         sx={{
-                          p: 1.25,
-                          borderRadius: 1,
-                          bgcolor: 'rgba(245, 158, 11, 0.08)',
-                          border: '1px solid rgba(245, 158, 11, 0.25)',
-                          height: '100%',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          justifyContent: 'center',
+                          fontWeight: 900,
+                          fontSize: { xs: '1.75rem', sm: '2rem', md: '2.25rem' },
+                          lineHeight: 1,
+                          color: 'text.primary',
+                          letterSpacing: '-0.02em',
                         }}
                       >
-                        <Typography variant="caption" sx={{ fontWeight: 800, color: '#F59E0B', letterSpacing: '0.05em', textTransform: 'uppercase', fontSize: '0.62rem' }}>
+                        {currentBatchVideos.length}
+                      </Typography>
+                    </Box>
+
+                    {/* PENDING */}
+                    <Box
+                      sx={{
+                        p: { xs: 1.25, sm: 1.5 },
+                        px: { xs: 1.5, sm: 2 },
+                        borderRadius: 1.25,
+                        bgcolor: 'rgba(245, 158, 11, 0.04)',
+                        border: '1px solid rgba(245, 158, 11, 0.25)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 1.5,
+                        minHeight: { xs: 56, sm: 62 },
+                        transition: 'all 0.2s ease',
+                        '&:hover': {
+                          bgcolor: 'rgba(245, 158, 11, 0.08)',
+                          borderColor: 'rgba(245, 158, 11, 0.45)',
+                        },
+                      }}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 0 }}>
+                        <Box
+                          sx={{
+                            width: 32,
+                            height: 32,
+                            borderRadius: '50%',
+                            bgcolor: 'rgba(245, 158, 11, 0.16)',
+                            color: '#F59E0B',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                          }}
+                        >
+                          <AccessTimeRoundedIcon sx={{ fontSize: 18 }} />
+                        </Box>
+                        <Typography
+                          sx={{
+                            fontWeight: 800,
+                            fontSize: '0.72rem',
+                            letterSpacing: '0.08em',
+                            color: '#F59E0B',
+                            textTransform: 'uppercase',
+                          }}
+                        >
                           PENDING
                         </Typography>
-                        <Typography variant="h4" sx={{ fontWeight: 900, color: '#F59E0B', mt: 0.25, lineHeight: 1, fontSize: { xs: '1.4rem', sm: '1.6rem' } }}>
-                          {pendingCount}
-                        </Typography>
-                        <Typography variant="caption" sx={{ color: 'text.secondary', mt: 0.25, fontSize: '0.62rem' }}>
-                          {currentBatchVideos.length > 0 ? Math.round((pendingCount / currentBatchVideos.length) * 100) : 0}% of batch
-                        </Typography>
                       </Box>
-                    </Grid>
 
-                    <Grid size={{ xs: 6, sm: 3 }}>
-                      <Box
+                      <Typography
                         sx={{
-                          p: 1.25,
-                          borderRadius: 1,
-                          bgcolor: 'rgba(59, 130, 246, 0.08)',
-                          border: '1px solid rgba(59, 130, 246, 0.25)',
-                          height: '100%',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          justifyContent: 'center',
+                          fontWeight: 900,
+                          fontSize: { xs: '1.75rem', sm: '2rem', md: '2.25rem' },
+                          lineHeight: 1,
+                          color: '#F59E0B',
+                          letterSpacing: '-0.02em',
                         }}
                       >
-                        <Typography variant="caption" sx={{ fontWeight: 800, color: '#3B82F6', letterSpacing: '0.05em', textTransform: 'uppercase', fontSize: '0.62rem' }}>
+                        {pendingCount}
+                      </Typography>
+                    </Box>
+
+                    {/* EDITED */}
+                    <Box
+                      sx={{
+                        p: { xs: 1.25, sm: 1.5 },
+                        px: { xs: 1.5, sm: 2 },
+                        borderRadius: 1.25,
+                        bgcolor: 'rgba(59, 130, 246, 0.04)',
+                        border: '1px solid rgba(59, 130, 246, 0.25)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 1.5,
+                        minHeight: { xs: 56, sm: 62 },
+                        transition: 'all 0.2s ease',
+                        '&:hover': {
+                          bgcolor: 'rgba(59, 130, 246, 0.08)',
+                          borderColor: 'rgba(59, 130, 246, 0.45)',
+                        },
+                      }}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 0 }}>
+                        <Box
+                          sx={{
+                            width: 32,
+                            height: 32,
+                            borderRadius: '50%',
+                            bgcolor: 'rgba(59, 130, 246, 0.16)',
+                            color: '#3B82F6',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                          }}
+                        >
+                          <AutoFixHighRoundedIcon sx={{ fontSize: 17 }} />
+                        </Box>
+                        <Typography
+                          sx={{
+                            fontWeight: 800,
+                            fontSize: '0.72rem',
+                            letterSpacing: '0.08em',
+                            color: '#3B82F6',
+                            textTransform: 'uppercase',
+                          }}
+                        >
                           EDITED
                         </Typography>
-                        <Typography variant="h4" sx={{ fontWeight: 900, color: '#3B82F6', mt: 0.25, lineHeight: 1, fontSize: { xs: '1.4rem', sm: '1.6rem' } }}>
-                          {editedCount}
-                        </Typography>
-                        <Typography variant="caption" sx={{ color: 'text.secondary', mt: 0.25, fontSize: '0.62rem' }}>
-                          {currentBatchVideos.length > 0 ? Math.round((editedCount / currentBatchVideos.length) * 100) : 0}% of batch
-                        </Typography>
                       </Box>
-                    </Grid>
 
-                    <Grid size={{ xs: 6, sm: 3 }}>
-                      <Box
+                      <Typography
                         sx={{
-                          p: 1.25,
-                          borderRadius: 1,
-                          bgcolor: 'rgba(16, 185, 129, 0.08)',
-                          border: '1px solid rgba(16, 185, 129, 0.25)',
-                          height: '100%',
-                          display: 'flex',
-                          flexDirection: 'column',
-                          justifyContent: 'center',
+                          fontWeight: 900,
+                          fontSize: { xs: '1.75rem', sm: '2rem', md: '2.25rem' },
+                          lineHeight: 1,
+                          color: '#3B82F6',
+                          letterSpacing: '-0.02em',
                         }}
                       >
-                        <Typography variant="caption" sx={{ fontWeight: 800, color: '#10B981', letterSpacing: '0.05em', textTransform: 'uppercase', fontSize: '0.62rem' }}>
+                        {editedCount}
+                      </Typography>
+                    </Box>
+
+                    {/* POSTED */}
+                    <Box
+                      sx={{
+                        p: { xs: 1.25, sm: 1.5 },
+                        px: { xs: 1.5, sm: 2 },
+                        borderRadius: 1.25,
+                        bgcolor: 'rgba(16, 185, 129, 0.04)',
+                        border: '1px solid rgba(16, 185, 129, 0.25)',
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        gap: 1.5,
+                        minHeight: { xs: 56, sm: 62 },
+                        transition: 'all 0.2s ease',
+                        '&:hover': {
+                          bgcolor: 'rgba(16, 185, 129, 0.08)',
+                          borderColor: 'rgba(16, 185, 129, 0.45)',
+                        },
+                      }}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25, minWidth: 0 }}>
+                        <Box
+                          sx={{
+                            width: 32,
+                            height: 32,
+                            borderRadius: '50%',
+                            bgcolor: 'rgba(16, 185, 129, 0.16)',
+                            color: '#10B981',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            flexShrink: 0,
+                          }}
+                        >
+                          <CheckCircleRoundedIcon sx={{ fontSize: 17 }} />
+                        </Box>
+                        <Typography
+                          sx={{
+                            fontWeight: 800,
+                            fontSize: '0.72rem',
+                            letterSpacing: '0.08em',
+                            color: '#10B981',
+                            textTransform: 'uppercase',
+                          }}
+                        >
                           POSTED
                         </Typography>
-                        <Typography variant="h4" sx={{ fontWeight: 900, color: '#10B981', mt: 0.25, lineHeight: 1, fontSize: { xs: '1.4rem', sm: '1.6rem' } }}>
-                          {postedCount}
-                        </Typography>
-                        <Typography variant="caption" sx={{ color: 'text.secondary', mt: 0.25, fontSize: '0.62rem' }}>
-                          {currentBatchVideos.length > 0 ? Math.round((postedCount / currentBatchVideos.length) * 100) : 0}% completed
-                        </Typography>
                       </Box>
-                    </Grid>
-                  </Grid>
 
-                  {/* Progress bar */}
-                  <Box sx={{ mt: 1 }}>
+                      <Typography
+                        sx={{
+                          fontWeight: 900,
+                          fontSize: { xs: '1.75rem', sm: '2rem', md: '2.25rem' },
+                          lineHeight: 1,
+                          color: '#10B981',
+                          letterSpacing: '-0.02em',
+                        }}
+                      >
+                        {postedCount}
+                      </Typography>
+                    </Box>
+                  </Box>
+
+                  {/* Production Progress Bar */}
+                  <Box sx={{ mt: 1.5 }}>
                     <Box sx={{ display: 'flex', justifyContent: 'space-between', mb: 0.5 }}>
-                      <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.65rem' }}>Production Completion</Typography>
-                      <Typography variant="caption" sx={{ fontWeight: 700, fontSize: '0.65rem', color: '#10B981' }}>
+                      <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.68rem', fontWeight: 600, letterSpacing: '0.04em', textTransform: 'uppercase' }}>
+                        Production Completion
+                      </Typography>
+                      <Typography variant="caption" sx={{ fontWeight: 800, fontSize: '0.72rem', color: '#10B981' }}>
                         {currentBatchVideos.length > 0 ? Math.round((postedCount / currentBatchVideos.length) * 100) : 0}%
                       </Typography>
                     </Box>
