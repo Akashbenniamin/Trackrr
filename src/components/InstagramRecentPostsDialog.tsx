@@ -277,7 +277,7 @@ export default function InstagramRecentPostsDialog({
         >
           <Box sx={{ minWidth: 0 }}>
             <Typography variant="body2" sx={{ fontWeight: 700, fontSize: '0.85rem' }}>
-              Option 3: Live Reels Popout Inspector
+              Live Reels Popout Inspector
             </Typography>
             <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
               Instant mobile viewer popup with zero login hurdles or API restrictions.
@@ -589,13 +589,11 @@ export default function InstagramRecentPostsDialog({
             </Box>
 
             <Typography variant="subtitle1" sx={{ fontWeight: 800, color: 'text.primary', mb: 0.5 }}>
-              Use Option 3: Instant Live Reels Popout
+              Live Reels Inspector
             </Typography>
 
             <Typography variant="body2" sx={{ color: 'text.secondary', fontSize: '0.8rem', maxWidth: 420, mx: 'auto', mb: 2, lineHeight: 1.5 }}>
-              Meta restricts automated background scraping to accounts with an <strong>Instagram Professional Graph API User Token</strong>.
-              <br />
-              With <strong>Option 3</strong>, you can view the live feed instantly in your browser with zero restrictions!
+              View this creator's live reels feed in a dedicated popup window with zero login hurdles, and easily copy reel links directly into your pipeline.
             </Typography>
 
             <Button
@@ -619,7 +617,7 @@ export default function InstagramRecentPostsDialog({
                 mb: 2,
               }}
             >
-              Launch Live Reels Popup (Option 3)
+              Launch Live Reels Popup
             </Button>
 
             <Box
@@ -710,7 +708,7 @@ export default function InstagramRecentPostsDialog({
 
       <DialogActions sx={{ p: 2, pt: 1, borderTop: '1px solid rgba(255,255,255,0.06)', justifyContent: 'space-between' }}>
         <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.7rem' }}>
-          Option 1 (Meta Discovery) & Option 3 (Live Popout)
+          Instagram Reels & Metadata Inspector
         </Typography>
         <Button onClick={onClose} size="small" variant="outlined" sx={{ borderRadius: 1, textTransform: 'none', fontSize: '0.75rem', px: 2 }}>
           Close

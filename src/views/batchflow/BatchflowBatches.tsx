@@ -28,7 +28,7 @@ import { jsPDF } from 'jspdf';
 import { registerOkineFont } from '../../lib/okineFont';
 import { useApp } from '../../contexts/AppContext';
 import { usePersistedState } from '../../lib/usePersistedState';
-import { fetchVideoMetadata, cleanVideoUrl, extractViewsAndLikes, type VideoMetadataResult } from '../../lib/videoMetadata';
+import { fetchVideoMetadata, cleanVideoUrl, extractVideoLikes, type VideoMetadataResult } from '../../lib/videoMetadata';
 import type { BatchflowBatch, BatchflowVideo, BatchflowVideoStatus } from '../../types';
 
 const STATUS_COLORS: Record<BatchflowVideoStatus, { bg: string; text: string; border: string }> = {
@@ -334,7 +334,6 @@ export default function BatchflowBatches() {
     video_url?: string;
     posted_date?: string;
     status?: BatchflowVideoStatus;
-    views?: string | number | null;
     likes?: string | number | null;
   } | null>(null);
   const [editingMetaLoading, setEditingMetaLoading] = useState(false);
@@ -343,7 +342,6 @@ export default function BatchflowBatches() {
   const [postedLinkDialogOpen, setPostedLinkDialogOpen] = useState(false);
   const [postedTargetVideo, setPostedTargetVideo] = useState<BatchflowVideo | null>(null);
   const [postedVideoUrl, setPostedVideoUrl] = useState('');
-  const [postedViews, setPostedViews] = useState('');
   const [postedLikes, setPostedLikes] = useState('');
   const [postedCustomDate, setPostedCustomDate] = useState(new Date().toISOString().slice(0, 10));
   const [postedMetaLoading, setPostedMetaLoading] = useState(false);
@@ -367,17 +365,12 @@ export default function BatchflowBatches() {
       const res = await fetchVideoMetadata(cleaned, {
         metaAppId: settings.meta_app_id,
         metaClientToken: settings.meta_client_token,
-        metaUserToken: settings.meta_user_token,
-        metaIgUserId: settings.meta_ig_user_id,
         clientHandle: currentClient?.instagram_id || undefined,
       });
       setPostedMetaResult(res);
 
       if (res.postedDate) {
         setPostedCustomDate(res.postedDate);
-      }
-      if (res.viewsCount) {
-        setPostedViews(String(res.viewsCount).replace(/views?/i, '').trim());
       }
       if (res.likesCount) {
         setPostedLikes(String(res.likesCount).replace(/likes?/i, '').trim());
@@ -406,18 +399,12 @@ export default function BatchflowBatches() {
       const res = await fetchVideoMetadata(cleaned, {
         metaAppId: settings.meta_app_id,
         metaClientToken: settings.meta_client_token,
-        metaUserToken: settings.meta_user_token,
-        metaIgUserId: settings.meta_ig_user_id,
         clientHandle: currentClient?.instagram_id || undefined,
       });
       setEditingMetaResult(res);
 
       if (res.postedDate) {
         setEditingVideo(prev => prev ? { ...prev, posted_date: res.postedDate || undefined } : null);
-      }
-      if (res.viewsCount) {
-        const cleanV = String(res.viewsCount).replace(/views?/i, '').trim();
-        setEditingVideo(prev => prev ? { ...prev, views: cleanV } : null);
       }
       if (res.likesCount) {
         const cleanL = String(res.likesCount).replace(/likes?/i, '').trim();
@@ -555,10 +542,9 @@ export default function BatchflowBatches() {
     const curIdx = order.indexOf(v.status);
     const nextStatus = order[(curIdx + 1) % order.length];
     if (nextStatus === 'Posted') {
-      const extracted = extractViewsAndLikes(v);
+      const extracted = extractVideoLikes(v);
       setPostedTargetVideo(v);
       setPostedVideoUrl(v.video_url || '');
-      setPostedViews(extracted.views || '');
       setPostedLikes(extracted.likes || '');
       setPostedCustomDate(v.posted_date ? v.posted_date.slice(0, 10) : new Date().toISOString().slice(0, 10));
       setPostedMetaResult(null);
@@ -573,23 +559,20 @@ export default function BatchflowBatches() {
     if (!postedTargetVideo) return;
     const urlToSave = skip ? null : (postedVideoUrl.trim() ? cleanVideoUrl(postedVideoUrl.trim()) : null);
     const dateToSave = postedCustomDate.trim() || new Date().toISOString().slice(0, 10);
-    const viewsToSave = skip ? null : (postedViews.trim() || postedMetaResult?.viewsCount || null);
     const likesToSave = skip ? null : (postedLikes.trim() || postedMetaResult?.likesCount || null);
 
     if (postedTargetVideo.status !== 'Posted') {
-      await updateBatchflowVideoStatus(postedTargetVideo.id, 'Posted', urlToSave, dateToSave, viewsToSave, likesToSave);
+      await updateBatchflowVideoStatus(postedTargetVideo.id, 'Posted', urlToSave, dateToSave, null, likesToSave);
     } else {
       await updateBatchflowVideo(postedTargetVideo.id, {
         video_url: skip ? null : urlToSave,
         posted_date: dateToSave.includes('T') ? dateToSave : `${dateToSave}T12:00:00.000Z`,
-        views: viewsToSave,
         likes: likesToSave,
       });
     }
     setPostedLinkDialogOpen(false);
     setPostedTargetVideo(null);
     setPostedVideoUrl('');
-    setPostedViews('');
     setPostedLikes('');
     setPostedMetaResult(null);
   };
@@ -598,7 +581,6 @@ export default function BatchflowBatches() {
     setPostedLinkDialogOpen(false);
     setPostedTargetVideo(null);
     setPostedVideoUrl('');
-    setPostedViews('');
     setPostedLikes('');
     setPostedMetaResult(null);
   };
@@ -735,7 +717,6 @@ export default function BatchflowBatches() {
     client: typeof activeClients[0] | undefined,
     videos: BatchflowVideo[],
     isFirstPage = true,
-    viewsMap?: Map<string, string>,
     likesMap?: Map<string, string>
   ) => {
     const pageWidth = 210;
@@ -942,9 +923,8 @@ export default function BatchflowBatches() {
       doc.setFontSize(7.5);
       doc.setTextColor(241, 245, 249); // #F1F5F9
       doc.text('SL NO.', margin + 3, yPos + 5.5);
-      doc.text('VIDEO TITLE', margin + 15, yPos + 5.5);
-      doc.text('VIEWS', margin + 80, yPos + 5.5);
-      doc.text('LIKES', margin + 101, yPos + 5.5);
+      doc.text('VIDEO TITLE', margin + 16, yPos + 5.5);
+      doc.text('LIKES', margin + 98, yPos + 5.5);
       doc.text('SCRIPT NO.', margin + 118, yPos + 5.5);
       doc.text('STATUS', margin + 144, yPos + 5.5, { align: 'center' });
       doc.text('PIPELINE DATE', margin + 158, yPos + 5.5);
@@ -985,29 +965,15 @@ export default function BatchflowBatches() {
       doc.setFontSize(8);
       doc.setTextColor(15, 23, 42);
       const title = v.name || `Video #${v.script_number ?? index + 1}`;
-      const truncatedTitle = doc.splitTextToSize(title, 60)[0];
-      doc.text(truncatedTitle, margin + 15, curY + 6.0);
+      const truncatedTitle = doc.splitTextToSize(title, 75)[0];
+      doc.text(truncatedTitle, margin + 16, curY + 6.0);
       if (v.video_url) {
-        doc.link(margin + 15, curY + 1.5, 60, 6.5, { url: v.video_url });
+        doc.link(margin + 16, curY + 1.5, 75, 6.5, { url: v.video_url });
       }
 
-      const vExtracted = extractViewsAndLikes(v);
+      const vExtracted = extractVideoLikes(v);
 
-      // Col 3: Views
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8);
-      const vViews = (viewsMap?.get(v.id) && viewsMap.get(v.id)?.trim() !== '')
-        ? viewsMap.get(v.id)!.trim()
-        : vExtracted.views;
-      if (vViews) {
-        doc.setTextColor(15, 23, 42);
-        doc.text(vViews, margin + 80, curY + 6.0);
-      } else {
-        doc.setTextColor(148, 163, 184);
-        doc.text('-', margin + 80, curY + 6.0);
-      }
-
-      // Col 4: Likes (Soft red number only)
+      // Col 3: Likes (Soft red number only)
       const vLikes = (likesMap?.get(v.id) && likesMap.get(v.id)?.trim() !== '')
         ? likesMap.get(v.id)!.trim()
         : vExtracted.likes;
@@ -1015,21 +981,21 @@ export default function BatchflowBatches() {
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(8);
         doc.setTextColor(239, 68, 68); // Soft red (#EF4444)
-        doc.text(vLikes, margin + 101, curY + 6.0);
+        doc.text(vLikes, margin + 98, curY + 6.0);
       } else {
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(8);
         doc.setTextColor(148, 163, 184);
-        doc.text('-', margin + 101, curY + 6.0);
+        doc.text('-', margin + 98, curY + 6.0);
       }
 
-      // Col 5: SCRIPT NO.
+      // Col 4: SCRIPT NO.
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8);
       doc.setTextColor(71, 85, 105);
       doc.text(v.script_number === 0 ? '-' : String(v.script_number ?? '-'), margin + 118, curY + 6.0);
 
-      // Col 6: Status Pill (Clickable if video_url exists)
+      // Col 5: Status Pill (Clickable if video_url exists)
       const pillX = margin + 134;
       const pillY = curY + 2.0;
       const pillW = 20;
@@ -1064,7 +1030,7 @@ export default function BatchflowBatches() {
         doc.text('PENDING', pillX + pillW / 2, pillY + 3.8, { align: 'center' });
       }
 
-      // Col 7: Date / Details
+      // Col 6: Date / Details
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
       doc.setTextColor(100, 116, 139);
@@ -1078,20 +1044,15 @@ export default function BatchflowBatches() {
   };
 
   const syncVideosMetadata = async (videosToSync: BatchflowVideo[]): Promise<{
-    viewsMap: Map<string, string>;
     likesMap: Map<string, string>;
     updatedCount: number;
   }> => {
-    const viewsMap = new Map<string, string>();
     const likesMap = new Map<string, string>();
     let updatedCount = 0;
 
     await Promise.all(
       videosToSync.map(async (v) => {
-        const { views: existingViews, likes: existingLikes } = extractViewsAndLikes(v);
-        if (existingViews) {
-          viewsMap.set(v.id, existingViews);
-        }
+        const { likes: existingLikes } = extractVideoLikes(v);
         if (existingLikes) {
           likesMap.set(v.id, existingLikes);
         }
@@ -1101,8 +1062,6 @@ export default function BatchflowBatches() {
             const metaPromise = fetchVideoMetadata(v.video_url, {
               metaAppId: settings.meta_app_id,
               metaClientToken: settings.meta_client_token,
-              metaUserToken: settings.meta_user_token,
-              metaIgUserId: settings.meta_ig_user_id,
               clientHandle: currentClient?.instagram_id || undefined,
             });
             const meta = await Promise.race([
@@ -1122,18 +1081,7 @@ export default function BatchflowBatches() {
                 }
               }
 
-              // 2. Views update: if provider provides views (e.g. YouTube), update; otherwise preserve manual views
-              if (meta.viewsCount) {
-                const cleanV = String(meta.viewsCount).replace(/views?/i, '').trim();
-                viewsMap.set(v.id, cleanV);
-                if (cleanV !== existingViews) {
-                  updates.views = cleanV;
-                }
-              } else if (existingViews) {
-                viewsMap.set(v.id, existingViews);
-              }
-
-              // 3. Posted date: auto-fill from post if not set
+              // 2. Posted date: auto-fill from post if not set
               if (meta.postedDate && !v.posted_date) {
                 updates.posted_date = meta.postedDate.includes('T') ? meta.postedDate : `${meta.postedDate}T12:00:00.000Z`;
               }
@@ -1150,7 +1098,7 @@ export default function BatchflowBatches() {
       })
     );
 
-    return { viewsMap, likesMap, updatedCount };
+    return { likesMap, updatedCount };
   };
 
   const handleSyncBatchLinks = async () => {
@@ -1182,7 +1130,7 @@ export default function BatchflowBatches() {
 
     try {
       // 1. Automatically refresh live stats from links before rendering PDF
-      const { viewsMap, likesMap } = await syncVideosMetadata(currentBatchVideos);
+      const { likesMap } = await syncVideosMetadata(currentBatchVideos);
 
       const doc = new jsPDF({
         orientation: 'portrait',
@@ -1190,7 +1138,7 @@ export default function BatchflowBatches() {
         format: 'a4',
       });
 
-      renderBatchReport(doc, selectedBatch, selectedClient, currentBatchVideos, true, viewsMap, likesMap);
+      renderBatchReport(doc, selectedBatch, selectedClient, currentBatchVideos, true, likesMap);
 
       const margin = 14;
       const pageWidth = 210;
@@ -1224,7 +1172,7 @@ export default function BatchflowBatches() {
     try {
       // 1. Automatically refresh live stats from links across all active batches before rendering PDF
       const allActiveVideos = batchflowVideos.filter(v => activeBatches.some(b => b.id === v.batch_id));
-      const { viewsMap, likesMap } = await syncVideosMetadata(allActiveVideos);
+      const { likesMap } = await syncVideosMetadata(allActiveVideos);
 
       const doc = new jsPDF({
         orientation: 'portrait',
@@ -1235,7 +1183,7 @@ export default function BatchflowBatches() {
       activeBatches.forEach((b, idx) => {
         const client = activeClients.find(c => c.id === b.client_id);
         const bVids = batchflowVideos.filter(v => v.batch_id === b.id);
-        renderBatchReport(doc, b, client, bVids, idx === 0, viewsMap, likesMap);
+        renderBatchReport(doc, b, client, bVids, idx === 0, likesMap);
       });
 
       const margin = 14;
@@ -1553,7 +1501,7 @@ export default function BatchflowBatches() {
 
                 {/* Action Buttons: Minimal & Modern */}
                 <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', alignItems: 'center' }} onDoubleClick={(e) => e.stopPropagation()}>
-                  <Tooltip title="Auto-sync live likes and views from video URLs">
+                  <Tooltip title="Auto-sync live likes from video URLs">
                     <span>
                       <Button
                         size="small"
@@ -2026,7 +1974,6 @@ export default function BatchflowBatches() {
                           video_url: v.video_url || '',
                           posted_date: v.posted_date ? v.posted_date.slice(0, 10) : '',
                           status: v.status,
-                          views: v.views || null,
                           likes: v.likes || null,
                         });
                         setEditingMetaResult(null);
@@ -2199,7 +2146,6 @@ export default function BatchflowBatches() {
                                 video_url: v.video_url || '',
                                 posted_date: v.posted_date ? v.posted_date.slice(0, 10) : '',
                                 status: v.status,
-                                views: v.views || null,
                                 likes: v.likes || null,
                               });
                               setEditingMetaResult(null);
@@ -2580,22 +2526,13 @@ script 2
                   {editingMetaResult.error || 'No date found for this URL.'}
                 </Typography>
               )}
-              {(editingMetaResult.likesCount || editingMetaResult.viewsCount) && (
+              {editingMetaResult.likesCount && (
                 <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
-                  {editingMetaResult.likesCount && (
-                    <Chip
-                      label={`${editingMetaResult.likesCount} Likes`}
-                      size="small"
-                      sx={{ height: 20, fontSize: '0.68rem', fontWeight: 700, color: '#EF4444', bgcolor: 'rgba(239, 68, 68, 0.1)' }}
-                    />
-                  )}
-                  {editingMetaResult.viewsCount && (
-                    <Chip
-                      label={`${editingMetaResult.viewsCount} Views`}
-                      size="small"
-                      sx={{ height: 20, fontSize: '0.68rem', fontWeight: 700, color: '#3B82F6', bgcolor: 'rgba(59, 130, 246, 0.1)' }}
-                    />
-                  )}
+                  <Chip
+                    label={`${editingMetaResult.likesCount} Likes`}
+                    size="small"
+                    sx={{ height: 20, fontSize: '0.68rem', fontWeight: 700, color: '#EF4444', bgcolor: 'rgba(239, 68, 68, 0.1)' }}
+                  />
                 </Box>
               )}
             </Box>
@@ -2631,7 +2568,6 @@ script 2
                   script_number: scriptNum,
                   description: editingVideo.description?.trim() || null,
                   video_url: clean,
-                  views: editingVideo.views != null && String(editingVideo.views).trim() !== '' ? String(editingVideo.views).trim() : null,
                   likes: editingVideo.likes != null && String(editingVideo.likes).trim() !== '' ? String(editingVideo.likes).trim() : null,
                   ...(dateVal ? { posted_date: dateVal } : {}),
                 });
@@ -2855,22 +2791,13 @@ script 2
                     {postedMetaResult.error || 'Could not auto-extract publication date. Please pick a date below.'}
                   </Typography>
                 )}
-                {(postedMetaResult.likesCount || postedMetaResult.viewsCount) && (
+                {postedMetaResult.likesCount && (
                   <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', mt: 0.5 }}>
-                    {postedMetaResult.likesCount && (
-                      <Chip
-                        label={`${postedMetaResult.likesCount} Likes`}
-                        size="small"
-                        sx={{ height: 20, fontSize: '0.68rem', fontWeight: 700, color: '#EF4444', bgcolor: 'rgba(239, 68, 68, 0.1)' }}
-                      />
-                    )}
-                    {postedMetaResult.viewsCount && (
-                      <Chip
-                        label={`${postedMetaResult.viewsCount} Views`}
-                        size="small"
-                        sx={{ height: 20, fontSize: '0.68rem', fontWeight: 700, color: '#3B82F6', bgcolor: 'rgba(59, 130, 246, 0.1)' }}
-                      />
-                    )}
+                    <Chip
+                      label={`${postedMetaResult.likesCount} Likes`}
+                      size="small"
+                      sx={{ height: 20, fontSize: '0.68rem', fontWeight: 700, color: '#EF4444', bgcolor: 'rgba(239, 68, 68, 0.1)' }}
+                    />
                   </Box>
                 )}
               </Box>
@@ -2978,9 +2905,10 @@ script 2
             onClick={() => {
               if (contextMenu?.video) {
                 const v = contextMenu.video;
+                const extracted = extractVideoLikes(v);
                 setPostedTargetVideo(v);
                 setPostedVideoUrl(v.video_url || '');
-                setPostedViews(v.views ? String(v.views) : '');
+                setPostedLikes(extracted.likes || '');
                 setPostedCustomDate(v.posted_date ? v.posted_date.slice(0, 10) : new Date().toISOString().slice(0, 10));
                 setPostedMetaResult(null);
                 setPostedMetaLoading(false);
@@ -3010,7 +2938,6 @@ script 2
                   video_url: v.video_url || '',
                   posted_date: v.posted_date ? v.posted_date.slice(0, 10) : '',
                   status: v.status,
-                  views: v.views || null,
                   likes: v.likes || null,
                 });
                 setEditingMetaResult(null);

@@ -895,18 +895,17 @@ export async function fetchClientRecentInstagramPosts(
 }
 
 /**
- * Cleanly separates views and likes from video record, fixing cases where like count was stored in views.
+ * Cleanly extracts formatted likes count from video record, fixing cases where like count was stored in views.
  */
-export function extractViewsAndLikes(video: { views?: string | number | null; likes?: string | number | null }) {
+export function extractVideoLikes(video: { views?: string | number | null; likes?: string | number | null }) {
   let rawViews = video.views != null ? String(video.views).trim() : '';
   let rawLikes = video.likes != null ? String(video.likes).trim() : '';
 
-  // If views was previously stored as "105 likes" or similar
+  // If likes was previously mistakenly stored in views (e.g. "105 likes")
   if (rawViews.toLowerCase().includes('like')) {
     if (!rawLikes) {
       rawLikes = rawViews.replace(/likes?/i, '').trim();
     }
-    rawViews = '';
   }
 
   // Clean likes to only be the number string (strip "likes", "like")
@@ -914,13 +913,10 @@ export function extractViewsAndLikes(video: { views?: string | number | null; li
     rawLikes = formatMetricCount(rawLikes.replace(/likes?/i, '').trim()) || '';
   }
 
-  // Clean views to strip "views", "view"
-  if (rawViews) {
-    rawViews = formatMetricCount(rawViews.replace(/views?/i, '').trim()) || '';
-  }
-
   return {
-    views: rawViews || null,
+    views: null,
     likes: rawLikes || null,
   };
 }
+
+export const extractViewsAndLikes = extractVideoLikes;

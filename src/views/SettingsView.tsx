@@ -4,7 +4,6 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions, TextField,
   Avatar, IconButton, Alert, List, ListItem,
   ListItemAvatar, ListItemText, Chip, Snackbar, ButtonBase,
-  CircularProgress, Tooltip,
 } from '@mui/material';
 import InstagramIcon from '@mui/icons-material/Instagram';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
@@ -23,11 +22,6 @@ import LightModeRoundedIcon from '@mui/icons-material/LightModeRounded';
 import WbSunnyRoundedIcon from '@mui/icons-material/WbSunnyRounded';
 import AirRoundedIcon from '@mui/icons-material/AirRounded';
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
-import FavoriteRoundedIcon from '@mui/icons-material/FavoriteRounded';
-import ChatBubbleOutlineRoundedIcon from '@mui/icons-material/ChatBubbleOutlineRounded';
-import CalendarTodayRoundedIcon from '@mui/icons-material/CalendarTodayRounded';
-import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
-import PlayCircleOutlineRoundedIcon from '@mui/icons-material/PlayCircleOutlineRounded';
 import StorageRoundedIcon from '@mui/icons-material/StorageRounded';
 import DataObjectRoundedIcon from '@mui/icons-material/DataObjectRounded';
 import MovieCreationRoundedIcon from '@mui/icons-material/MovieCreationRounded';
@@ -35,8 +29,6 @@ import WorkOutlineRoundedIcon from '@mui/icons-material/WorkOutlineRounded';
 import { useApp } from '../contexts/AppContext';
 import { useAuth } from '../contexts/AuthContext';
 import { storage } from '../lib/storage';
-import { fetchVideoMetadata, openInstagramReelsPopup, resolveInstagramBusinessAccountId, type VideoMetadataResult } from '../lib/videoMetadata';
-import InstagramRecentPostsDialog from '../components/InstagramRecentPostsDialog';
 import type { WorkspaceType, ThemeStyle } from '../types';
 
 const WS_COLORS = ['#818CF8', '#34D399', '#F59E0B', '#F87171', '#A78BFA', '#60A5FA', '#FB7185', '#4ADE80'];
@@ -234,98 +226,23 @@ export default function SettingsView() {
   // Meta / Instagram oEmbed API settings
   const [metaAppId, setMetaAppId] = useState(settings.meta_app_id || '');
   const [metaClientToken, setMetaClientToken] = useState(settings.meta_client_token || '');
-  const [metaTestUrl, setMetaTestUrl] = useState('');
-  const [metaTesting, setMetaTesting] = useState(false);
-  const [metaTestResult, setMetaTestResult] = useState<VideoMetadataResult | null>(null);
-  const [metaTestHandle, setMetaTestHandle] = useState('leoholidays.in');
-  const [metaTestHandleOpen, setMetaTestHandleOpen] = useState(false);
-
-  const [metaUserToken, setMetaUserToken] = useState(settings.meta_user_token || '');
-  const [metaIgUserId, setMetaIgUserId] = useState(settings.meta_ig_user_id || '');
 
   useEffect(() => {
     if (settings.meta_app_id !== undefined) setMetaAppId(settings.meta_app_id || '');
     if (settings.meta_client_token !== undefined) setMetaClientToken(settings.meta_client_token || '');
-    if (settings.meta_user_token !== undefined) setMetaUserToken(settings.meta_user_token || '');
-    if (settings.meta_ig_user_id !== undefined) setMetaIgUserId(settings.meta_ig_user_id || '');
-  }, [settings.meta_app_id, settings.meta_client_token, settings.meta_user_token, settings.meta_ig_user_id]);
+  }, [settings.meta_app_id, settings.meta_client_token]);
 
   const handleSaveMetaCredentials = () => {
     updateSettings({
       meta_app_id: metaAppId.trim(),
       meta_client_token: metaClientToken.trim(),
-      meta_user_token: metaUserToken.trim(),
-      meta_ig_user_id: metaIgUserId.trim(),
     });
     if (metaAppId.trim() && metaClientToken.trim()) {
       localStorage.setItem('trackrr_meta_access_token', `${metaAppId.trim()}|${metaClientToken.trim()}`);
     } else {
       localStorage.removeItem('trackrr_meta_access_token');
     }
-    if (metaUserToken.trim()) {
-      localStorage.setItem('trackrr_meta_user_token', metaUserToken.trim());
-    } else {
-      localStorage.removeItem('trackrr_meta_user_token');
-    }
-    if (metaIgUserId.trim()) {
-      localStorage.setItem('trackrr_meta_ig_user_id', metaIgUserId.trim());
-    } else {
-      localStorage.removeItem('trackrr_meta_ig_user_id');
-    }
     setToastMessage('Meta / Instagram API credentials saved successfully!');
-  };
-
-  const [detectingIgId, setDetectingIgId] = useState(false);
-
-  const handleAutoDetectIgId = async () => {
-    if (!metaUserToken.trim()) {
-      setToastMessage('Please paste your Graph API User Token first.');
-      return;
-    }
-    setDetectingIgId(true);
-    try {
-      const res = await resolveInstagramBusinessAccountId(metaUserToken.trim());
-      if (res?.id) {
-        setMetaIgUserId(res.id);
-        updateSettings({ meta_ig_user_id: res.id });
-        localStorage.setItem('trackrr_meta_ig_user_id', res.id);
-        setToastMessage(`Found Instagram Account: @${res.username || 'Account'} (${res.id})`);
-      } else {
-        setToastMessage('No linked Instagram Business/Creator Account found. See instructions below.');
-      }
-    } catch {
-      setToastMessage('Error detecting Instagram Account ID.');
-    } finally {
-      setDetectingIgId(false);
-    }
-  };
-
-  const handleTestMetaApi = async () => {
-    if (!metaTestUrl.trim()) return;
-    setMetaTesting(true);
-    setMetaTestResult(null);
-    try {
-      const res = await fetchVideoMetadata(metaTestUrl.trim(), {
-        metaAppId: metaAppId.trim() || undefined,
-        metaClientToken: metaClientToken.trim() || undefined,
-        metaUserToken: metaUserToken.trim() || undefined,
-        metaIgUserId: metaIgUserId.trim() || undefined,
-        clientHandle: metaTestHandle.trim() || undefined,
-      });
-      setMetaTestResult(res);
-      const storedId = localStorage.getItem('trackrr_meta_ig_user_id');
-      if (storedId && !metaIgUserId) {
-        setMetaIgUserId(storedId);
-        updateSettings({ meta_ig_user_id: storedId });
-      }
-    } catch (err: any) {
-      setMetaTestResult({
-        provider: 'other',
-        error: err?.message || 'Error testing video metadata.',
-      });
-    } finally {
-      setMetaTesting(false);
-    }
   };
 
   const isBatchflow = activeWorkspace?.type === 'batchflow';
@@ -919,49 +836,6 @@ export default function SettingsView() {
               />
             </Box>
 
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1.8fr 1.2fr' }, gap: 2 }}>
-              <TextField
-                label="Graph API User Token (Unlocks Live Reels Views & Sync)"
-                size="small"
-                fullWidth
-                placeholder="EAAG... (from Graph API Explorer)"
-                value={metaUserToken}
-                onChange={e => setMetaUserToken(e.target.value)}
-                helperText="Required to pull live public views (e.g. 25.8K views) via Meta Business Discovery"
-              />
-              <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
-                <TextField
-                  label="Instagram Account ID"
-                  size="small"
-                  fullWidth
-                  placeholder="e.g. 178414..."
-                  value={metaIgUserId}
-                  onChange={e => setMetaIgUserId(e.target.value)}
-                  helperText="Your IG Creator/Business ID"
-                />
-                <Button
-                  variant="outlined"
-                  onClick={handleAutoDetectIgId}
-                  disabled={detectingIgId || !metaUserToken.trim()}
-                  sx={{ textTransform: 'none', fontWeight: 700, whiteSpace: 'nowrap', minWidth: 105, height: 40 }}
-                >
-                  {detectingIgId ? <CircularProgress size={16} /> : 'Auto-Detect'}
-                </Button>
-              </Box>
-            </Box>
-
-            <Box sx={{ p: 1.5, borderRadius: 1.5, bgcolor: 'rgba(56, 189, 248, 0.05)', border: '1px dashed rgba(56, 189, 248, 0.25)' }}>
-              <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '0.74rem', lineHeight: 1.5 }}>
-                🔑 <strong>How Instagram Business Discovery pulls view counts:</strong>
-                <br />
-                • Meta requires an <strong>Instagram Creator or Business Account ID</strong> (starts with <code>1784...</code>) to discover public client reels.
-                <br />
-                • Paste your User Token above and click <strong>Auto-Detect</strong> to automatically find your ID.
-                <br />
-                • <em>Don't have a linked account yet?</em> In the Instagram mobile app: go to <strong>Settings → Account type → Switch to Professional Account</strong> (free), then connect it to your Facebook profile or Page.
-              </Typography>
-            </Box>
-
             <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
               <Button
                 variant="contained"
@@ -976,19 +850,15 @@ export default function SettingsView() {
               >
                 Save Meta Credentials
               </Button>
-              {(metaAppId || metaClientToken || metaUserToken || metaIgUserId) && (
+              {(metaAppId || metaClientToken) && (
                 <Button
                   variant="outlined"
                   color="inherit"
                   onClick={() => {
                     setMetaAppId('');
                     setMetaClientToken('');
-                    setMetaUserToken('');
-                    setMetaIgUserId('');
-                    updateSettings({ meta_app_id: '', meta_client_token: '', meta_user_token: '', meta_ig_user_id: '' });
+                    updateSettings({ meta_app_id: '', meta_client_token: '' });
                     localStorage.removeItem('trackrr_meta_access_token');
-                    localStorage.removeItem('trackrr_meta_user_token');
-                    localStorage.removeItem('trackrr_meta_ig_user_id');
                     setToastMessage('Meta credentials cleared.');
                   }}
                   sx={{ textTransform: 'none', borderColor: 'divider', color: 'text.secondary' }}
@@ -996,301 +866,6 @@ export default function SettingsView() {
                   Clear Credentials
                 </Button>
               )}
-            </Box>
-          </Box>
-
-          {/* Test Link Fetch Section */}
-          <Box sx={{ p: 2, bgcolor: 'action.hover', borderRadius: 2, border: '1px solid', borderColor: 'divider', mb: 2 }}>
-            <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.5 }}>
-              Test URL Metadata Extraction
-            </Typography>
-            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1.5 }}>
-              Paste an Instagram post or Reel link below to verify date extraction.
-            </Typography>
-            <Box sx={{ display: 'flex', gap: 1.5, flexWrap: { xs: 'wrap', sm: 'nowrap' }, alignItems: 'flex-start' }}>
-              <TextField
-                size="small"
-                fullWidth
-                placeholder="https://www.instagram.com/reel/... or https://youtube.com/..."
-                value={metaTestUrl}
-                onChange={e => setMetaTestUrl(e.target.value)}
-              />
-              <TextField
-                size="small"
-                placeholder="Handle (e.g. leoholidays.in)"
-                value={metaTestHandle}
-                onChange={e => setMetaTestHandle(e.target.value)}
-                sx={{ minWidth: { xs: '100%', sm: 190 } }}
-                helperText="Creator handle (optional)"
-              />
-              <Button
-                variant="outlined"
-                onClick={handleTestMetaApi}
-                disabled={metaTesting || !metaTestUrl.trim()}
-                sx={{ textTransform: 'none', fontWeight: 700, whiteSpace: 'nowrap', minWidth: 110, height: 40 }}
-              >
-                {metaTesting ? <CircularProgress size={18} /> : 'Test Fetch'}
-              </Button>
-            </Box>
-
-            {metaTestResult && (
-              <Box sx={{ mt: 2, p: 2, borderRadius: 2, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
-                {!metaTestResult.error || metaTestResult.postedDate || metaTestResult.caption ? (
-                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-                    {/* Header bar with status badge */}
-                    <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1 }}>
-                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                        <CheckCircleRoundedIcon sx={{ color: '#10B981', fontSize: 20 }} />
-                        <Typography variant="subtitle2" sx={{ fontWeight: 800, color: '#10B981' }}>
-                          Video Metadata Extracted Successfully
-                        </Typography>
-                      </Box>
-                      <Chip
-                        label={metaTestResult.usedOfficialMetaApi ? 'Official Meta oEmbed API' : 'Fallback Public Resolver'}
-                        size="small"
-                        color={metaTestResult.usedOfficialMetaApi ? 'success' : 'default'}
-                        sx={{ height: 22, fontSize: '0.68rem', fontWeight: 700 }}
-                      />
-                    </Box>
-
-                    {/* Main content: Thumbnail + Key Metrics */}
-                    <Box sx={{ display: 'flex', gap: 2, flexDirection: { xs: 'column', sm: 'row' } }}>
-                      {/* 1. Video Thumbnail Image */}
-                      {metaTestResult.thumbnailUrl ? (
-                        <Box sx={{ flexShrink: 0, textAlign: 'center' }}>
-                          <Box
-                            component="img"
-                            src={metaTestResult.thumbnailUrl}
-                            alt="Video Thumbnail"
-                            sx={{
-                              width: { xs: '100%', sm: 120 },
-                              maxHeight: 160,
-                              objectFit: 'cover',
-                              borderRadius: 2,
-                              border: '1px solid rgba(255,255,255,0.12)',
-                              boxShadow: '0 4px 16px rgba(0,0,0,0.3)',
-                              display: 'block',
-                            }}
-                          />
-                          <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.65rem', mt: 0.5, display: 'block' }}>
-                            Cover Preview
-                          </Typography>
-                        </Box>
-                      ) : null}
-
-                      {/* Right Details Column */}
-                      <Box sx={{ flex: 1, display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-                        {/* 2. Publication Date & Creator Handle */}
-                        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
-                          {metaTestResult.postedDate && (
-                            <Chip
-                              icon={<CalendarTodayRoundedIcon sx={{ fontSize: '15px !important', color: '#10B981 !important' }} />}
-                              label={`Posted Date: ${metaTestResult.postedDate}`}
-                              size="small"
-                              sx={{
-                                fontWeight: 800,
-                                bgcolor: 'rgba(16, 185, 129, 0.12)',
-                                color: '#10B981',
-                                border: '1px solid rgba(16, 185, 129, 0.3)',
-                              }}
-                            />
-                          )}
-
-                          {(metaTestResult.creatorHandle || metaTestResult.author) && (
-                            <Chip
-                              icon={<PersonRoundedIcon sx={{ fontSize: '15px !important', color: '#38BDF8 !important' }} />}
-                              label={`Creator: @${metaTestResult.creatorHandle || metaTestResult.author}`}
-                              size="small"
-                              sx={{
-                                fontWeight: 800,
-                                bgcolor: 'rgba(56, 189, 248, 0.12)',
-                                color: '#38BDF8',
-                                border: '1px solid rgba(56, 189, 248, 0.3)',
-                              }}
-                            />
-                          )}
-                        </Box>
-
-                        {/* 3. Views Count, Likes Count & Comments Count */}
-                        <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                          <Tooltip
-                            arrow
-                            title={
-                              metaTestResult.viewsCount
-                                ? `${metaTestResult.viewsCount} plays extracted from Instagram.`
-                                : metaTestResult.viewsStatus === 'hidden_by_creator' || metaTestResult.usedOfficialMetaApi
-                                ? 'Views or insights are hidden or disabled by the creator on Instagram.'
-                                : 'Instagram hides views on open web scrapers. To auto-sync live views, enter your Meta Graph API User Token above.'
-                            }
-                          >
-                            <Chip
-                              icon={
-                                <PlayCircleOutlineRoundedIcon
-                                  sx={{
-                                    fontSize: '14px !important',
-                                    color: metaTestResult.viewsCount ? '#38BDF8 !important' : 'inherit !important',
-                                  }}
-                                />
-                              }
-                              label={
-                                metaTestResult.viewsCount
-                                  ? `${metaTestResult.viewsCount} Views`
-                                  : metaTestResult.viewsStatus === 'hidden_by_creator' || metaTestResult.usedOfficialMetaApi
-                                  ? 'Views hidden by creator'
-                                  : 'Views: User Token Required'
-                              }
-                              size="small"
-                              sx={{
-                                fontWeight: 700,
-                                fontSize: '0.75rem',
-                                bgcolor: metaTestResult.viewsCount ? 'rgba(56, 189, 248, 0.12)' : 'rgba(255, 255, 255, 0.05)',
-                                color: metaTestResult.viewsCount ? '#38BDF8' : 'text.secondary',
-                                border: `1px solid ${metaTestResult.viewsCount ? 'rgba(56, 189, 248, 0.3)' : 'rgba(255, 255, 255, 0.12)'}`,
-                              }}
-                            />
-                          </Tooltip>
-
-                          <Chip
-                            icon={<FavoriteRoundedIcon sx={{ fontSize: '14px !important', color: '#F43F5E !important' }} />}
-                            label={metaTestResult.likesCount ? `${metaTestResult.likesCount} Likes` : 'Likes not public'}
-                            size="small"
-                            sx={{
-                              fontWeight: 700,
-                              fontSize: '0.75rem',
-                              bgcolor: 'rgba(244, 63, 94, 0.1)',
-                              color: '#F43F5E',
-                              border: '1px solid rgba(244, 63, 94, 0.25)',
-                            }}
-                          />
-
-                          <Chip
-                            icon={<ChatBubbleOutlineRoundedIcon sx={{ fontSize: '14px !important', color: '#FBBF24 !important' }} />}
-                            label={metaTestResult.commentsCount !== null && metaTestResult.commentsCount !== undefined ? `${metaTestResult.commentsCount} Comments` : 'Comments N/A'}
-                            size="small"
-                            sx={{
-                              fontWeight: 700,
-                              fontSize: '0.75rem',
-                              bgcolor: 'rgba(251, 191, 36, 0.1)',
-                              color: '#FBBF24',
-                              border: '1px solid rgba(251, 191, 36, 0.25)',
-                            }}
-                          />
-                        </Box>
-
-                        {metaTestResult.metaApiError && (
-                          <Alert severity="warning" sx={{ py: 0.5, px: 1.5, fontSize: '0.74rem' }}>
-                            <strong>Meta API Notice:</strong> {metaTestResult.metaApiError}
-                          </Alert>
-                        )}
-
-                        {/* Informative notice if views are missing in public fallback mode */}
-                        {!metaTestResult.viewsCount && !metaTestResult.usedOfficialMetaApi && (
-                          <Box sx={{ p: 1.25, borderRadius: 1.5, bgcolor: 'rgba(56, 189, 248, 0.06)', border: '1px solid rgba(56, 189, 248, 0.18)' }}>
-                            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '0.73rem', lineHeight: 1.5 }}>
-                              💡 <strong>Why are views unavailable in Public Scraper mode?</strong>
-                              <br />
-                              Instagram's public embed tags only expose Likes & Comments. If this reel has public views on Instagram, enter your <strong>Graph API User Token</strong> above to connect to Meta's Business Discovery API and auto-pull live view counts!
-                            </Typography>
-                          </Box>
-                        )}
-
-                        {/* 5. Full Caption Text */}
-                        {(metaTestResult.caption || metaTestResult.title) && (
-                          <Box sx={{ mt: 0.5 }}>
-                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
-                              <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                                Full Caption Text:
-                              </Typography>
-                              <Button
-                                size="small"
-                                variant="text"
-                                startIcon={<ContentCopyRoundedIcon sx={{ fontSize: 13 }} />}
-                                onClick={() => {
-                                  const textToCopy = metaTestResult.caption || metaTestResult.title || '';
-                                  navigator.clipboard.writeText(textToCopy);
-                                  setToastMessage('Caption copied to clipboard!');
-                                }}
-                                sx={{ textTransform: 'none', fontSize: '0.7rem', py: 0, px: 0.75, minHeight: 22 }}
-                              >
-                                Copy Caption
-                              </Button>
-                            </Box>
-                            <Box
-                              sx={{
-                                p: 1.25,
-                                maxHeight: 130,
-                                overflowY: 'auto',
-                                borderRadius: 1.5,
-                                bgcolor: 'action.hover',
-                                border: '1px solid',
-                                borderColor: 'divider',
-                                '&::-webkit-scrollbar': { width: 4 },
-                                '&::-webkit-scrollbar-thumb': { bgcolor: 'rgba(255,255,255,0.2)', borderRadius: 2 },
-                              }}
-                            >
-                              <Typography variant="body2" sx={{ fontSize: '0.78rem', color: 'text.primary', whiteSpace: 'pre-wrap', lineHeight: 1.45 }}>
-                                {metaTestResult.caption || metaTestResult.title}
-                              </Typography>
-                            </Box>
-                          </Box>
-                        )}
-                      </Box>
-                    </Box>
-                  </Box>
-                ) : (
-                  <Alert severity="warning" sx={{ width: '100%', py: 0.5, fontSize: '0.8rem' }}>
-                    {metaTestResult.error || 'Could not extract metadata from this URL.'}
-                  </Alert>
-                )}
-              </Box>
-            )}
-          </Box>
-
-          {/* Test Client Handle (Last 3 Videos & Option 3 Reels Inspector) */}
-          <Box sx={{ p: 2, bgcolor: 'action.hover', borderRadius: 2, border: '1px solid', borderColor: 'divider', mb: 2 }}>
-            <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.5 }}>
-              Test Client Handle (Last 3 Videos & Live Reels Inspector)
-            </Typography>
-            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1.5 }}>
-              Enter an Instagram handle to test the mini panel (Option 1 Discovery API &amp; Option 3 Live Reels Popout).
-            </Typography>
-            <Box sx={{ display: 'flex', gap: 1.5, flexWrap: { xs: 'wrap', sm: 'nowrap' }, alignItems: 'center' }}>
-              <TextField
-                size="small"
-                fullWidth
-                placeholder="@username (e.g. leoholidays.in)"
-                value={metaTestHandle}
-                onChange={e => setMetaTestHandle(e.target.value)}
-              />
-              <Button
-                variant="contained"
-                onClick={() => setMetaTestHandleOpen(true)}
-                disabled={!metaTestHandle.trim()}
-                sx={{
-                  bgcolor: '#E1306C',
-                  '&:hover': { bgcolor: '#C13584' },
-                  textTransform: 'none',
-                  fontWeight: 700,
-                  whiteSpace: 'nowrap',
-                  minWidth: 150,
-                }}
-              >
-                Open Mini Panel
-              </Button>
-              <Button
-                variant="outlined"
-                onClick={() => openInstagramReelsPopup(metaTestHandle)}
-                disabled={!metaTestHandle.trim()}
-                sx={{
-                  borderColor: 'rgba(225, 48, 108, 0.4)',
-                  color: '#E1306C',
-                  textTransform: 'none',
-                  fontWeight: 700,
-                  whiteSpace: 'nowrap',
-                }}
-              >
-                Popout Reels (Option 3)
-              </Button>
             </Box>
           </Box>
 
@@ -1500,15 +1075,6 @@ export default function SettingsView() {
             </Button>
           </DialogActions>
         </Dialog>
-
-        {/* Instagram Recent Posts Dialog Tester */}
-        {metaTestHandle.trim() && (
-          <InstagramRecentPostsDialog
-            open={metaTestHandleOpen}
-            onClose={() => setMetaTestHandleOpen(false)}
-            handle={metaTestHandle.trim()}
-          />
-        )}
 
         {/* Toast Snackbar for Success Notification */}
         <Snackbar
