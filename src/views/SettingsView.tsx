@@ -4,7 +4,7 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions, TextField,
   Avatar, IconButton, Alert, List, ListItem,
   ListItemAvatar, ListItemText, Chip, Snackbar, ButtonBase,
-  CircularProgress,
+  CircularProgress, Tooltip,
 } from '@mui/material';
 import InstagramIcon from '@mui/icons-material/Instagram';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
@@ -285,6 +285,7 @@ export default function SettingsView() {
         metaClientToken: metaClientToken.trim() || undefined,
         metaUserToken: metaUserToken.trim() || undefined,
         metaIgUserId: metaIgUserId.trim() || undefined,
+        clientHandle: metaTestHandle.trim() || undefined,
       });
       setMetaTestResult(res);
     } catch (err: any) {
@@ -890,13 +891,13 @@ export default function SettingsView() {
 
             <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '2fr 1fr' }, gap: 2 }}>
               <TextField
-                label="Graph API User Token (Optional - for auto-fetching last 3 videos)"
+                label="Graph API User Token (Unlocks Live Reels Views & Sync)"
                 size="small"
                 fullWidth
                 placeholder="EAAG... (from Graph API Explorer)"
                 value={metaUserToken}
                 onChange={e => setMetaUserToken(e.target.value)}
-                helperText="Generated in Graph API Explorer with instagram_basic permission"
+                helperText="Required to pull live public views (e.g. 25.8K views) via Meta Business Discovery"
               />
               <TextField
                 label="Instagram Account ID (Optional)"
@@ -907,6 +908,28 @@ export default function SettingsView() {
                 onChange={e => setMetaIgUserId(e.target.value)}
                 helperText="Your IG Business/Creator Account ID"
               />
+            </Box>
+
+            <Box sx={{ p: 1.5, borderRadius: 1.5, bgcolor: 'rgba(56, 189, 248, 0.05)', border: '1px dashed rgba(56, 189, 248, 0.25)' }}>
+              <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '0.74rem', lineHeight: 1.5 }}>
+                🔑 <strong>How to get your User Token for view counts:</strong>
+                <br />
+                1. Open the{' '}
+                <a
+                  href="https://developers.facebook.com/tools/explorer/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  style={{ color: '#38BDF8', fontWeight: 700, textDecoration: 'underline' }}
+                >
+                  Meta Graph API Explorer ↗
+                </a>
+                <br />
+                2. Select your App from the top dropdown.
+                <br />
+                3. Under permissions, add <code>instagram_basic</code> and <code>pages_show_list</code>.
+                <br />
+                4. Click <strong>Generate Access Token</strong>, copy it, and paste it into the <strong>Graph API User Token</strong> box above!
+              </Typography>
             </Box>
 
             <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
@@ -954,7 +977,7 @@ export default function SettingsView() {
             <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1.5 }}>
               Paste an Instagram post or Reel link below to verify date extraction.
             </Typography>
-            <Box sx={{ display: 'flex', gap: 1.5, flexWrap: { xs: 'wrap', sm: 'nowrap' } }}>
+            <Box sx={{ display: 'flex', gap: 1.5, flexWrap: { xs: 'wrap', sm: 'nowrap' }, alignItems: 'flex-start' }}>
               <TextField
                 size="small"
                 fullWidth
@@ -962,11 +985,19 @@ export default function SettingsView() {
                 value={metaTestUrl}
                 onChange={e => setMetaTestUrl(e.target.value)}
               />
+              <TextField
+                size="small"
+                placeholder="Handle (e.g. leoholidays.in)"
+                value={metaTestHandle}
+                onChange={e => setMetaTestHandle(e.target.value)}
+                sx={{ minWidth: { xs: '100%', sm: 190 } }}
+                helperText="Creator handle (optional)"
+              />
               <Button
                 variant="outlined"
                 onClick={handleTestMetaApi}
                 disabled={metaTesting || !metaTestUrl.trim()}
-                sx={{ textTransform: 'none', fontWeight: 700, whiteSpace: 'nowrap', minWidth: 120 }}
+                sx={{ textTransform: 'none', fontWeight: 700, whiteSpace: 'nowrap', minWidth: 110, height: 40 }}
               >
                 {metaTesting ? <CircularProgress size={18} /> : 'Test Fetch'}
               </Button>
@@ -1052,18 +1083,42 @@ export default function SettingsView() {
 
                         {/* 3. Views Count, Likes Count & Comments Count */}
                         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                          <Chip
-                            icon={<PlayCircleOutlineRoundedIcon sx={{ fontSize: '14px !important', color: '#38BDF8 !important' }} />}
-                            label={metaTestResult.viewsCount ? `${metaTestResult.viewsCount} Views` : 'Views not public'}
-                            size="small"
-                            sx={{
-                              fontWeight: 700,
-                              fontSize: '0.75rem',
-                              bgcolor: 'rgba(56, 189, 248, 0.1)',
-                              color: '#38BDF8',
-                              border: '1px solid rgba(56, 189, 248, 0.25)',
-                            }}
-                          />
+                          <Tooltip
+                            arrow
+                            title={
+                              metaTestResult.viewsCount
+                                ? `${metaTestResult.viewsCount} plays extracted from Instagram.`
+                                : metaTestResult.viewsStatus === 'hidden_by_creator' || metaTestResult.usedOfficialMetaApi
+                                ? 'Views or insights are hidden or disabled by the creator on Instagram.'
+                                : 'Instagram hides views on open web scrapers. To auto-sync live views, enter your Meta Graph API User Token above.'
+                            }
+                          >
+                            <Chip
+                              icon={
+                                <PlayCircleOutlineRoundedIcon
+                                  sx={{
+                                    fontSize: '14px !important',
+                                    color: metaTestResult.viewsCount ? '#38BDF8 !important' : 'inherit !important',
+                                  }}
+                                />
+                              }
+                              label={
+                                metaTestResult.viewsCount
+                                  ? `${metaTestResult.viewsCount} Views`
+                                  : metaTestResult.viewsStatus === 'hidden_by_creator' || metaTestResult.usedOfficialMetaApi
+                                  ? 'Views hidden by creator'
+                                  : 'Views: User Token Required'
+                              }
+                              size="small"
+                              sx={{
+                                fontWeight: 700,
+                                fontSize: '0.75rem',
+                                bgcolor: metaTestResult.viewsCount ? 'rgba(56, 189, 248, 0.12)' : 'rgba(255, 255, 255, 0.05)',
+                                color: metaTestResult.viewsCount ? '#38BDF8' : 'text.secondary',
+                                border: `1px solid ${metaTestResult.viewsCount ? 'rgba(56, 189, 248, 0.3)' : 'rgba(255, 255, 255, 0.12)'}`,
+                              }}
+                            />
+                          </Tooltip>
 
                           <Chip
                             icon={<FavoriteRoundedIcon sx={{ fontSize: '14px !important', color: '#F43F5E !important' }} />}
@@ -1091,6 +1146,17 @@ export default function SettingsView() {
                             }}
                           />
                         </Box>
+
+                        {/* Informative notice if views are missing in public fallback mode */}
+                        {!metaTestResult.viewsCount && !metaTestResult.usedOfficialMetaApi && (
+                          <Box sx={{ p: 1.25, borderRadius: 1.5, bgcolor: 'rgba(56, 189, 248, 0.06)', border: '1px solid rgba(56, 189, 248, 0.18)' }}>
+                            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '0.73rem', lineHeight: 1.5 }}>
+                              💡 <strong>Why are views unavailable in Public Scraper mode?</strong>
+                              <br />
+                              Instagram's public embed tags only expose Likes & Comments. If this reel has public views on Instagram, enter your <strong>Graph API User Token</strong> above to connect to Meta's Business Discovery API and auto-pull live view counts!
+                            </Typography>
+                          </Box>
+                        )}
 
                         {/* 5. Full Caption Text */}
                         {(metaTestResult.caption || metaTestResult.title) && (

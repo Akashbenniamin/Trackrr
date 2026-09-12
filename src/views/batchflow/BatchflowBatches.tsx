@@ -1107,7 +1107,7 @@ export default function BatchflowBatches() {
             });
             const meta = await Promise.race([
               metaPromise,
-              new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)),
+              new Promise<null>((resolve) => setTimeout(() => resolve(null), 9000)),
             ]);
 
             if (meta) {
