@@ -3,7 +3,7 @@ import {
   Box, Card, Typography, Button, TextField, Chip, IconButton,
   Dialog, DialogTitle, DialogContent, DialogActions,
   Select, MenuItem, InputLabel, FormControl, Divider, Tooltip,
-  Paper, Alert, LinearProgress, Menu, CircularProgress,
+  Paper, Alert, LinearProgress, Menu, CircularProgress, Snackbar,
 } from '@mui/material';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import EditRoundedIcon from '@mui/icons-material/EditRounded';
@@ -22,6 +22,7 @@ import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded';
 import LinkRoundedIcon from '@mui/icons-material/LinkRounded';
 import InstagramIcon from '@mui/icons-material/Instagram';
 import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
+import SyncRoundedIcon from '@mui/icons-material/SyncRounded';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import { registerOkineFont } from '../../lib/okineFont';
@@ -346,6 +347,11 @@ export default function BatchflowBatches() {
   const [postedCustomDate, setPostedCustomDate] = useState(new Date().toISOString().slice(0, 10));
   const [postedMetaLoading, setPostedMetaLoading] = useState(false);
   const [postedMetaResult, setPostedMetaResult] = useState<VideoMetadataResult | null>(null);
+
+  const [syncingPDF, setSyncingPDF] = useState(false);
+  const [syncingAllPDF, setSyncingAllPDF] = useState(false);
+  const [manualSyncing, setManualSyncing] = useState(false);
+  const [syncSnackbar, setSyncSnackbar] = useState<string | null>(null);
 
   const handleFetchPostedMetadata = async (urlInput?: string) => {
     const raw = (urlInput !== undefined ? urlInput : postedVideoUrl).trim();
@@ -1064,14 +1070,17 @@ export default function BatchflowBatches() {
     });
   };
 
-  const handleExportPDF = async () => {
-    if (!selectedBatch) return;
-
-    // Fetch current views and likes for any video that has a video_url at time of export
+  const syncVideosMetadata = async (videosToSync: BatchflowVideo[]): Promise<{
+    viewsMap: Map<string, string>;
+    likesMap: Map<string, string>;
+    updatedCount: number;
+  }> => {
     const viewsMap = new Map<string, string>();
     const likesMap = new Map<string, string>();
+    let updatedCount = 0;
+
     await Promise.all(
-      currentBatchVideos.map(async (v) => {
+      videosToSync.map(async (v) => {
         const { views: existingViews, likes: existingLikes } = extractViewsAndLikes(v);
         if (existingViews) {
           viewsMap.set(v.id, existingViews);
@@ -1080,7 +1089,7 @@ export default function BatchflowBatches() {
           likesMap.set(v.id, existingLikes);
         }
 
-        if ((!existingViews || !existingLikes) && v.video_url) {
+        if (v.video_url) {
           try {
             const metaPromise = fetchVideoMetadata(v.video_url, {
               metaAppId: settings.meta_app_id,
@@ -1088,138 +1097,160 @@ export default function BatchflowBatches() {
             });
             const meta = await Promise.race([
               metaPromise,
-              new Promise<null>((resolve) => setTimeout(() => resolve(null), 3500)),
+              new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)),
             ]);
+
             if (meta) {
               const updates: Partial<BatchflowVideo> = {};
-              if (!existingViews && meta.viewsCount) {
-                const cleanV = String(meta.viewsCount).replace(/views?/i, '').trim();
-                viewsMap.set(v.id, cleanV);
-                updates.views = cleanV;
-              }
-              if (!existingLikes && meta.likesCount) {
+
+              // 1. Live Likes update: always refresh with latest live count from the link
+              if (meta.likesCount) {
                 const cleanL = String(meta.likesCount).replace(/likes?/i, '').trim();
                 likesMap.set(v.id, cleanL);
-                updates.likes = cleanL;
+                if (cleanL !== existingLikes) {
+                  updates.likes = cleanL;
+                }
               }
+
+              // 2. Views update: if provider provides views (e.g. YouTube), update; otherwise preserve manual views
+              if (meta.viewsCount) {
+                const cleanV = String(meta.viewsCount).replace(/views?/i, '').trim();
+                viewsMap.set(v.id, cleanV);
+                if (cleanV !== existingViews) {
+                  updates.views = cleanV;
+                }
+              } else if (existingViews) {
+                viewsMap.set(v.id, existingViews);
+              }
+
+              // 3. Posted date: auto-fill from post if not set
+              if (meta.postedDate && !v.posted_date) {
+                updates.posted_date = meta.postedDate.includes('T') ? meta.postedDate : `${meta.postedDate}T12:00:00.000Z`;
+              }
+
               if (Object.keys(updates).length > 0) {
-                updateBatchflowVideo(v.id, updates).catch(() => {});
+                updatedCount++;
+                await updateBatchflowVideo(v.id, updates).catch(() => {});
               }
             }
-          } catch {
-            // Ignore error
+          } catch (err) {
+            console.warn(`Could not sync video ${v.id}:`, err);
           }
         }
       })
     );
 
-    const doc = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4',
-    });
+    return { viewsMap, likesMap, updatedCount };
+  };
 
-    renderBatchReport(doc, selectedBatch, selectedClient, currentBatchVideos, true, viewsMap, likesMap);
-
-    const margin = 14;
-    const pageWidth = 210;
-    const pageHeight = 297;
-    const totalPages = doc.getNumberOfPages();
-    for (let p = 1; p <= totalPages; p++) {
-      doc.setPage(p);
-      doc.setDrawColor(226, 232, 240);
-      doc.setLineWidth(0.3);
-      doc.line(margin, pageHeight - 12, pageWidth - margin, pageHeight - 12);
-
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
-      doc.setTextColor(148, 163, 184);
-      doc.text('Trackrr Studio • Content Batch Management & Production Workflow', margin, pageHeight - 7);
-      doc.text(`Page ${p} of ${totalPages}`, pageWidth - margin, pageHeight - 7, { align: 'right' });
+  const handleSyncBatchLinks = async () => {
+    if (!selectedBatch) return;
+    const vidsWithUrls = currentBatchVideos.filter(v => v.video_url);
+    if (vidsWithUrls.length === 0) {
+      setSyncSnackbar('No videos with links in this batch to sync.');
+      return;
     }
 
-    doc.save(`${selectedBatch.name.replace(/[^a-zA-Z0-9_-]/g, '_')}_Report.pdf`);
+    setManualSyncing(true);
+    try {
+      const { updatedCount } = await syncVideosMetadata(vidsWithUrls);
+      setSyncSnackbar(
+        updatedCount > 0
+          ? `Refreshed live metrics for ${updatedCount} video(s)!`
+          : `All ${vidsWithUrls.length} video link(s) are already up to date!`
+      );
+    } catch {
+      setSyncSnackbar('Failed to sync some video links.');
+    } finally {
+      setManualSyncing(false);
+    }
+  };
+
+  const handleExportPDF = async () => {
+    if (!selectedBatch) return;
+    setSyncingPDF(true);
+
+    try {
+      // 1. Automatically refresh live stats from links before rendering PDF
+      const { viewsMap, likesMap } = await syncVideosMetadata(currentBatchVideos);
+
+      const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+      });
+
+      renderBatchReport(doc, selectedBatch, selectedClient, currentBatchVideos, true, viewsMap, likesMap);
+
+      const margin = 14;
+      const pageWidth = 210;
+      const pageHeight = 297;
+      const totalPages = doc.getNumberOfPages();
+      for (let p = 1; p <= totalPages; p++) {
+        doc.setPage(p);
+        doc.setDrawColor(226, 232, 240);
+        doc.setLineWidth(0.3);
+        doc.line(margin, pageHeight - 12, pageWidth - margin, pageHeight - 12);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(148, 163, 184);
+        doc.text('Trackrr Studio • Content Batch Management & Production Workflow', margin, pageHeight - 7);
+        doc.text(`Page ${p} of ${totalPages}`, pageWidth - margin, pageHeight - 7, { align: 'right' });
+      }
+
+      doc.save(`${selectedBatch.name.replace(/[^a-zA-Z0-9_-]/g, '_')}_Report.pdf`);
+    } catch (err) {
+      console.error('PDF export error:', err);
+    } finally {
+      setSyncingPDF(false);
+    }
   };
 
   const handleExportAllBatchesPDF = async () => {
     if (activeBatches.length === 0) return;
+    setSyncingAllPDF(true);
 
-    // Collect current views and likes for all active batch videos that have a video_url
-    const viewsMap = new Map<string, string>();
-    const likesMap = new Map<string, string>();
-    await Promise.all(
-      batchflowVideos.map(async (v) => {
-        const { views: existingViews, likes: existingLikes } = extractViewsAndLikes(v);
-        if (existingViews) {
-          viewsMap.set(v.id, existingViews);
-        }
-        if (existingLikes) {
-          likesMap.set(v.id, existingLikes);
-        }
+    try {
+      // 1. Automatically refresh live stats from links across all active batches before rendering PDF
+      const allActiveVideos = batchflowVideos.filter(v => activeBatches.some(b => b.id === v.batch_id));
+      const { viewsMap, likesMap } = await syncVideosMetadata(allActiveVideos);
 
-        if ((!existingViews || !existingLikes) && v.video_url) {
-          try {
-            const metaPromise = fetchVideoMetadata(v.video_url, {
-              metaAppId: settings.meta_app_id,
-              metaClientToken: settings.meta_client_token,
-            });
-            const meta = await Promise.race([
-              metaPromise,
-              new Promise<null>((resolve) => setTimeout(() => resolve(null), 3500)),
-            ]);
-            if (meta) {
-              const updates: Partial<BatchflowVideo> = {};
-              if (!existingViews && meta.viewsCount) {
-                const cleanV = String(meta.viewsCount).replace(/views?/i, '').trim();
-                viewsMap.set(v.id, cleanV);
-                updates.views = cleanV;
-              }
-              if (!existingLikes && meta.likesCount) {
-                const cleanL = String(meta.likesCount).replace(/likes?/i, '').trim();
-                likesMap.set(v.id, cleanL);
-                updates.likes = cleanL;
-              }
-              if (Object.keys(updates).length > 0) {
-                updateBatchflowVideo(v.id, updates).catch(() => {});
-              }
-            }
-          } catch {
-            // Ignore error
-          }
-        }
-      })
-    );
+      const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+      });
 
-    const doc = new jsPDF({
-      orientation: 'portrait',
-      unit: 'mm',
-      format: 'a4',
-    });
+      activeBatches.forEach((b, idx) => {
+        const client = activeClients.find(c => c.id === b.client_id);
+        const bVids = batchflowVideos.filter(v => v.batch_id === b.id);
+        renderBatchReport(doc, b, client, bVids, idx === 0, viewsMap, likesMap);
+      });
 
-    activeBatches.forEach((b, idx) => {
-      const client = activeClients.find(c => c.id === b.client_id);
-      const bVids = batchflowVideos.filter(v => v.batch_id === b.id);
-      renderBatchReport(doc, b, client, bVids, idx === 0, viewsMap, likesMap);
-    });
+      const margin = 14;
+      const pageWidth = 210;
+      const pageHeight = 297;
+      const totalPages = doc.getNumberOfPages();
+      for (let p = 1; p <= totalPages; p++) {
+        doc.setPage(p);
+        doc.setDrawColor(226, 232, 240);
+        doc.setLineWidth(0.3);
+        doc.line(margin, pageHeight - 12, pageWidth - margin, pageHeight - 12);
 
-    const margin = 14;
-    const pageWidth = 210;
-    const pageHeight = 297;
-    const totalPages = doc.getNumberOfPages();
-    for (let p = 1; p <= totalPages; p++) {
-      doc.setPage(p);
-      doc.setDrawColor(226, 232, 240);
-      doc.setLineWidth(0.3);
-      doc.line(margin, pageHeight - 12, pageWidth - margin, pageHeight - 12);
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(148, 163, 184);
+        doc.text('Trackrr Studio • Consolidated Batches Production Report', margin, pageHeight - 7);
+        doc.text(`Page ${p} of ${totalPages}`, pageWidth - margin, pageHeight - 7, { align: 'right' });
+      }
 
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(7.5);
-      doc.setTextColor(148, 163, 184);
-      doc.text('Trackrr Studio • Consolidated Batches Production Report', margin, pageHeight - 7);
-      doc.text(`Page ${p} of ${totalPages}`, pageWidth - margin, pageHeight - 7, { align: 'right' });
+      doc.save(`Trackrr_All_Batches_Report_${new Date().toISOString().slice(0, 10)}.pdf`);
+    } catch (err) {
+      console.error('All batches PDF export error:', err);
+    } finally {
+      setSyncingAllPDF(false);
     }
-
-    doc.save(`Trackrr_All_Batches_Report_${new Date().toISOString().slice(0, 10)}.pdf`);
   };
 
   return (
@@ -1260,19 +1291,19 @@ export default function BatchflowBatches() {
                 Batches ({activeBatches.length})
               </Typography>
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                <Tooltip title="Export All Batches to Single PDF">
+                <Tooltip title="Export All Batches to Single PDF (Auto-syncs live links)">
                   <span>
                     <IconButton
                       size="small"
                       onClick={handleExportAllBatchesPDF}
-                      disabled={activeBatches.length === 0}
+                      disabled={activeBatches.length === 0 || syncingAllPDF}
                       sx={{
                         p: 0.5,
-                        color: 'text.secondary',
+                        color: syncingAllPDF ? 'primary.light' : 'text.secondary',
                         '&:hover': { color: 'primary.light', bgcolor: 'rgba(255,255,255,0.06)' },
                       }}
                     >
-                      <PictureAsPdfRoundedIcon sx={{ fontSize: 16 }} />
+                      {syncingAllPDF ? <CircularProgress size={16} sx={{ color: 'inherit' }} /> : <PictureAsPdfRoundedIcon sx={{ fontSize: 16 }} />}
                     </IconButton>
                   </span>
                 </Tooltip>
@@ -1512,15 +1543,42 @@ export default function BatchflowBatches() {
 
                 {/* Action Buttons: Minimal & Modern */}
                 <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap', alignItems: 'center' }} onDoubleClick={(e) => e.stopPropagation()}>
+                  <Tooltip title="Auto-sync live likes and views from video URLs">
+                    <span>
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        startIcon={manualSyncing ? <CircularProgress size={13} sx={{ color: '#E1306C' }} /> : <SyncRoundedIcon sx={{ fontSize: 15 }} />}
+                        onClick={handleSyncBatchLinks}
+                        disabled={!selectedBatch || manualSyncing || syncingPDF}
+                        sx={{
+                          textTransform: 'none',
+                          borderRadius: 1,
+                          fontWeight: 600,
+                          fontSize: '0.75rem',
+                          height: 30,
+                          px: 1.25,
+                          borderColor: manualSyncing ? '#E1306C' : 'rgba(255,255,255,0.12)',
+                          color: manualSyncing ? '#E1306C' : 'text.primary',
+                          '&:hover': {
+                            borderColor: 'rgba(225, 48, 108, 0.5)',
+                            bgcolor: 'rgba(225, 48, 108, 0.08)',
+                          },
+                        }}
+                      >
+                        {manualSyncing ? 'Syncing...' : 'Sync Links'}
+                      </Button>
+                    </span>
+                  </Tooltip>
                   <Button
                     size="small"
                     variant="outlined"
-                    startIcon={<PictureAsPdfRoundedIcon sx={{ fontSize: 15 }} />}
+                    startIcon={syncingPDF ? <CircularProgress size={13} sx={{ color: 'inherit' }} /> : <PictureAsPdfRoundedIcon sx={{ fontSize: 15 }} />}
                     onClick={handleExportPDF}
-                    disabled={!selectedBatch}
+                    disabled={!selectedBatch || syncingPDF || manualSyncing}
                     sx={{ textTransform: 'none', borderRadius: 1, fontWeight: 600, fontSize: '0.75rem', height: 30, px: 1.25, borderColor: 'rgba(255,255,255,0.12)' }}
                   >
-                    PDF
+                    {syncingPDF ? 'Syncing...' : 'PDF'}
                   </Button>
                   <Button
                     size="small"
@@ -2982,6 +3040,30 @@ script 2
           </MenuItem>
         )}
       </Menu>
+
+      {/* Live Sync Status Feedback Toast */}
+      <Snackbar
+        open={Boolean(syncSnackbar)}
+        autoHideDuration={3000}
+        onClose={() => setSyncSnackbar(null)}
+        anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+      >
+        <Alert
+          onClose={() => setSyncSnackbar(null)}
+          severity="info"
+          sx={{
+            width: '100%',
+            bgcolor: '#1E293B',
+            color: '#F1F5F9',
+            border: '1px solid rgba(255,255,255,0.1)',
+            fontWeight: 600,
+            fontSize: '0.82rem',
+            '& .MuiAlert-icon': { color: '#38BDF8' }
+          }}
+        >
+          {syncSnackbar}
+        </Alert>
+      </Snackbar>
     </Box>
   );
 }
