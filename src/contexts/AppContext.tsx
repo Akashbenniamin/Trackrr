@@ -58,7 +58,7 @@ interface AppContextType {
   deleteBatchflowBatch: (id: string) => Promise<void>;
   addBatchflowVideo: (data: Partial<BatchflowVideo>) => Promise<BatchflowVideo | null>;
   updateBatchflowVideo: (id: string, data: Partial<BatchflowVideo>) => Promise<void>;
-  updateBatchflowVideoStatus: (id: string, status: BatchflowVideoStatus, videoUrl?: string | null, postedDate?: string | null, views?: string | number | null) => Promise<void>;
+  updateBatchflowVideoStatus: (id: string, status: BatchflowVideoStatus, videoUrl?: string | null, postedDate?: string | null, views?: string | number | null, likes?: string | number | null) => Promise<void>;
   deleteBatchflowVideo: (id: string) => Promise<void>;
   importBackupData: (data: any) => Promise<{ success: boolean; message: string }>;
   updateSettings: (data: Partial<AppSettings>) => Promise<void>;
@@ -356,6 +356,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                     views: (lv.views !== undefined && lv.views !== null && String(lv.views).trim() !== '')
                       ? lv.views
                       : (cv.views || null),
+                    likes: (lv.likes !== undefined && lv.likes !== null && String(lv.likes).trim() !== '')
+                      ? lv.likes
+                      : (cv.likes || null),
                     description: (lv.description !== undefined && lv.description !== null && lv.description !== '')
                       ? lv.description
                       : (cv.description || null),
@@ -1222,7 +1225,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           return completeVideo;
         } else if (error && isSchemaColumnError(error)) {
           // Schema column missing in remote DB, retry insert with base columns
-          const { video_url, views, description, ...baseVideo } = newVideo;
+          const { video_url, views, likes, description, ...baseVideo } = newVideo;
           const { data: cloudVBase } = await supabase
             .from('batchflow_videos')
             .insert([baseVideo])
@@ -1233,6 +1236,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             ...((cloudVBase as any) || {}),
             video_url: newVideo.video_url,
             views: newVideo.views,
+            likes: newVideo.likes,
             description: newVideo.description,
           };
           const all = storage.getBatchflowVideos();
@@ -1259,7 +1263,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (error) {
           console.warn('Could not update batchflow_videos with full fields, retrying with base fields:', error);
           if (isSchemaColumnError(error)) {
-            const { video_url, views, description, ...baseData } = data;
+            const { video_url, views, likes, description, ...baseData } = data;
             if (Object.keys(baseData).length > 0) {
               const { error: retryErr } = await supabase.from('batchflow_videos').update(baseData).eq('id', id);
               if (retryErr) {
@@ -1282,7 +1286,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     status: BatchflowVideoStatus,
     videoUrl?: string | null,
     postedDate?: string | null,
-    views?: string | number | null
+    views?: string | number | null,
+    likes?: string | number | null
   ) => {
     assertCanEdit();
     const now = new Date().toISOString();
@@ -1297,12 +1302,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (views !== undefined) {
         updates.views = views;
       }
+      if (likes !== undefined) {
+        updates.likes = likes;
+      }
     } else {
       if (videoUrl !== undefined) {
         updates.video_url = videoUrl;
       }
       if (views !== undefined) {
         updates.views = views;
+      }
+      if (likes !== undefined) {
+        updates.likes = likes;
       }
     }
 
@@ -1312,7 +1323,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         if (error) {
           console.warn('Could not update status in batchflow_videos with full fields, retrying with base fields:', error);
           if (isSchemaColumnError(error)) {
-            const { video_url, views, description, ...baseUpdates } = updates;
+            const { video_url, views, likes, description, ...baseUpdates } = updates;
             if (Object.keys(baseUpdates).length > 0) {
               const { error: retryErr } = await supabase.from('batchflow_videos').update(baseUpdates).eq('id', id);
               if (retryErr) {

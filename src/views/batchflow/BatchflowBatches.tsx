@@ -27,8 +27,7 @@ import { jsPDF } from 'jspdf';
 import { registerOkineFont } from '../../lib/okineFont';
 import { useApp } from '../../contexts/AppContext';
 import { usePersistedState } from '../../lib/usePersistedState';
-import { fetchVideoMetadata, cleanVideoUrl, type VideoMetadataResult } from '../../lib/videoMetadata';
-import InstagramRecentPostsDialog from '../../components/InstagramRecentPostsDialog';
+import { fetchVideoMetadata, cleanVideoUrl, extractViewsAndLikes, type VideoMetadataResult } from '../../lib/videoMetadata';
 import type { BatchflowBatch, BatchflowVideo, BatchflowVideoStatus } from '../../types';
 
 const STATUS_COLORS: Record<BatchflowVideoStatus, { bg: string; text: string; border: string }> = {
@@ -334,6 +333,7 @@ export default function BatchflowBatches() {
     posted_date?: string;
     status?: BatchflowVideoStatus;
     views?: string | number | null;
+    likes?: string | number | null;
   } | null>(null);
   const [editingMetaLoading, setEditingMetaLoading] = useState(false);
   const [editingMetaResult, setEditingMetaResult] = useState<VideoMetadataResult | null>(null);
@@ -342,10 +342,10 @@ export default function BatchflowBatches() {
   const [postedTargetVideo, setPostedTargetVideo] = useState<BatchflowVideo | null>(null);
   const [postedVideoUrl, setPostedVideoUrl] = useState('');
   const [postedViews, setPostedViews] = useState('');
+  const [postedLikes, setPostedLikes] = useState('');
   const [postedCustomDate, setPostedCustomDate] = useState(new Date().toISOString().slice(0, 10));
   const [postedMetaLoading, setPostedMetaLoading] = useState(false);
   const [postedMetaResult, setPostedMetaResult] = useState<VideoMetadataResult | null>(null);
-  const [igRecentDialogOpen, setIgRecentDialogOpen] = useState(false);
 
   const handleFetchPostedMetadata = async (urlInput?: string) => {
     const raw = (urlInput !== undefined ? urlInput : postedVideoUrl).trim();
@@ -367,7 +367,10 @@ export default function BatchflowBatches() {
         setPostedCustomDate(res.postedDate);
       }
       if (res.viewsCount) {
-        setPostedViews(res.viewsCount);
+        setPostedViews(String(res.viewsCount).replace(/views?/i, '').trim());
+      }
+      if (res.likesCount) {
+        setPostedLikes(String(res.likesCount).replace(/likes?/i, '').trim());
       }
     } catch (err: any) {
       setPostedMetaResult({
@@ -400,7 +403,12 @@ export default function BatchflowBatches() {
         setEditingVideo(prev => prev ? { ...prev, posted_date: res.postedDate || undefined } : null);
       }
       if (res.viewsCount) {
-        setEditingVideo(prev => prev ? { ...prev, views: res.viewsCount } : null);
+        const cleanV = String(res.viewsCount).replace(/views?/i, '').trim();
+        setEditingVideo(prev => prev ? { ...prev, views: cleanV } : null);
+      }
+      if (res.likesCount) {
+        const cleanL = String(res.likesCount).replace(/likes?/i, '').trim();
+        setEditingVideo(prev => prev ? { ...prev, likes: cleanL } : null);
       }
     } catch (err: any) {
       setEditingMetaResult({
@@ -534,9 +542,11 @@ export default function BatchflowBatches() {
     const curIdx = order.indexOf(v.status);
     const nextStatus = order[(curIdx + 1) % order.length];
     if (nextStatus === 'Posted') {
+      const extracted = extractViewsAndLikes(v);
       setPostedTargetVideo(v);
       setPostedVideoUrl(v.video_url || '');
-      setPostedViews(v.views ? String(v.views) : '');
+      setPostedViews(extracted.views || '');
+      setPostedLikes(extracted.likes || '');
       setPostedCustomDate(v.posted_date ? v.posted_date.slice(0, 10) : new Date().toISOString().slice(0, 10));
       setPostedMetaResult(null);
       setPostedMetaLoading(false);
@@ -551,20 +561,23 @@ export default function BatchflowBatches() {
     const urlToSave = skip ? null : (postedVideoUrl.trim() ? cleanVideoUrl(postedVideoUrl.trim()) : null);
     const dateToSave = postedCustomDate.trim() || new Date().toISOString().slice(0, 10);
     const viewsToSave = skip ? null : (postedViews.trim() || postedMetaResult?.viewsCount || null);
+    const likesToSave = skip ? null : (postedLikes.trim() || postedMetaResult?.likesCount || null);
 
     if (postedTargetVideo.status !== 'Posted') {
-      await updateBatchflowVideoStatus(postedTargetVideo.id, 'Posted', urlToSave, dateToSave, viewsToSave);
+      await updateBatchflowVideoStatus(postedTargetVideo.id, 'Posted', urlToSave, dateToSave, viewsToSave, likesToSave);
     } else {
       await updateBatchflowVideo(postedTargetVideo.id, {
         video_url: skip ? null : urlToSave,
         posted_date: dateToSave.includes('T') ? dateToSave : `${dateToSave}T12:00:00.000Z`,
         views: viewsToSave,
+        likes: likesToSave,
       });
     }
     setPostedLinkDialogOpen(false);
     setPostedTargetVideo(null);
     setPostedVideoUrl('');
     setPostedViews('');
+    setPostedLikes('');
     setPostedMetaResult(null);
   };
 
@@ -573,6 +586,7 @@ export default function BatchflowBatches() {
     setPostedTargetVideo(null);
     setPostedVideoUrl('');
     setPostedViews('');
+    setPostedLikes('');
     setPostedMetaResult(null);
   };
 
@@ -708,7 +722,8 @@ export default function BatchflowBatches() {
     client: typeof activeClients[0] | undefined,
     videos: BatchflowVideo[],
     isFirstPage = true,
-    viewsMap?: Map<string, string>
+    viewsMap?: Map<string, string>,
+    likesMap?: Map<string, string>
   ) => {
     const pageWidth = 210;
     const pageHeight = 297;
@@ -914,10 +929,11 @@ export default function BatchflowBatches() {
       doc.setFontSize(7.5);
       doc.setTextColor(241, 245, 249); // #F1F5F9
       doc.text('SL NO.', margin + 3, yPos + 5.5);
-      doc.text('VIDEO TITLE', margin + 16, yPos + 5.5);
-      doc.text('VIEWS', margin + 94, yPos + 5.5);
-      doc.text('SCRIPT NO.', margin + 116, yPos + 5.5);
-      doc.text('STATUS', margin + 143, yPos + 5.5, { align: 'center' });
+      doc.text('VIDEO TITLE', margin + 15, yPos + 5.5);
+      doc.text('VIEWS', margin + 80, yPos + 5.5);
+      doc.text('LIKES', margin + 101, yPos + 5.5);
+      doc.text('SCRIPT NO.', margin + 118, yPos + 5.5);
+      doc.text('STATUS', margin + 144, yPos + 5.5, { align: 'center' });
       doc.text('PIPELINE DATE', margin + 158, yPos + 5.5);
     };
 
@@ -956,34 +972,52 @@ export default function BatchflowBatches() {
       doc.setFontSize(8);
       doc.setTextColor(15, 23, 42);
       const title = v.name || `Video #${v.script_number ?? index + 1}`;
-      const truncatedTitle = doc.splitTextToSize(title, 74)[0];
-      doc.text(truncatedTitle, margin + 16, curY + 6.0);
+      const truncatedTitle = doc.splitTextToSize(title, 60)[0];
+      doc.text(truncatedTitle, margin + 15, curY + 6.0);
       if (v.video_url) {
-        doc.link(margin + 16, curY + 1.5, 74, 6.5, { url: v.video_url });
+        doc.link(margin + 15, curY + 1.5, 60, 6.5, { url: v.video_url });
       }
+
+      const vExtracted = extractViewsAndLikes(v);
 
       // Col 3: Views
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(8);
       const vViews = (viewsMap?.get(v.id) && viewsMap.get(v.id)?.trim() !== '')
         ? viewsMap.get(v.id)!.trim()
-        : (v.views != null && String(v.views).trim() !== '' ? String(v.views).trim() : null);
+        : vExtracted.views;
       if (vViews) {
         doc.setTextColor(15, 23, 42);
-        doc.text(vViews, margin + 94, curY + 6.0);
+        doc.text(vViews, margin + 80, curY + 6.0);
       } else {
         doc.setTextColor(148, 163, 184);
-        doc.text('N/A', margin + 94, curY + 6.0);
+        doc.text('N/A', margin + 80, curY + 6.0);
       }
 
-      // Col 4: SCRIPT NO.
+      // Col 4: Likes (Soft red number only)
+      const vLikes = (likesMap?.get(v.id) && likesMap.get(v.id)?.trim() !== '')
+        ? likesMap.get(v.id)!.trim()
+        : vExtracted.likes;
+      if (vLikes) {
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(8);
+        doc.setTextColor(239, 68, 68); // Soft red (#EF4444)
+        doc.text(vLikes, margin + 101, curY + 6.0);
+      } else {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8);
+        doc.setTextColor(148, 163, 184);
+        doc.text('N/A', margin + 101, curY + 6.0);
+      }
+
+      // Col 5: SCRIPT NO.
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8);
       doc.setTextColor(71, 85, 105);
       doc.text(v.script_number === 0 ? '-' : String(v.script_number ?? '-'), margin + 118, curY + 6.0);
 
-      // Col 5: Status Pill (Clickable if video_url exists)
-      const pillX = margin + 133;
+      // Col 6: Status Pill (Clickable if video_url exists)
+      const pillX = margin + 134;
       const pillY = curY + 2.0;
       const pillW = 20;
       const pillH = 5.5;
@@ -1017,7 +1051,7 @@ export default function BatchflowBatches() {
         doc.text('PENDING', pillX + pillW / 2, pillY + 3.8, { align: 'center' });
       }
 
-      // Col 6: Date / Details
+      // Col 7: Date / Details
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
       doc.setTextColor(100, 116, 139);
@@ -1033,13 +1067,20 @@ export default function BatchflowBatches() {
   const handleExportPDF = async () => {
     if (!selectedBatch) return;
 
-    // Fetch current views for any video that has a video_url at time of export
+    // Fetch current views and likes for any video that has a video_url at time of export
     const viewsMap = new Map<string, string>();
+    const likesMap = new Map<string, string>();
     await Promise.all(
       currentBatchVideos.map(async (v) => {
-        if (v.views != null && String(v.views).trim() !== '') {
-          viewsMap.set(v.id, String(v.views).trim());
-        } else if (v.video_url) {
+        const { views: existingViews, likes: existingLikes } = extractViewsAndLikes(v);
+        if (existingViews) {
+          viewsMap.set(v.id, existingViews);
+        }
+        if (existingLikes) {
+          likesMap.set(v.id, existingLikes);
+        }
+
+        if ((!existingViews || !existingLikes) && v.video_url) {
           try {
             const metaPromise = fetchVideoMetadata(v.video_url, {
               metaAppId: settings.meta_app_id,
@@ -1049,9 +1090,21 @@ export default function BatchflowBatches() {
               metaPromise,
               new Promise<null>((resolve) => setTimeout(() => resolve(null), 3500)),
             ]);
-            if (meta?.viewsCount) {
-              viewsMap.set(v.id, meta.viewsCount);
-              updateBatchflowVideo(v.id, { views: meta.viewsCount }).catch(() => {});
+            if (meta) {
+              const updates: Partial<BatchflowVideo> = {};
+              if (!existingViews && meta.viewsCount) {
+                const cleanV = String(meta.viewsCount).replace(/views?/i, '').trim();
+                viewsMap.set(v.id, cleanV);
+                updates.views = cleanV;
+              }
+              if (!existingLikes && meta.likesCount) {
+                const cleanL = String(meta.likesCount).replace(/likes?/i, '').trim();
+                likesMap.set(v.id, cleanL);
+                updates.likes = cleanL;
+              }
+              if (Object.keys(updates).length > 0) {
+                updateBatchflowVideo(v.id, updates).catch(() => {});
+              }
             }
           } catch {
             // Ignore error
@@ -1066,7 +1119,7 @@ export default function BatchflowBatches() {
       format: 'a4',
     });
 
-    renderBatchReport(doc, selectedBatch, selectedClient, currentBatchVideos, true, viewsMap);
+    renderBatchReport(doc, selectedBatch, selectedClient, currentBatchVideos, true, viewsMap, likesMap);
 
     const margin = 14;
     const pageWidth = 210;
@@ -1091,13 +1144,20 @@ export default function BatchflowBatches() {
   const handleExportAllBatchesPDF = async () => {
     if (activeBatches.length === 0) return;
 
-    // Collect current views for all active batch videos that have a video_url
+    // Collect current views and likes for all active batch videos that have a video_url
     const viewsMap = new Map<string, string>();
+    const likesMap = new Map<string, string>();
     await Promise.all(
       batchflowVideos.map(async (v) => {
-        if (v.views != null && String(v.views).trim() !== '') {
-          viewsMap.set(v.id, String(v.views).trim());
-        } else if (v.video_url) {
+        const { views: existingViews, likes: existingLikes } = extractViewsAndLikes(v);
+        if (existingViews) {
+          viewsMap.set(v.id, existingViews);
+        }
+        if (existingLikes) {
+          likesMap.set(v.id, existingLikes);
+        }
+
+        if ((!existingViews || !existingLikes) && v.video_url) {
           try {
             const metaPromise = fetchVideoMetadata(v.video_url, {
               metaAppId: settings.meta_app_id,
@@ -1107,9 +1167,21 @@ export default function BatchflowBatches() {
               metaPromise,
               new Promise<null>((resolve) => setTimeout(() => resolve(null), 3500)),
             ]);
-            if (meta?.viewsCount) {
-              viewsMap.set(v.id, meta.viewsCount);
-              updateBatchflowVideo(v.id, { views: meta.viewsCount }).catch(() => {});
+            if (meta) {
+              const updates: Partial<BatchflowVideo> = {};
+              if (!existingViews && meta.viewsCount) {
+                const cleanV = String(meta.viewsCount).replace(/views?/i, '').trim();
+                viewsMap.set(v.id, cleanV);
+                updates.views = cleanV;
+              }
+              if (!existingLikes && meta.likesCount) {
+                const cleanL = String(meta.likesCount).replace(/likes?/i, '').trim();
+                likesMap.set(v.id, cleanL);
+                updates.likes = cleanL;
+              }
+              if (Object.keys(updates).length > 0) {
+                updateBatchflowVideo(v.id, updates).catch(() => {});
+              }
             }
           } catch {
             // Ignore error
@@ -1127,7 +1199,7 @@ export default function BatchflowBatches() {
     activeBatches.forEach((b, idx) => {
       const client = activeClients.find(c => c.id === b.client_id);
       const bVids = batchflowVideos.filter(v => v.batch_id === b.id);
-      renderBatchReport(doc, b, client, bVids, idx === 0, viewsMap);
+      renderBatchReport(doc, b, client, bVids, idx === 0, viewsMap, likesMap);
     });
 
     const margin = 14;
@@ -1401,7 +1473,10 @@ export default function BatchflowBatches() {
                           <Button
                             size="small"
                             variant="outlined"
-                            onClick={() => setIgRecentDialogOpen(true)}
+                            onClick={() => {
+                              const handle = (selectedClient.instagram_id || '').replace(/^@/, '').trim();
+                              window.open(`https://www.instagram.com/${handle}/reels/`, '_blank', 'noopener,noreferrer');
+                            }}
                             startIcon={<InstagramIcon sx={{ fontSize: 13, color: '#E1306C' }} />}
                             sx={{
                               height: 22,
@@ -1421,7 +1496,7 @@ export default function BatchflowBatches() {
                               },
                             }}
                           >
-                            Last 3 Videos
+                            View Page
                           </Button>
                         )}
                       </Box>
@@ -1884,6 +1959,7 @@ export default function BatchflowBatches() {
                           posted_date: v.posted_date ? v.posted_date.slice(0, 10) : '',
                           status: v.status,
                           views: v.views || null,
+                          likes: v.likes || null,
                         });
                         setEditingMetaResult(null);
                         setEditingMetaLoading(false);
@@ -1990,7 +2066,6 @@ export default function BatchflowBatches() {
                           {v.status === 'Posted' && v.posted_date ? `Posted: ${new Date(v.posted_date).toLocaleDateString()}` :
                            v.status === 'Edited' && v.edited_date ? `Edited: ${new Date(v.edited_date).toLocaleDateString()}` :
                            'Ready for editing'}
-                          {v.views ? ` • ${v.views} views` : ''}
                         </Typography>
                         {v.description && (
                           <Typography
@@ -2057,6 +2132,7 @@ export default function BatchflowBatches() {
                                 posted_date: v.posted_date ? v.posted_date.slice(0, 10) : '',
                                 status: v.status,
                                 views: v.views || null,
+                                likes: v.likes || null,
                               });
                               setEditingMetaResult(null);
                               setEditingMetaLoading(false);
@@ -2439,15 +2515,26 @@ script 2
             </Box>
           )}
 
-          <TextField
-            label="Views Count (Optional)"
-            placeholder="e.g. 12.5K, 1500, or 250,000"
-            fullWidth
-            size="small"
-            value={editingVideo?.views ?? ''}
-            onChange={e => setEditingVideo(prev => prev ? { ...prev, views: e.target.value } : null)}
-            helperText="Views count shown on video card & exported in PDF table"
-          />
+          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
+            <TextField
+              label="Views Count (Optional)"
+              placeholder="e.g. 12.5K, 1500, or 250,000"
+              fullWidth
+              size="small"
+              value={editingVideo?.views ?? ''}
+              onChange={e => setEditingVideo(prev => prev ? { ...prev, views: e.target.value } : null)}
+              helperText="Shown in PDF table VIEWS"
+            />
+            <TextField
+              label="Likes Count (Optional)"
+              placeholder="e.g. 105, 1,097, or 850"
+              fullWidth
+              size="small"
+              value={editingVideo?.likes ?? ''}
+              onChange={e => setEditingVideo(prev => prev ? { ...prev, likes: e.target.value } : null)}
+              helperText="Shown in PDF table LIKES"
+            />
+          </Box>
 
           <TextField
             label="Posted Date"
@@ -2480,6 +2567,7 @@ script 2
                   description: editingVideo.description?.trim() || null,
                   video_url: clean,
                   views: editingVideo.views != null && String(editingVideo.views).trim() !== '' ? String(editingVideo.views).trim() : null,
+                  likes: editingVideo.likes != null && String(editingVideo.likes).trim() !== '' ? String(editingVideo.likes).trim() : null,
                   ...(dateVal ? { posted_date: dateVal } : {}),
                 });
                 setEditVideoOpen(false);
@@ -2583,7 +2671,10 @@ script 2
             <Button
               variant="outlined"
               size="small"
-              onClick={() => setIgRecentDialogOpen(true)}
+              onClick={() => {
+                const handle = (selectedClient?.instagram_id || '').replace(/^@/, '').trim();
+                window.open(`https://www.instagram.com/${handle}/reels/`, '_blank', 'noopener,noreferrer');
+              }}
               startIcon={<InstagramIcon sx={{ fontSize: 13, color: '#E1306C' }} />}
               sx={{
                 alignSelf: 'flex-start',
@@ -2602,7 +2693,7 @@ script 2
                 },
               }}
             >
-              Pick from @{selectedClient.instagram_id.replace('@', '')}'s Recent Videos
+              View Reels Page (@{selectedClient.instagram_id.replace('@', '')})
             </Button>
           )}
 
@@ -2703,15 +2794,26 @@ script 2
             )}
           </Box>
 
-          <TextField
-            label="Views Count (Optional)"
-            placeholder="e.g. 12.5K, 1500, or 250,000"
-            fullWidth
-            size="small"
-            value={postedViews}
-            onChange={(e) => setPostedViews(e.target.value)}
-            helperText="Views count shown on video card & exported in PDF table"
-          />
+          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
+            <TextField
+              label="Views Count (Optional)"
+              placeholder="e.g. 12.5K, 1500, or 250,000"
+              fullWidth
+              size="small"
+              value={postedViews}
+              onChange={(e) => setPostedViews(e.target.value)}
+              helperText="Shown in PDF table VIEWS"
+            />
+            <TextField
+              label="Likes Count (Optional)"
+              placeholder="e.g. 105, 1,097, or 850"
+              fullWidth
+              size="small"
+              value={postedLikes}
+              onChange={(e) => setPostedLikes(e.target.value)}
+              helperText="Shown in PDF table LIKES"
+            />
+          </Box>
 
           <TextField
             label="Posted Date"
@@ -2847,6 +2949,7 @@ script 2
                   posted_date: v.posted_date ? v.posted_date.slice(0, 10) : '',
                   status: v.status,
                   views: v.views || null,
+                  likes: v.likes || null,
                 });
                 setEditingMetaResult(null);
                 setEditingMetaLoading(false);
@@ -2879,30 +2982,6 @@ script 2
           </MenuItem>
         )}
       </Menu>
-
-      {selectedClient?.instagram_id && (
-        <InstagramRecentPostsDialog
-          open={igRecentDialogOpen}
-          onClose={() => setIgRecentDialogOpen(false)}
-          handle={selectedClient.instagram_id}
-          clientName={selectedClient.name}
-          clientColor={selectedClient.color}
-          onSelectVideoUrl={(url, date) => {
-            if (postedLinkDialogOpen) {
-              setPostedVideoUrl(url);
-              if (date) setPostedCustomDate(date);
-              handleFetchPostedMetadata(url);
-            } else if (editVideoOpen && editingVideo) {
-              setEditingVideo(prev => prev ? { ...prev, video_url: url, posted_date: date || prev.posted_date } : null);
-              handleFetchEditingMetadata(url);
-            }
-          }}
-          existingVideos={batchflowVideos.filter(v => {
-            const b = batchflowBatches.find(batch => batch.id === v.batch_id);
-            return b && b.client_id === selectedClient.id;
-          })}
-        />
-      )}
     </Box>
   );
 }

@@ -314,10 +314,11 @@ create policy "Batchflow videos access policy" on public.batchflow_videos
   for all using (user_id = auth.uid() or public.has_workspace_access(workspace_id, 'viewer'))
   with check (user_id = auth.uid() or public.has_workspace_access(workspace_id, 'manager'));
 
--- Schema Parity Migrations: Video URL, Views, Description, and Meta credentials
+-- Schema Parity Migrations: Video URL, Views, Description, Likes, and Meta credentials
 alter table public.batchflow_videos add column if not exists script_number integer default 1;
 alter table public.batchflow_videos add column if not exists video_url text;
 alter table public.batchflow_videos add column if not exists views text;
+alter table public.batchflow_videos add column if not exists likes text;
 alter table public.batchflow_videos add column if not exists description text;
 
 alter table public.settings add column if not exists meta_app_id text;

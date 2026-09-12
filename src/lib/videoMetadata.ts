@@ -144,6 +144,7 @@ export async function fetchVideoMetadata(
 
           // Check cached recent posts in localStorage for views or likes
           let viewsCount: string | null = null;
+          let likesCount: string | null = null;
           try {
             const allKeys = Object.keys(localStorage);
             for (const k of allKeys) {
@@ -154,7 +155,8 @@ export async function fetchVideoMetadata(
                   if (Array.isArray(posts)) {
                     const match = posts.find((p: any) => cleanVideoUrl(p.permalink) === cleanUrl);
                     if (match) {
-                      viewsCount = match.viewsCount ? String(match.viewsCount) : match.likesCount ? `${match.likesCount} likes` : null;
+                      viewsCount = match.viewsCount ? String(match.viewsCount).replace(/views?/i, '').trim() : null;
+                      likesCount = match.likesCount ? String(match.likesCount).replace(/likes?/i, '').trim() : null;
                       if (!postedDate && match.postedDate) {
                         postedDate = match.postedDate;
                       }
@@ -177,6 +179,7 @@ export async function fetchVideoMetadata(
             thumbnailUrl: data.thumbnail_url || undefined,
             caption: data.title || undefined,
             viewsCount,
+            likesCount,
             provider: 'instagram',
             rawHtml: data.html,
             usedOfficialMetaApi: true,
@@ -218,9 +221,9 @@ export async function fetchVideoMetadata(
             author: d?.author || d?.publisher || undefined,
             creatorHandle: parsed.creatorHandle || d?.author || undefined,
             thumbnailUrl: d?.image?.url || undefined,
-            likesCount: parsed.likesCount || null,
+            likesCount: parsed.likesCount ? String(parsed.likesCount).replace(/likes?/i, '').trim() : null,
             commentsCount: parsed.commentsCount || null,
-            viewsCount: parsed.viewsCount || (parsed.likesCount ? `${parsed.likesCount} likes` : null),
+            viewsCount: parsed.viewsCount ? String(parsed.viewsCount).replace(/views?/i, '').trim() : null,
             caption: parsed.caption || d?.description || null,
             provider: 'instagram',
             usedOfficialMetaApi: false,
@@ -503,5 +506,36 @@ export async function fetchClientRecentInstagramPosts(
     posts: [],
     source: 'empty',
     error: 'Meta Business Discovery API requires an Instagram Creator/Business account token. Use the 1-Click Live Reels Feed (Popup) to browse and copy links directly.',
+  };
+}
+
+/**
+ * Cleanly separates views and likes from video record, fixing cases where like count was stored in views.
+ */
+export function extractViewsAndLikes(video: { views?: string | number | null; likes?: string | number | null }) {
+  let rawViews = video.views != null ? String(video.views).trim() : '';
+  let rawLikes = video.likes != null ? String(video.likes).trim() : '';
+
+  // If views was previously stored as "105 likes" or similar
+  if (rawViews.toLowerCase().includes('like')) {
+    if (!rawLikes) {
+      rawLikes = rawViews.replace(/likes?/i, '').trim();
+    }
+    rawViews = '';
+  }
+
+  // Clean likes to only be the number string (strip "likes", "like")
+  if (rawLikes) {
+    rawLikes = rawLikes.replace(/likes?/i, '').trim();
+  }
+
+  // Clean views to strip "views", "view"
+  if (rawViews) {
+    rawViews = rawViews.replace(/views?/i, '').trim();
+  }
+
+  return {
+    views: rawViews || null,
+    likes: rawLikes || null,
   };
 }
