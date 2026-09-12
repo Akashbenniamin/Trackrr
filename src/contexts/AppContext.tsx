@@ -256,6 +256,45 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         storage.setActiveWorkspaceId(active.id);
       }
 
+      // Sync cloud settings including Meta API tokens
+      try {
+        if (user?.id) {
+          const { data: cloudSettings } = await supabase
+            .from('settings')
+            .select('*')
+            .eq('user_id', user.id)
+            .maybeSingle();
+          if (cloudSettings) {
+            const currSettings = storage.getSettings();
+            const mergedSettings: AppSettings = {
+              ...currSettings,
+              currency: cloudSettings.currency || currSettings.currency,
+              theme_color: cloudSettings.theme_color || currSettings.theme_color,
+              theme_style: cloudSettings.theme_style || currSettings.theme_style,
+              show_completed: cloudSettings.show_completed !== undefined ? cloudSettings.show_completed : currSettings.show_completed,
+              active_workspace_id: cloudSettings.active_workspace_id || currSettings.active_workspace_id,
+              meta_app_id: cloudSettings.meta_app_id || currSettings.meta_app_id,
+              meta_client_token: cloudSettings.meta_client_token || currSettings.meta_client_token,
+              meta_user_token: cloudSettings.meta_user_token || currSettings.meta_user_token,
+              meta_ig_user_id: cloudSettings.meta_ig_user_id || currSettings.meta_ig_user_id,
+            };
+            storage.setSettings(mergedSettings);
+            setSettings(mergedSettings);
+            if (mergedSettings.meta_app_id && mergedSettings.meta_client_token) {
+              localStorage.setItem('trackrr_meta_access_token', `${mergedSettings.meta_app_id.trim()}|${mergedSettings.meta_client_token.trim()}`);
+            }
+            if (mergedSettings.meta_user_token) {
+              localStorage.setItem('trackrr_meta_user_token', mergedSettings.meta_user_token.trim());
+            }
+            if (mergedSettings.meta_ig_user_id) {
+              localStorage.setItem('trackrr_meta_ig_user_id', mergedSettings.meta_ig_user_id.trim());
+            }
+          }
+        }
+      } catch (err) {
+        console.warn('Could not sync cloud settings on startup:', err);
+      }
+
       if (active) {
         // Fetch workspace members
         const { data: members } = await supabase
@@ -973,6 +1012,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           theme_style: updated.theme_style,
           show_completed: updated.show_completed,
           active_workspace_id: updated.active_workspace_id,
+          meta_app_id: updated.meta_app_id || null,
+          meta_client_token: updated.meta_client_token || null,
+          meta_user_token: updated.meta_user_token || null,
+          meta_ig_user_id: updated.meta_ig_user_id || null,
           updated_at: new Date().toISOString(),
         };
         const { error } = await supabase.from('settings').upsert(payload, { onConflict: 'user_id' });

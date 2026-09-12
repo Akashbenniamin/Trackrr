@@ -262,6 +262,7 @@ export default function BatchflowBatches() {
 
   const [selectedBatchId, setSelectedBatchId] = useState<string | null>(activeBatches[0]?.id || null);
   const selectedBatch = activeBatches.find(b => b.id === selectedBatchId) || activeBatches[0] || null;
+  const currentClient = selectedBatch ? activeClients.find(c => c.id === selectedBatch.client_id) || null : null;
 
   const [sortOrder, setSortOrder] = usePersistedState<
     'script_asc' | 'script_desc' | 'status_pending' | 'status_posted' | 'name_asc'
@@ -368,6 +369,7 @@ export default function BatchflowBatches() {
         metaClientToken: settings.meta_client_token,
         metaUserToken: settings.meta_user_token,
         metaIgUserId: settings.meta_ig_user_id,
+        clientHandle: currentClient?.instagram_id || undefined,
       });
       setPostedMetaResult(res);
 
@@ -406,6 +408,7 @@ export default function BatchflowBatches() {
         metaClientToken: settings.meta_client_token,
         metaUserToken: settings.meta_user_token,
         metaIgUserId: settings.meta_ig_user_id,
+        clientHandle: currentClient?.instagram_id || undefined,
       });
       setEditingMetaResult(res);
 
@@ -1100,10 +1103,11 @@ export default function BatchflowBatches() {
               metaClientToken: settings.meta_client_token,
               metaUserToken: settings.meta_user_token,
               metaIgUserId: settings.meta_ig_user_id,
+              clientHandle: currentClient?.instagram_id || undefined,
             });
             const meta = await Promise.race([
               metaPromise,
-              new Promise<null>((resolve) => setTimeout(() => resolve(null), 4000)),
+              new Promise<null>((resolve) => setTimeout(() => resolve(null), 5000)),
             ]);
 
             if (meta) {

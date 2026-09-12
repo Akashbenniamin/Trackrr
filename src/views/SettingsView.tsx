@@ -27,6 +27,7 @@ import FavoriteRoundedIcon from '@mui/icons-material/FavoriteRounded';
 import ChatBubbleOutlineRoundedIcon from '@mui/icons-material/ChatBubbleOutlineRounded';
 import CalendarTodayRoundedIcon from '@mui/icons-material/CalendarTodayRounded';
 import PersonRoundedIcon from '@mui/icons-material/PersonRounded';
+import PlayCircleOutlineRoundedIcon from '@mui/icons-material/PlayCircleOutlineRounded';
 import StorageRoundedIcon from '@mui/icons-material/StorageRounded';
 import DataObjectRoundedIcon from '@mui/icons-material/DataObjectRounded';
 import MovieCreationRoundedIcon from '@mui/icons-material/MovieCreationRounded';
@@ -261,6 +262,16 @@ export default function SettingsView() {
     } else {
       localStorage.removeItem('trackrr_meta_access_token');
     }
+    if (metaUserToken.trim()) {
+      localStorage.setItem('trackrr_meta_user_token', metaUserToken.trim());
+    } else {
+      localStorage.removeItem('trackrr_meta_user_token');
+    }
+    if (metaIgUserId.trim()) {
+      localStorage.setItem('trackrr_meta_ig_user_id', metaIgUserId.trim());
+    } else {
+      localStorage.removeItem('trackrr_meta_ig_user_id');
+    }
     setToastMessage('Meta / Instagram API credentials saved successfully!');
   };
 
@@ -272,6 +283,8 @@ export default function SettingsView() {
       const res = await fetchVideoMetadata(metaTestUrl.trim(), {
         metaAppId: metaAppId.trim() || undefined,
         metaClientToken: metaClientToken.trim() || undefined,
+        metaUserToken: metaUserToken.trim() || undefined,
+        metaIgUserId: metaIgUserId.trim() || undefined,
       });
       setMetaTestResult(res);
     } catch (err: any) {
@@ -910,15 +923,19 @@ export default function SettingsView() {
               >
                 Save Meta Credentials
               </Button>
-              {(metaAppId || metaClientToken) && (
+              {(metaAppId || metaClientToken || metaUserToken || metaIgUserId) && (
                 <Button
                   variant="outlined"
                   color="inherit"
                   onClick={() => {
                     setMetaAppId('');
                     setMetaClientToken('');
-                    updateSettings({ meta_app_id: '', meta_client_token: '' });
+                    setMetaUserToken('');
+                    setMetaIgUserId('');
+                    updateSettings({ meta_app_id: '', meta_client_token: '', meta_user_token: '', meta_ig_user_id: '' });
                     localStorage.removeItem('trackrr_meta_access_token');
+                    localStorage.removeItem('trackrr_meta_user_token');
+                    localStorage.removeItem('trackrr_meta_ig_user_id');
                     setToastMessage('Meta credentials cleared.');
                   }}
                   sx={{ textTransform: 'none', borderColor: 'divider', color: 'text.secondary' }}
@@ -1033,8 +1050,21 @@ export default function SettingsView() {
                           )}
                         </Box>
 
-                        {/* 3. Likes Count & 4. Comments Count */}
+                        {/* 3. Views Count, Likes Count & Comments Count */}
                         <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                          <Chip
+                            icon={<PlayCircleOutlineRoundedIcon sx={{ fontSize: '14px !important', color: '#38BDF8 !important' }} />}
+                            label={metaTestResult.viewsCount ? `${metaTestResult.viewsCount} Views` : 'Views not public'}
+                            size="small"
+                            sx={{
+                              fontWeight: 700,
+                              fontSize: '0.75rem',
+                              bgcolor: 'rgba(56, 189, 248, 0.1)',
+                              color: '#38BDF8',
+                              border: '1px solid rgba(56, 189, 248, 0.25)',
+                            }}
+                          />
+
                           <Chip
                             icon={<FavoriteRoundedIcon sx={{ fontSize: '14px !important', color: '#F43F5E !important' }} />}
                             label={metaTestResult.likesCount ? `${metaTestResult.likesCount} Likes` : 'Likes not public'}
