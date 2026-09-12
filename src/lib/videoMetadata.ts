@@ -66,6 +66,97 @@ export function extractInstagramShortcode(url: string): string | null {
 }
 
 /**
+ * Decode publication timestamp directly from an Instagram shortcode (Snowflake ID algorithm).
+ * Instagram shortcodes are base64-like encoded media IDs where the upper 41 bits represent
+ * (timestamp_in_ms - 1314220021000).
+ */
+export function extractDateFromInstagramShortcode(shortcode: string): Date | null {
+  try {
+    const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+    let id = BigInt(0);
+    for (let i = 0; i < shortcode.length; i++) {
+      const char = shortcode[i];
+      const val = BigInt(alphabet.indexOf(char));
+      if (val === BigInt(-1)) return null;
+      id = id * BigInt(64) + val;
+    }
+    const timestampMs = Number((id >> BigInt(23)) + BigInt(1314220021000));
+    const d = new Date(timestampMs);
+    if (isNaN(d.getTime()) || d.getFullYear() < 2010 || d.getFullYear() > 2035) return null;
+    return d;
+  } catch {
+    return null;
+  }
+}
+
+/**
+ * Extract publication date directly from a video URL if possible (e.g. Instagram shortcodes).
+ * Returns YYYY-MM-DD or null.
+ */
+export function extractDateFromVideoUrl(url?: string | null): string | null {
+  if (!url) return null;
+  const shortcode = extractInstagramShortcode(url);
+  if (shortcode) {
+    const d = extractDateFromInstagramShortcode(shortcode);
+    if (d) {
+      return d.toISOString().slice(0, 10);
+    }
+  }
+  return null;
+}
+
+/**
+ * Extract the first few words of a video caption for display inside () brackets.
+ */
+export function getCaptionSnippet(caption?: string | null, maxWords = 5): string | null {
+  if (!caption) return null;
+  const clean = caption.replace(/\r?\n|\r/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!clean) return null;
+  const words = clean.split(' ').filter(w => w.trim().length > 0);
+  if (words.length === 0) return null;
+  const snippet = words.slice(0, maxWords).join(' ');
+  return words.length > maxWords ? `${snippet}...` : snippet;
+}
+
+/**
+ * Convert any image URL to a base64 data URL with CORS support.
+ * First tries direct fetch, then falls back to weserv CORS proxy.
+ */
+export async function fetchImageBase64(url?: string | null): Promise<string | null> {
+  if (!url) return null;
+  if (url.startsWith('data:image')) return url;
+
+  const tryFetchToDataUrl = async (targetUrl: string): Promise<string | null> => {
+    try {
+      const resp = await fetch(targetUrl);
+      if (!resp.ok) return null;
+      const blob = await resp.blob();
+      return new Promise<string | null>((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => resolve(typeof reader.result === 'string' ? reader.result : null);
+        reader.onerror = () => resolve(null);
+        reader.readAsDataURL(blob);
+      });
+    } catch {
+      return null;
+    }
+  };
+
+  const direct = await tryFetchToDataUrl(url);
+  if (direct) return direct;
+
+  try {
+    const proxyUrl = `https://images.weserv.nl/?url=${encodeURIComponent(url)}&w=120&h=120&fit=cover&output=jpg`;
+    const proxied = await tryFetchToDataUrl(proxyUrl);
+    if (proxied) return proxied;
+  } catch {
+    // ignore
+  }
+
+  return null;
+}
+
+/**
  * Extract username from an Instagram profile or post URL if present
  */
 export function extractInstagramUsername(url: string): string | null {
@@ -408,6 +499,23 @@ export async function fetchVideoMetadata(
       creatorHandle = urlHandle;
     }
 
+    if (shortcode) {
+      const scDate = extractDateFromInstagramShortcode(shortcode);
+      if (scDate) {
+        postedDate = scDate.toISOString().slice(0, 10);
+        postedDateTime = scDate.toISOString();
+      }
+    }
+
+    try {
+      const cachedThumb = localStorage.getItem(`trackrr_thumb_${cleanUrl}`);
+      if (cachedThumb) thumbnailUrl = cachedThumb;
+      const cachedCaption = localStorage.getItem(`trackrr_caption_${cleanUrl}`);
+      if (cachedCaption) caption = cachedCaption;
+    } catch {
+      // ignore
+    }
+
     const applyBdResult = (res: { viewsCount: string | null; likesCount: string | null; commentsCount: string | null; postedDate: string | null; postedDateTime: string | null; caption: string | null }) => {
       usedOfficialMetaApi = true;
       if (res.viewsCount) viewsCount = res.viewsCount;
@@ -588,6 +696,12 @@ export async function fetchVideoMetadata(
     }
 
     if (postedDate || caption || author || likesCount || viewsCount) {
+      if (thumbnailUrl) {
+        try { localStorage.setItem(`trackrr_thumb_${cleanUrl}`, thumbnailUrl); } catch {}
+      }
+      if (caption) {
+        try { localStorage.setItem(`trackrr_caption_${cleanUrl}`, caption); } catch {}
+      }
       let viewsStatus: 'available' | 'hidden_by_creator' | 'requires_user_token' | 'unsupported' = 'unsupported';
       if (viewsCount) {
         viewsStatus = 'available';
@@ -693,6 +807,12 @@ export async function fetchVideoMetadata(
       }
 
       if (title || viewsCount) {
+        if (thumbnailUrl) {
+          try { localStorage.setItem(`trackrr_thumb_${cleanUrl}`, thumbnailUrl); } catch {}
+        }
+        if (title) {
+          try { localStorage.setItem(`trackrr_caption_${cleanUrl}`, title); } catch {}
+        }
         return {
           title,
           author,

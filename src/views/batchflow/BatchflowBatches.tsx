@@ -28,8 +28,29 @@ import { jsPDF } from 'jspdf';
 import { registerOkineFont } from '../../lib/okineFont';
 import { useApp } from '../../contexts/AppContext';
 import { usePersistedState } from '../../lib/usePersistedState';
-import { fetchVideoMetadata, cleanVideoUrl, extractVideoLikes, type VideoMetadataResult } from '../../lib/videoMetadata';
+import {
+  fetchVideoMetadata,
+  cleanVideoUrl,
+  extractVideoLikes,
+  extractDateFromVideoUrl,
+  getCaptionSnippet,
+  fetchImageBase64,
+  type VideoMetadataResult,
+} from '../../lib/videoMetadata';
 import type { BatchflowBatch, BatchflowVideo, BatchflowVideoStatus } from '../../types';
+
+export type BatchVideoSortOption =
+  | 'script_asc'
+  | 'script_desc'
+  | 'date_desc'
+  | 'date_asc'
+  | 'likes_desc'
+  | 'likes_asc'
+  | 'status_pending'
+  | 'status_edited'
+  | 'status_posted'
+  | 'name_asc'
+  | 'name_desc';
 
 const STATUS_COLORS: Record<BatchflowVideoStatus, { bg: string; text: string; border: string }> = {
   Pending: { bg: 'rgba(245, 158, 11, 0.15)', text: '#F59E0B', border: 'rgba(245, 158, 11, 0.4)' },
@@ -264,9 +285,10 @@ export default function BatchflowBatches() {
   const selectedBatch = activeBatches.find(b => b.id === selectedBatchId) || activeBatches[0] || null;
   const currentClient = selectedBatch ? activeClients.find(c => c.id === selectedBatch.client_id) || null : null;
 
-  const [sortOrder, setSortOrder] = usePersistedState<
-    'script_asc' | 'script_desc' | 'status_pending' | 'status_posted' | 'name_asc'
-  >('trackrr_batchflow_video_sort', 'script_asc');
+  const [sortOrder, setSortOrder] = usePersistedState<BatchVideoSortOption>(
+    'trackrr_batchflow_video_sort_v2',
+    'script_asc'
+  );
 
   // Dialog states
   const [newBatchOpen, setNewBatchOpen] = useState(false);
@@ -352,6 +374,18 @@ export default function BatchflowBatches() {
   const [manualSyncing, setManualSyncing] = useState(false);
   const [syncSnackbar, setSyncSnackbar] = useState<string | null>(null);
 
+  // PNG Export states
+  const [isExportingPNG, setIsExportingPNG] = useState(false);
+  const [pngLikesMap, setPngLikesMap] = useState<Map<string, string>>(new Map());
+  const [pngDatesMap, setPngDatesMap] = useState<Map<string, string>>(new Map());
+  const [pngThumbsMap, setPngThumbsMap] = useState<Map<string, string>>(new Map());
+  const [pngCaptionsMap, setPngCaptionsMap] = useState<Map<string, string>>(new Map());
+  const pngExportRef = useRef<HTMLDivElement>(null);
+
+  // Live in-memory cache for thumbnails & captions in UI
+  const [syncedThumbs, setSyncedThumbs] = useState<Record<string, string>>({});
+  const [syncedCaptions, setSyncedCaptions] = useState<Record<string, string>>({});
+
   const handleFetchPostedMetadata = async (urlInput?: string) => {
     const raw = (urlInput !== undefined ? urlInput : postedVideoUrl).trim();
     if (!raw) return;
@@ -360,6 +394,12 @@ export default function BatchflowBatches() {
     setPostedVideoUrl(cleaned);
     setPostedMetaLoading(true);
     setPostedMetaResult(null);
+
+    // Instant date from URL if present
+    const immediateUrlDate = extractDateFromVideoUrl(cleaned);
+    if (immediateUrlDate) {
+      setPostedCustomDate(immediateUrlDate);
+    }
 
     try {
       const res = await fetchVideoMetadata(cleaned, {
@@ -374,6 +414,12 @@ export default function BatchflowBatches() {
       }
       if (res.likesCount) {
         setPostedLikes(String(res.likesCount).replace(/likes?/i, '').trim());
+      }
+      if (res.thumbnailUrl && postedTargetVideo) {
+        setSyncedThumbs(prev => ({ ...prev, [postedTargetVideo.id]: res.thumbnailUrl! }));
+      }
+      if (res.caption && postedTargetVideo) {
+        setSyncedCaptions(prev => ({ ...prev, [postedTargetVideo.id]: res.caption! }));
       }
     } catch (err: any) {
       setPostedMetaResult({
@@ -391,7 +437,14 @@ export default function BatchflowBatches() {
     if (!raw) return;
 
     const cleaned = cleanVideoUrl(raw);
-    setEditingVideo(prev => prev ? { ...prev, video_url: cleaned } : null);
+    const immediateUrlDate = extractDateFromVideoUrl(cleaned);
+
+    setEditingVideo(prev => prev ? {
+      ...prev,
+      video_url: cleaned,
+      posted_date: immediateUrlDate || prev.posted_date,
+    } : null);
+
     setEditingMetaLoading(true);
     setEditingMetaResult(null);
 
@@ -409,6 +462,13 @@ export default function BatchflowBatches() {
       if (res.likesCount) {
         const cleanL = String(res.likesCount).replace(/likes?/i, '').trim();
         setEditingVideo(prev => prev ? { ...prev, likes: cleanL } : null);
+      }
+      if (res.caption) {
+        setEditingVideo(prev => prev ? { ...prev, description: prev.description || res.caption || undefined } : null);
+        setSyncedCaptions(prev => ({ ...prev, [editingVideo.id]: res.caption! }));
+      }
+      if (res.thumbnailUrl) {
+        setSyncedThumbs(prev => ({ ...prev, [editingVideo.id]: res.thumbnailUrl! }));
       }
     } catch (err: any) {
       setEditingMetaResult({
@@ -490,25 +550,87 @@ export default function BatchflowBatches() {
 
   const reportRef = useRef<HTMLDivElement>(null);
 
-  const statusPriorityPendingFirst: Record<BatchflowVideoStatus, number> = { Pending: 1, Edited: 2, Posted: 3 };
-  const statusPriorityPostedFirst: Record<BatchflowVideoStatus, number> = { Posted: 1, Edited: 2, Pending: 3 };
+  const parseLikesCountNum = (likesStr?: string | number | null): number => {
+    if (!likesStr) return 0;
+    const s = String(likesStr).toUpperCase().trim();
+    if (s.endsWith('B')) return (parseFloat(s) || 0) * 1_000_000_000;
+    if (s.endsWith('M')) return (parseFloat(s) || 0) * 1_000_000;
+    if (s.endsWith('K')) return (parseFloat(s) || 0) * 1_000;
+    return parseInt(s.replace(/[^0-9]/g, ''), 10) || 0;
+  };
+
+  const getVideoEffectiveDate = (v: BatchflowVideo): string => {
+    const urlD = extractDateFromVideoUrl(v.video_url);
+    if (urlD) return urlD;
+    if (v.posted_date) return v.posted_date.slice(0, 10);
+    if (v.edited_date) return v.edited_date.slice(0, 10);
+    if (v.waiting_date) return v.waiting_date.slice(0, 10);
+    return '';
+  };
+
+  const sortBatchVideos = (
+    videos: BatchflowVideo[],
+    order: BatchVideoSortOption,
+    likesOverrideMap?: Map<string, string>
+  ): BatchflowVideo[] => {
+    const statusPriorityPending: Record<BatchflowVideoStatus, number> = { Pending: 1, Edited: 2, Posted: 3 };
+    const statusPriorityEdited: Record<BatchflowVideoStatus, number> = { Edited: 1, Pending: 2, Posted: 3 };
+    const statusPriorityPosted: Record<BatchflowVideoStatus, number> = { Posted: 1, Edited: 2, Pending: 3 };
+
+    return [...videos].sort((a, b) => {
+      if (order === 'script_asc') return (a.script_number ?? 0) - (b.script_number ?? 0);
+      if (order === 'script_desc') return (b.script_number ?? 0) - (a.script_number ?? 0);
+      if (order === 'date_desc') {
+        const dA = getVideoEffectiveDate(a);
+        const dB = getVideoEffectiveDate(b);
+        if (dA && dB) return dB.localeCompare(dA);
+        if (dB) return 1;
+        if (dA) return -1;
+        return (a.script_number ?? 0) - (b.script_number ?? 0);
+      }
+      if (order === 'date_asc') {
+        const dA = getVideoEffectiveDate(a);
+        const dB = getVideoEffectiveDate(b);
+        if (dA && dB) return dA.localeCompare(dB);
+        if (dA) return -1;
+        if (dB) return 1;
+        return (a.script_number ?? 0) - (b.script_number ?? 0);
+      }
+      if (order === 'likes_desc') {
+        const lA = parseLikesCountNum(likesOverrideMap?.get(a.id) || extractVideoLikes(a).likes);
+        const lB = parseLikesCountNum(likesOverrideMap?.get(b.id) || extractVideoLikes(b).likes);
+        if (lB !== lA) return lB - lA;
+        return (a.script_number ?? 0) - (b.script_number ?? 0);
+      }
+      if (order === 'likes_asc') {
+        const lA = parseLikesCountNum(likesOverrideMap?.get(a.id) || extractVideoLikes(a).likes);
+        const lB = parseLikesCountNum(likesOverrideMap?.get(b.id) || extractVideoLikes(b).likes);
+        if (lA !== lB) return lA - lB;
+        return (a.script_number ?? 0) - (b.script_number ?? 0);
+      }
+      if (order === 'status_pending') {
+        const diff = (statusPriorityPending[a.status] || 99) - (statusPriorityPending[b.status] || 99);
+        if (diff !== 0) return diff;
+        return (a.script_number ?? 0) - (b.script_number ?? 0);
+      }
+      if (order === 'status_edited') {
+        const diff = (statusPriorityEdited[a.status] || 99) - (statusPriorityEdited[b.status] || 99);
+        if (diff !== 0) return diff;
+        return (a.script_number ?? 0) - (b.script_number ?? 0);
+      }
+      if (order === 'status_posted') {
+        const diff = (statusPriorityPosted[a.status] || 99) - (statusPriorityPosted[b.status] || 99);
+        if (diff !== 0) return diff;
+        return (a.script_number ?? 0) - (b.script_number ?? 0);
+      }
+      if (order === 'name_asc') return a.name.localeCompare(b.name, undefined, { numeric: true });
+      if (order === 'name_desc') return b.name.localeCompare(a.name, undefined, { numeric: true });
+      return (a.script_number ?? 0) - (b.script_number ?? 0);
+    });
+  };
 
   const currentBatchVideos = batchflowVideos.filter(v => v.batch_id === selectedBatch?.id);
-  const sortedVideos = [...currentBatchVideos].sort((a, b) => {
-    if (sortOrder === 'script_asc') return (a.script_number ?? 0) - (b.script_number ?? 0);
-    if (sortOrder === 'script_desc') return (b.script_number ?? 0) - (a.script_number ?? 0);
-    if (sortOrder === 'status_pending') {
-      const diff = (statusPriorityPendingFirst[a.status] || 99) - (statusPriorityPendingFirst[b.status] || 99);
-      if (diff !== 0) return diff;
-      return (a.script_number ?? 0) - (b.script_number ?? 0);
-    }
-    if (sortOrder === 'status_posted') {
-      const diff = (statusPriorityPostedFirst[a.status] || 99) - (statusPriorityPostedFirst[b.status] || 99);
-      if (diff !== 0) return diff;
-      return (a.script_number ?? 0) - (b.script_number ?? 0);
-    }
-    return a.name.localeCompare(b.name, undefined, { numeric: true });
-  });
+  const sortedVideos = sortBatchVideos(currentBatchVideos, sortOrder);
 
   const filteredVideos = sortedVideos.filter(v => statusFilter === 'ALL' || v.status === statusFilter);
 
@@ -592,19 +714,48 @@ export default function BatchflowBatches() {
   };
 
   const handleExportPNG = async () => {
-    if (!reportRef.current || !selectedBatch) return;
+    if (!selectedBatch) return;
+    setIsExportingPNG(true);
     try {
-      const canvas = await html2canvas(reportRef.current, {
-        backgroundColor: '#080C14',
-        scale: 2,
-        useCORS: true,
+      // 1. Sort current batch videos according to active sort settings
+      const sortedForExport = sortBatchVideos(currentBatchVideos, sortOrder);
+
+      // 2. Fetch live metrics, URL dates, thumbnails, captions
+      const metaResult = await syncVideosMetadata(sortedForExport);
+      setPngLikesMap(metaResult.likesMap);
+      setPngDatesMap(metaResult.datesMap);
+
+      // Prefer base64 image data so html2canvas never suffers from CORS tainting
+      const finalThumbs = new Map<string, string>();
+      sortedForExport.forEach(v => {
+        const b64 = metaResult.thumbsBase64Map.get(v.id);
+        const regular = metaResult.thumbsMap.get(v.id);
+        if (b64) finalThumbs.set(v.id, b64);
+        else if (regular) finalThumbs.set(v.id, regular);
       });
-      const link = document.createElement('a');
-      link.download = `${selectedBatch.name}_Report.png`;
-      link.href = canvas.toDataURL('image/png');
-      link.click();
+      setPngThumbsMap(finalThumbs);
+      setPngCaptionsMap(metaResult.captionsMap);
+
+      // Wait 300ms for images and DOM elements to be ready
+      await new Promise(r => setTimeout(r, 300));
+
+      if (pngExportRef.current) {
+        const canvas = await html2canvas(pngExportRef.current, {
+          backgroundColor: '#FFFFFF',
+          scale: 2.5,
+          useCORS: true,
+          allowTaint: true,
+          logging: false,
+        });
+        const link = document.createElement('a');
+        link.download = `${selectedBatch.name.replace(/[^a-zA-Z0-9_-]/g, '_')}_Report.png`;
+        link.href = canvas.toDataURL('image/png');
+        link.click();
+      }
     } catch (err) {
       console.error('PNG export failed:', err);
+    } finally {
+      setIsExportingPNG(false);
     }
   };
 
@@ -717,7 +868,10 @@ export default function BatchflowBatches() {
     client: typeof activeClients[0] | undefined,
     videos: BatchflowVideo[],
     isFirstPage = true,
-    likesMap?: Map<string, string>
+    likesMap?: Map<string, string>,
+    datesMap?: Map<string, string>,
+    thumbsBase64Map?: Map<string, string>,
+    captionsMap?: Map<string, string>
   ) => {
     const pageWidth = 210;
     const pageHeight = 297;
@@ -859,8 +1013,7 @@ export default function BatchflowBatches() {
       doc.setLineWidth(0.35);
       doc.roundedRect(kX, cardY, cardWidth, cardHeight, 2.0, 2.0, 'FD');
 
-      // 2. Faded Watermark Icon in bottom-left corner with rotation:
-      // ~20% of the icon extends outside the bottom-left corner, strictly clipped to the card boundaries
+      // 2. Faded Watermark Icon in bottom-left corner with rotation
       doc.saveGraphicsState();
       doc.roundedRect(kX, cardY, cardWidth, cardHeight, 2.0, 2.0, null as any);
       doc.clip();
@@ -885,7 +1038,7 @@ export default function BatchflowBatches() {
       }
       doc.restoreGraphicsState();
 
-      // Re-stroke crisp card border so watermark edges are cleanly bounded
+      // Re-stroke crisp card border
       doc.setDrawColor(kpi.border[0], kpi.border[1], kpi.border[2]);
       doc.setLineWidth(0.35);
       doc.roundedRect(kX, cardY, cardWidth, cardHeight, 2.0, 2.0, 'S');
@@ -903,7 +1056,7 @@ export default function BatchflowBatches() {
       doc.setTextColor(kpi.text[0], kpi.text[1], kpi.text[2]);
       doc.text(kpi.label, dotX + 3.8, dotY, { baseline: 'middle' });
 
-      // 4. Large Standout Number in Okine Bold on the Right (2.3x larger = 44pt), Centered Vertically
+      // 4. Large Standout Number in Okine Bold on the Right, Centered Vertically
       doc.setFont('Okine', 'bold');
       const numFontSize = kpi.val >= 100 ? 30 : kpi.val >= 10 ? 38 : 44;
       doc.setFontSize(numFontSize);
@@ -923,21 +1076,22 @@ export default function BatchflowBatches() {
       doc.setFontSize(7.5);
       doc.setTextColor(241, 245, 249); // #F1F5F9
       doc.text('SL NO.', margin + 3, yPos + 5.5);
-      doc.text('VIDEO TITLE', margin + 16, yPos + 5.5);
-      doc.text('LIKES', margin + 98, yPos + 5.5);
-      doc.text('SCRIPT NO.', margin + 118, yPos + 5.5);
-      doc.text('STATUS', margin + 144, yPos + 5.5, { align: 'center' });
-      doc.text('PIPELINE DATE', margin + 158, yPos + 5.5);
+      doc.text('VIDEO TITLE', margin + 23, yPos + 5.5);
+      doc.text('LIKES', margin + 101, yPos + 5.5);
+      doc.text('SCRIPT NO.', margin + 121, yPos + 5.5);
+      doc.text('STATUS', margin + 148, yPos + 5.5, { align: 'center' });
+      doc.text('PIPELINE DATE', margin + 162, yPos + 5.5);
     };
 
     drawTableHeader(curY);
     curY += 8;
 
-    const bSortedVideos = [...videos].sort((a, b) => (a.script_number || 0) - (b.script_number || 0));
+    // Follows the exact active sort order passed into renderBatchReport
+    const bSortedVideos = [...videos];
 
     bSortedVideos.forEach((v, index) => {
-      const rowHeight = 9.5;
-      if (curY + rowHeight > pageHeight - 20) {
+      const rowHeight = 11.0;
+      if (curY + rowHeight > pageHeight - 18) {
         doc.addPage();
         curY = 20;
         drawTableHeader(curY);
@@ -958,17 +1112,50 @@ export default function BatchflowBatches() {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8);
       doc.setTextColor(100, 116, 139);
-      doc.text(String(index + 1), margin + 3, curY + 6.0);
+      doc.text(String(index + 1), margin + 3, curY + 6.8);
 
-      // Col 2: Video Title (clickable if video_url exists)
+      // Col 2: Thumbnail & Video Title
+      const thumbX = margin + 12;
+      const thumbY = curY + 1.75;
+      const thumbSize = 7.5;
+      const base64Img = thumbsBase64Map?.get(v.id);
+
+      if (base64Img) {
+        try {
+          doc.addImage(base64Img, 'JPEG', thumbX, thumbY, thumbSize, thumbSize);
+        } catch {
+          doc.setFillColor(241, 245, 249);
+          doc.setDrawColor(203, 213, 225);
+          doc.roundedRect(thumbX, thumbY, thumbSize, thumbSize, 1.2, 1.2, 'FD');
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(6.5);
+          doc.setTextColor(148, 163, 184);
+          doc.text(`#${v.script_number || index + 1}`, thumbX + thumbSize / 2, thumbY + 5.0, { align: 'center' });
+        }
+      } else {
+        doc.setFillColor(241, 245, 249);
+        doc.setDrawColor(203, 213, 225);
+        doc.roundedRect(thumbX, thumbY, thumbSize, thumbSize, 1.2, 1.2, 'FD');
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6.5);
+        doc.setTextColor(148, 163, 184);
+        doc.text(`#${v.script_number || index + 1}`, thumbX + thumbSize / 2, thumbY + 5.0, { align: 'center' });
+      }
+
+      // Title + Caption Snippet in () brackets
+      const captionText = captionsMap?.get(v.id) || v.description;
+      const snippet = getCaptionSnippet(captionText, 5);
+      const baseTitle = v.name || `Video #${v.script_number ?? index + 1}`;
+      const titleWithSnippet = snippet ? `${baseTitle} (${snippet})` : baseTitle;
+      const truncatedTitle = doc.splitTextToSize(titleWithSnippet, 73)[0];
+
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8);
       doc.setTextColor(15, 23, 42);
-      const title = v.name || `Video #${v.script_number ?? index + 1}`;
-      const truncatedTitle = doc.splitTextToSize(title, 75)[0];
-      doc.text(truncatedTitle, margin + 16, curY + 6.0);
+      doc.text(truncatedTitle, margin + 23, curY + 6.8);
+
       if (v.video_url) {
-        doc.link(margin + 16, curY + 1.5, 75, 6.5, { url: v.video_url });
+        doc.link(thumbX, thumbY, 74 + thumbSize + 3, thumbSize, { url: v.video_url });
       }
 
       const vExtracted = extractVideoLikes(v);
@@ -981,23 +1168,23 @@ export default function BatchflowBatches() {
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(8);
         doc.setTextColor(239, 68, 68); // Soft red (#EF4444)
-        doc.text(vLikes, margin + 98, curY + 6.0);
+        doc.text(vLikes, margin + 101, curY + 6.8);
       } else {
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(8);
         doc.setTextColor(148, 163, 184);
-        doc.text('-', margin + 98, curY + 6.0);
+        doc.text('-', margin + 101, curY + 6.8);
       }
 
       // Col 4: SCRIPT NO.
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8);
       doc.setTextColor(71, 85, 105);
-      doc.text(v.script_number === 0 ? '-' : String(v.script_number ?? '-'), margin + 118, curY + 6.0);
+      doc.text(v.script_number === 0 ? '-' : String(v.script_number ?? '-'), margin + 121, curY + 6.8);
 
       // Col 5: Status Pill (Clickable if video_url exists)
-      const pillX = margin + 134;
-      const pillY = curY + 2.0;
+      const pillX = margin + 138;
+      const pillY = curY + 2.75;
       const pillW = 20;
       const pillH = 5.5;
 
@@ -1030,14 +1217,16 @@ export default function BatchflowBatches() {
         doc.text('PENDING', pillX + pillW / 2, pillY + 3.8, { align: 'center' });
       }
 
-      // Col 6: Date / Details
+      // Col 6: Date / Details (PRIORITIZE URL DATE!)
       doc.setFont('helvetica', 'normal');
       doc.setFontSize(7.5);
       doc.setTextColor(100, 116, 139);
-      const dateText = v.status === 'Posted' && v.posted_date ? new Date(v.posted_date).toLocaleDateString() :
-                       v.status === 'Edited' && v.edited_date ? new Date(v.edited_date).toLocaleDateString() :
+      const urlDate = datesMap?.get(v.id) || extractDateFromVideoUrl(v.video_url);
+      const effectiveDate = urlDate || (v.status === 'Posted' && v.posted_date ? v.posted_date.slice(0, 10) : null);
+      const dateText = effectiveDate ? new Date(effectiveDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) :
+                       v.status === 'Edited' && v.edited_date ? new Date(v.edited_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) :
                        batch.shoot_date ? `Shoot: ${batch.shoot_date}` : '-';
-      doc.text(dateText, margin + 158, curY + 6.0);
+      doc.text(dateText, margin + 162, curY + 6.8);
 
       curY += rowHeight;
     });
@@ -1045,9 +1234,17 @@ export default function BatchflowBatches() {
 
   const syncVideosMetadata = async (videosToSync: BatchflowVideo[]): Promise<{
     likesMap: Map<string, string>;
+    datesMap: Map<string, string>;
+    thumbsMap: Map<string, string>;
+    thumbsBase64Map: Map<string, string>;
+    captionsMap: Map<string, string>;
     updatedCount: number;
   }> => {
     const likesMap = new Map<string, string>();
+    const datesMap = new Map<string, string>();
+    const thumbsMap = new Map<string, string>();
+    const thumbsBase64Map = new Map<string, string>();
+    const captionsMap = new Map<string, string>();
     let updatedCount = 0;
 
     await Promise.all(
@@ -1058,6 +1255,38 @@ export default function BatchflowBatches() {
         }
 
         if (v.video_url) {
+          const clean = cleanVideoUrl(v.video_url);
+
+          // URL date priority
+          const urlDate = extractDateFromVideoUrl(clean);
+          if (urlDate) {
+            datesMap.set(v.id, urlDate);
+          } else if (v.posted_date) {
+            datesMap.set(v.id, v.posted_date.slice(0, 10));
+          }
+
+          // YouTube thumbnail check
+          const vidMatch = clean.match(/(?:v=|\/embed\/|\/shorts\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/i);
+          if (vidMatch) {
+            thumbsMap.set(v.id, `https://img.youtube.com/vi/${vidMatch[1]}/hqdefault.jpg`);
+          }
+
+          // LocalStorage cached thumbnail & caption
+          try {
+            const cachedT = localStorage.getItem(`trackrr_thumb_${clean}`);
+            if (cachedT && !thumbsMap.has(v.id)) {
+              thumbsMap.set(v.id, cachedT);
+            }
+            const cachedC = localStorage.getItem(`trackrr_caption_${clean}`);
+            if (cachedC) {
+              captionsMap.set(v.id, cachedC);
+            }
+          } catch {}
+
+          if (v.description && !captionsMap.has(v.id)) {
+            captionsMap.set(v.id, v.description);
+          }
+
           try {
             const metaPromise = fetchVideoMetadata(v.video_url, {
               metaAppId: settings.meta_app_id,
@@ -1081,9 +1310,29 @@ export default function BatchflowBatches() {
                 }
               }
 
-              // 2. Posted date: auto-fill from post if not set
-              if (meta.postedDate && !v.posted_date) {
-                updates.posted_date = meta.postedDate.includes('T') ? meta.postedDate : `${meta.postedDate}T12:00:00.000Z`;
+              // 2. Date update: ALWAYS prioritize URL / meta date
+              const effectiveDate = meta.postedDate || urlDate;
+              if (effectiveDate) {
+                datesMap.set(v.id, effectiveDate.slice(0, 10));
+                const formattedDate = effectiveDate.includes('T') ? effectiveDate : `${effectiveDate}T12:00:00.000Z`;
+                if (formattedDate.slice(0, 10) !== v.posted_date?.slice(0, 10)) {
+                  updates.posted_date = formattedDate;
+                }
+              }
+
+              // 3. Thumbnail update
+              if (meta.thumbnailUrl) {
+                thumbsMap.set(v.id, meta.thumbnailUrl);
+                try { localStorage.setItem(`trackrr_thumb_${clean}`, meta.thumbnailUrl); } catch {}
+              }
+
+              // 4. Caption update
+              if (meta.caption) {
+                captionsMap.set(v.id, meta.caption);
+                try { localStorage.setItem(`trackrr_caption_${clean}`, meta.caption); } catch {}
+                if (!v.description) {
+                  updates.description = meta.caption;
+                }
               }
 
               if (Object.keys(updates).length > 0) {
@@ -1094,11 +1343,29 @@ export default function BatchflowBatches() {
           } catch (err) {
             console.warn(`Could not sync video ${v.id}:`, err);
           }
+
+          // Pre-convert thumbnail to base64 for PDF and PNG export
+          const currentThumb = thumbsMap.get(v.id);
+          if (currentThumb) {
+            try {
+              const b64 = await fetchImageBase64(currentThumb);
+              if (b64) thumbsBase64Map.set(v.id, b64);
+            } catch {}
+          }
         }
       })
     );
 
-    return { likesMap, updatedCount };
+    // Update synced memory states so UI video cards reflect thumbnails & captions immediately
+    const newThumbsObj: Record<string, string> = {};
+    thumbsMap.forEach((val, key) => { newThumbsObj[key] = val; });
+    setSyncedThumbs(prev => ({ ...prev, ...newThumbsObj }));
+
+    const newCaptionsObj: Record<string, string> = {};
+    captionsMap.forEach((val, key) => { newCaptionsObj[key] = val; });
+    setSyncedCaptions(prev => ({ ...prev, ...newCaptionsObj }));
+
+    return { likesMap, datesMap, thumbsMap, thumbsBase64Map, captionsMap, updatedCount };
   };
 
   const handleSyncBatchLinks = async () => {
@@ -1114,7 +1381,7 @@ export default function BatchflowBatches() {
       const { updatedCount } = await syncVideosMetadata(vidsWithUrls);
       setSyncSnackbar(
         updatedCount > 0
-          ? `Refreshed live metrics for ${updatedCount} video(s)!`
+          ? `Refreshed live metrics & URL dates for ${updatedCount} video(s)!`
           : `All ${vidsWithUrls.length} video link(s) are already up to date!`
       );
     } catch {
@@ -1129,8 +1396,11 @@ export default function BatchflowBatches() {
     setSyncingPDF(true);
 
     try {
-      // 1. Automatically refresh live stats from links before rendering PDF
-      const { likesMap } = await syncVideosMetadata(currentBatchVideos);
+      // 1. Sort current batch videos according to currently selected sort order
+      const sortedForExport = sortBatchVideos(currentBatchVideos, sortOrder);
+
+      // 2. Automatically refresh live stats, URL dates, thumbnails, captions
+      const { likesMap, datesMap, thumbsBase64Map, captionsMap } = await syncVideosMetadata(sortedForExport);
 
       const doc = new jsPDF({
         orientation: 'portrait',
@@ -1138,7 +1408,17 @@ export default function BatchflowBatches() {
         format: 'a4',
       });
 
-      renderBatchReport(doc, selectedBatch, selectedClient, currentBatchVideos, true, likesMap);
+      renderBatchReport(
+        doc,
+        selectedBatch,
+        selectedClient,
+        sortedForExport,
+        true,
+        likesMap,
+        datesMap,
+        thumbsBase64Map,
+        captionsMap
+      );
 
       const margin = 14;
       const pageWidth = 210;
@@ -1170,9 +1450,8 @@ export default function BatchflowBatches() {
     setSyncingAllPDF(true);
 
     try {
-      // 1. Automatically refresh live stats from links across all active batches before rendering PDF
       const allActiveVideos = batchflowVideos.filter(v => activeBatches.some(b => b.id === v.batch_id));
-      const { likesMap } = await syncVideosMetadata(allActiveVideos);
+      const { likesMap, datesMap, thumbsBase64Map, captionsMap } = await syncVideosMetadata(allActiveVideos);
 
       const doc = new jsPDF({
         orientation: 'portrait',
@@ -1182,8 +1461,8 @@ export default function BatchflowBatches() {
 
       activeBatches.forEach((b, idx) => {
         const client = activeClients.find(c => c.id === b.client_id);
-        const bVids = batchflowVideos.filter(v => v.batch_id === b.id);
-        renderBatchReport(doc, b, client, bVids, idx === 0, likesMap);
+        const bVids = sortBatchVideos(batchflowVideos.filter(v => v.batch_id === b.id), sortOrder, likesMap);
+        renderBatchReport(doc, b, client, bVids, idx === 0, likesMap, datesMap, thumbsBase64Map, captionsMap);
       });
 
       const margin = 14;
@@ -1541,12 +1820,12 @@ export default function BatchflowBatches() {
                   <Button
                     size="small"
                     variant="outlined"
-                    startIcon={<DownloadRoundedIcon sx={{ fontSize: 15 }} />}
+                    startIcon={isExportingPNG ? <CircularProgress size={13} sx={{ color: 'inherit' }} /> : <DownloadRoundedIcon sx={{ fontSize: 15 }} />}
                     onClick={handleExportPNG}
-                    disabled={!selectedBatch}
+                    disabled={!selectedBatch || isExportingPNG || syncingPDF || manualSyncing}
                     sx={{ textTransform: 'none', borderRadius: 1, fontWeight: 600, fontSize: '0.75rem', height: 30, px: 1.25, borderColor: 'rgba(255,255,255,0.12)' }}
                   >
-                    PNG
+                    {isExportingPNG ? 'Exporting...' : 'PNG'}
                   </Button>
                   {canEdit && selectedBatch && (
                     <>
@@ -1911,15 +2190,21 @@ export default function BatchflowBatches() {
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
                 <Select
                   value={sortOrder}
-                  onChange={e => setSortOrder(e.target.value as any)}
+                  onChange={e => setSortOrder(e.target.value as BatchVideoSortOption)}
                   size="small"
-                  sx={{ fontSize: '0.72rem', height: 28, borderRadius: 1 }}
+                  sx={{ fontSize: '0.72rem', height: 28, borderRadius: 1, minWidth: 155 }}
                 >
-                  <MenuItem value="script_asc">Script # (1-10)</MenuItem>
-                  <MenuItem value="script_desc">Script # (10-1)</MenuItem>
+                  <MenuItem value="script_asc">Script # (1 → 10)</MenuItem>
+                  <MenuItem value="script_desc">Script # (10 → 1)</MenuItem>
+                  <MenuItem value="date_desc">Date (Newest First)</MenuItem>
+                  <MenuItem value="date_asc">Date (Oldest First)</MenuItem>
+                  <MenuItem value="likes_desc">Likes (Most First)</MenuItem>
+                  <MenuItem value="likes_asc">Likes (Fewest First)</MenuItem>
                   <MenuItem value="status_pending">Status: Pending First</MenuItem>
+                  <MenuItem value="status_edited">Status: Edited First</MenuItem>
                   <MenuItem value="status_posted">Status: Posted First</MenuItem>
-                  <MenuItem value="name_asc">Name (A-Z)</MenuItem>
+                  <MenuItem value="name_asc">Name (A → Z)</MenuItem>
+                  <MenuItem value="name_desc">Name (Z → A)</MenuItem>
                 </Select>
 
                 {canEdit && selectedBatch && (
@@ -2043,10 +2328,71 @@ export default function BatchflowBatches() {
                           #{v.script_number}
                         </Box>
                       </Tooltip>
+
+                      {/* Small Video Thumbnail in Card */}
+                      {(() => {
+                        const clean = v.video_url ? cleanVideoUrl(v.video_url) : null;
+                        const vidMatch = clean ? clean.match(/(?:v=|\/embed\/|\/shorts\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/i) : null;
+                        const ytThumb = vidMatch ? `https://img.youtube.com/vi/${vidMatch[1]}/hqdefault.jpg` : null;
+                        const cachedThumb = clean ? localStorage.getItem(`trackrr_thumb_${clean}`) : null;
+                        const thumbUrl = syncedThumbs[v.id] || cachedThumb || ytThumb;
+
+                        if (!thumbUrl) return null;
+
+                        return (
+                          <Box
+                            component="img"
+                            src={thumbUrl}
+                            alt="thumb"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              if (v.video_url) window.open(v.video_url, '_blank', 'noopener,noreferrer');
+                            }}
+                            onError={(e: any) => {
+                              e.currentTarget.style.display = 'none';
+                            }}
+                            sx={{
+                              width: 34,
+                              height: 34,
+                              borderRadius: 1,
+                              objectFit: 'cover',
+                              border: '1px solid rgba(255,255,255,0.15)',
+                              flexShrink: 0,
+                              cursor: v.video_url ? 'pointer' : 'default',
+                              transition: 'transform 0.15s ease',
+                              '&:hover': {
+                                transform: 'scale(1.08)',
+                              },
+                            }}
+                          />
+                        );
+                      })()}
+
                       <Box sx={{ minWidth: 0, flex: 1 }}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
                           <Typography variant="body2" noWrap sx={{ fontWeight: 700 }}>
                             {v.name}
+                            {(() => {
+                              const clean = v.video_url ? cleanVideoUrl(v.video_url) : null;
+                              const cachedCaption = clean ? localStorage.getItem(`trackrr_caption_${clean}`) : null;
+                              const captionText = syncedCaptions[v.id] || v.description || cachedCaption;
+                              const snippet = getCaptionSnippet(captionText, 5);
+                              if (!snippet) return null;
+                              return (
+                                <Typography
+                                  component="span"
+                                  sx={{
+                                    color: 'text.secondary',
+                                    fontWeight: 500,
+                                    fontSize: '0.78rem',
+                                    ml: 0.75,
+                                    fontStyle: 'italic',
+                                  }}
+                                >
+                                  ({snippet})
+                                </Typography>
+                              );
+                            })()}
                           </Typography>
                           {v.video_url && (() => {
                             const isIg = v.video_url.toLowerCase().includes('instagram.com') || v.video_url.toLowerCase().includes('instagr.am');
@@ -2078,9 +2424,17 @@ export default function BatchflowBatches() {
                           })()}
                         </Box>
                         <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.68rem', display: 'block' }}>
-                          {v.status === 'Posted' && v.posted_date ? `Posted: ${new Date(v.posted_date).toLocaleDateString()}` :
-                           v.status === 'Edited' && v.edited_date ? `Edited: ${new Date(v.edited_date).toLocaleDateString()}` :
-                           'Ready for editing'}
+                          {(() => {
+                            const urlDate = extractDateFromVideoUrl(v.video_url);
+                            const effectiveDate = urlDate || (v.status === 'Posted' && v.posted_date ? v.posted_date.slice(0, 10) : null);
+                            if (effectiveDate) {
+                              return `Posted: ${new Date(effectiveDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
+                            }
+                            if (v.status === 'Edited' && v.edited_date) {
+                              return `Edited: ${new Date(v.edited_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
+                            }
+                            return 'Ready for editing';
+                          })()}
                         </Typography>
                         {v.description && (
                           <Typography
@@ -2995,6 +3349,324 @@ script 2
           {syncSnackbar}
         </Alert>
       </Snackbar>
+
+      {/* Off-Screen Report Element for High-Res PNG Export (Exact Matching PDF Style) */}
+      <Box
+        ref={pngExportRef}
+        sx={{
+          position: 'fixed',
+          left: -99999,
+          top: 0,
+          width: 1080,
+          bgcolor: '#FFFFFF',
+          zIndex: -9999,
+          pointerEvents: 'none',
+          boxSizing: 'border-box',
+          color: '#0F172A',
+          fontFamily: "'Okine', -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif",
+        }}
+      >
+        {selectedBatch && (
+          <Box sx={{ bgcolor: '#FFFFFF', width: '100%', boxSizing: 'border-box' }}>
+            {/* Top Dark Header Banner */}
+            <Box sx={{ bgcolor: '#0F172A', position: 'relative', pt: '4px', px: 4, pb: 3 }}>
+              {/* Top accent bar in client's color */}
+              <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 4, bgcolor: selectedClient?.color || '#6366F1' }} />
+
+              <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mt: 1 }}>
+                <Box>
+                  <Typography sx={{ fontSize: '11px', fontWeight: 800, color: '#818CF8', letterSpacing: '0.08em', textTransform: 'uppercase' }}>
+                    {(activeWorkspace?.name || 'Workspace').toUpperCase()}
+                  </Typography>
+                  <Typography sx={{ fontSize: '28px', fontWeight: 900, color: '#FFFFFF', mt: 0.5, letterSpacing: '-0.02em', lineHeight: 1.15 }}>
+                    {selectedClient?.name || 'Unassigned Client'}
+                  </Typography>
+                  <Typography sx={{ fontSize: '12px', color: '#94A3B8', mt: 0.75 }}>
+                    Exported on {new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}
+                  </Typography>
+                </Box>
+
+                <Box sx={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 1 }}>
+                  <Box
+                    sx={{
+                      bgcolor: '#1E293B',
+                      px: 2,
+                      py: 0.75,
+                      borderRadius: 1.5,
+                      border: '1px solid rgba(255,255,255,0.08)',
+                    }}
+                  >
+                    <Typography sx={{ fontSize: '13px', fontWeight: 800, color: selectedClient?.color || '#818CF8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                      {selectedBatch.name.toUpperCase()}
+                    </Typography>
+                  </Box>
+                  <Typography sx={{ fontSize: '12px', color: '#94A3B8' }}>
+                    {selectedBatch.shoot_date ? `Shoot Date: ${selectedBatch.shoot_date}` : 'Shoot Date: Not specified'}
+                  </Typography>
+                </Box>
+              </Box>
+            </Box>
+
+            {/* Executive KPI Metric Cards (4 cards matching PDF) */}
+            <Box sx={{ px: 4, pt: 3, pb: 2 }}>
+              <Box sx={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 2 }}>
+                {/* TOTAL */}
+                <Box
+                  sx={{
+                    p: 2,
+                    borderRadius: 2,
+                    bgcolor: '#F8FAFC',
+                    border: '1px solid #E2E8F0',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#64748B' }} />
+                    <Typography sx={{ fontWeight: 800, fontSize: '12px', color: '#0F172A', letterSpacing: '0.05em' }}>
+                      TOTAL
+                    </Typography>
+                  </Box>
+                  <Typography sx={{ fontWeight: 900, fontSize: '32px', color: '#0F172A', lineHeight: 1 }}>
+                    {currentBatchVideos.length}
+                  </Typography>
+                </Box>
+
+                {/* PENDING */}
+                <Box
+                  sx={{
+                    p: 2,
+                    borderRadius: 2,
+                    bgcolor: '#FEF3C7',
+                    border: '1px solid #FDE68A',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#D97706' }} />
+                    <Typography sx={{ fontWeight: 800, fontSize: '12px', color: '#B45309', letterSpacing: '0.05em' }}>
+                      PENDING
+                    </Typography>
+                  </Box>
+                  <Typography sx={{ fontWeight: 900, fontSize: '32px', color: '#B45309', lineHeight: 1 }}>
+                    {pendingCount}
+                  </Typography>
+                </Box>
+
+                {/* EDITED */}
+                <Box
+                  sx={{
+                    p: 2,
+                    borderRadius: 2,
+                    bgcolor: '#EFF6FF',
+                    border: '1px solid #BFDBFE',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#2563EB' }} />
+                    <Typography sx={{ fontWeight: 800, fontSize: '12px', color: '#1D4ED8', letterSpacing: '0.05em' }}>
+                      EDITED
+                    </Typography>
+                  </Box>
+                  <Typography sx={{ fontWeight: 900, fontSize: '32px', color: '#1D4ED8', lineHeight: 1 }}>
+                    {editedCount}
+                  </Typography>
+                </Box>
+
+                {/* POSTED */}
+                <Box
+                  sx={{
+                    p: 2,
+                    borderRadius: 2,
+                    bgcolor: '#ECFDF5',
+                    border: '1px solid #A7F3D0',
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                  }}
+                >
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                    <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: '#059669' }} />
+                    <Typography sx={{ fontWeight: 800, fontSize: '12px', color: '#047857', letterSpacing: '0.05em' }}>
+                      POSTED
+                    </Typography>
+                  </Box>
+                  <Typography sx={{ fontWeight: 900, fontSize: '32px', color: '#047857', lineHeight: 1 }}>
+                    {postedCount}
+                  </Typography>
+                </Box>
+              </Box>
+            </Box>
+
+            {/* Table Section */}
+            <Box sx={{ px: 4, pt: 1, pb: 3 }}>
+              {/* Header Row */}
+              <Box
+                sx={{
+                  display: 'grid',
+                  gridTemplateColumns: '60px 1fr 110px 100px 110px 130px',
+                  bgcolor: '#1E293B',
+                  color: '#F1F5F9',
+                  borderRadius: 1,
+                  px: 2,
+                  py: 1.25,
+                  alignItems: 'center',
+                }}
+              >
+                <Typography sx={{ fontSize: '11px', fontWeight: 800, letterSpacing: '0.04em' }}>SL NO.</Typography>
+                <Typography sx={{ fontSize: '11px', fontWeight: 800, letterSpacing: '0.04em' }}>VIDEO TITLE</Typography>
+                <Typography sx={{ fontSize: '11px', fontWeight: 800, letterSpacing: '0.04em' }}>LIKES</Typography>
+                <Typography sx={{ fontSize: '11px', fontWeight: 800, letterSpacing: '0.04em' }}>SCRIPT NO.</Typography>
+                <Typography sx={{ fontSize: '11px', fontWeight: 800, letterSpacing: '0.04em', textAlign: 'center' }}>STATUS</Typography>
+                <Typography sx={{ fontSize: '11px', fontWeight: 800, letterSpacing: '0.04em' }}>PIPELINE DATE</Typography>
+              </Box>
+
+              {/* Video Rows: Rendered in active sort order! */}
+              {sortBatchVideos(currentBatchVideos, sortOrder, pngLikesMap).map((v, index) => {
+                const thumbUrl = pngThumbsMap.get(v.id) || (v.video_url ? localStorage.getItem(`trackrr_thumb_${cleanVideoUrl(v.video_url)}`) : null);
+                const captionText = pngCaptionsMap.get(v.id) || v.description;
+                const snippet = getCaptionSnippet(captionText, 5);
+
+                const vExtracted = extractVideoLikes(v);
+                const vLikes = pngLikesMap.get(v.id) || vExtracted.likes;
+
+                const urlDate = pngDatesMap.get(v.id) || extractDateFromVideoUrl(v.video_url);
+                const effectiveDate = urlDate || (v.status === 'Posted' && v.posted_date ? v.posted_date.slice(0, 10) : null);
+                const dateText = effectiveDate ? new Date(effectiveDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) :
+                                 v.status === 'Edited' && v.edited_date ? new Date(v.edited_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) :
+                                 selectedBatch.shoot_date ? `Shoot: ${selectedBatch.shoot_date}` : '-';
+
+                return (
+                  <Box
+                    key={v.id}
+                    sx={{
+                      display: 'grid',
+                      gridTemplateColumns: '60px 1fr 110px 100px 110px 130px',
+                      bgcolor: index % 2 === 0 ? '#FFFFFF' : '#F8FAFC',
+                      borderBottom: '1px solid #F1F5F9',
+                      px: 2,
+                      py: 1.5,
+                      alignItems: 'center',
+                    }}
+                  >
+                    {/* Col 1: SL NO. */}
+                    <Typography sx={{ fontSize: '12px', fontWeight: 800, color: '#64748B' }}>
+                      {index + 1}
+                    </Typography>
+
+                    {/* Col 2: Thumbnail & Video Title + Caption Snippet in () */}
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0, pr: 2 }}>
+                      {thumbUrl ? (
+                        <Box
+                          component="img"
+                          src={thumbUrl}
+                          alt="thumb"
+                          sx={{
+                            width: 34,
+                            height: 34,
+                            borderRadius: '6px',
+                            objectFit: 'cover',
+                            border: '1px solid #E2E8F0',
+                            flexShrink: 0,
+                          }}
+                        />
+                      ) : (
+                        <Box
+                          sx={{
+                            width: 34,
+                            height: 34,
+                            borderRadius: '6px',
+                            bgcolor: '#F1F5F9',
+                            border: '1px solid #CBD5E1',
+                            display: 'flex',
+                            alignItems: 'center',
+                            justifyContent: 'center',
+                            color: '#94A3B8',
+                            fontWeight: 800,
+                            fontSize: '11px',
+                            flexShrink: 0,
+                          }}
+                        >
+                          #{v.script_number ?? index + 1}
+                        </Box>
+                      )}
+                      <Typography sx={{ fontSize: '13px', fontWeight: 700, color: '#0F172A', lineHeight: 1.3 }}>
+                        {v.name || `Video #${v.script_number ?? index + 1}`}
+                        {snippet && (
+                          <Typography component="span" sx={{ fontSize: '12px', fontWeight: 500, color: '#64748B', ml: 0.75, fontStyle: 'italic' }}>
+                            ({snippet})
+                          </Typography>
+                        )}
+                      </Typography>
+                    </Box>
+
+                    {/* Col 3: Likes in Soft Red */}
+                    <Typography sx={{ fontSize: '13px', fontWeight: 800, color: '#EF4444' }}>
+                      {vLikes || '-'}
+                    </Typography>
+
+                    {/* Col 4: SCRIPT NO. */}
+                    <Typography sx={{ fontSize: '12px', fontWeight: 800, color: '#475569' }}>
+                      {v.script_number === 0 ? '-' : String(v.script_number ?? '-')}
+                    </Typography>
+
+                    {/* Col 5: Status Pill */}
+                    <Box sx={{ display: 'flex', justifyContent: 'center' }}>
+                      <Box
+                        sx={{
+                          px: 1.5,
+                          py: 0.4,
+                          borderRadius: '6px',
+                          fontSize: '11px',
+                          fontWeight: 800,
+                          textTransform: 'uppercase',
+                          letterSpacing: '0.04em',
+                          textAlign: 'center',
+                          bgcolor: v.status === 'Posted' ? '#D1FAE5' : v.status === 'Edited' ? '#DBEAFE' : '#FEF3C7',
+                          color: v.status === 'Posted' ? '#047857' : v.status === 'Edited' ? '#1D4ED8' : '#B45309',
+                          border: `1px solid ${v.status === 'Posted' ? '#A7F3D0' : v.status === 'Edited' ? '#BFDBFE' : '#FDE68A'}`,
+                        }}
+                      >
+                        {v.status}
+                      </Box>
+                    </Box>
+
+                    {/* Col 6: Pipeline Date */}
+                    <Typography sx={{ fontSize: '12px', color: '#64748B' }}>
+                      {dateText}
+                    </Typography>
+                  </Box>
+                );
+              })}
+            </Box>
+
+            {/* Footer matching PDF */}
+            <Box
+              sx={{
+                px: 4,
+                py: 2.5,
+                borderTop: '1px solid #E2E8F0',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
+              <Typography sx={{ fontSize: '11px', color: '#94A3B8' }}>
+                Trackrr Studio • Content Batch Management & Production Workflow
+              </Typography>
+              <Typography sx={{ fontSize: '11px', color: '#94A3B8' }}>
+                Batch: {selectedBatch.name}
+              </Typography>
+            </Box>
+          </Box>
+        )}
+      </Box>
     </Box>
   );
 }
