@@ -58,7 +58,7 @@ interface AppContextType {
   deleteBatchflowBatch: (id: string) => Promise<void>;
   addBatchflowVideo: (data: Partial<BatchflowVideo>) => Promise<BatchflowVideo | null>;
   updateBatchflowVideo: (id: string, data: Partial<BatchflowVideo>) => Promise<void>;
-  updateBatchflowVideoStatus: (id: string, status: BatchflowVideoStatus, videoUrl?: string | null, postedDate?: string | null) => Promise<void>;
+  updateBatchflowVideoStatus: (id: string, status: BatchflowVideoStatus, videoUrl?: string | null, postedDate?: string | null, views?: string | number | null) => Promise<void>;
   deleteBatchflowVideo: (id: string) => Promise<void>;
   importBackupData: (data: any) => Promise<{ success: boolean; message: string }>;
   updateSettings: (data: Partial<AppSettings>) => Promise<void>;
@@ -67,6 +67,21 @@ interface AppContextType {
   removeCollaborator: (workspaceId: string, userId: string) => Promise<{ error?: any }>;
   respondToInvite: (inviteId: string, accept: boolean) => Promise<{ error?: any }>;
   refetch: () => Promise<void>;
+}
+
+function isSchemaColumnError(error: any): boolean {
+  if (!error) return false;
+  const code = String(error.code || '');
+  const msg = String(error.message || '').toLowerCase();
+  const details = String(error.details || '').toLowerCase();
+  return (
+    code === 'PGRST204' ||
+    code === '42703' ||
+    msg.includes('column') ||
+    msg.includes('schema cache') ||
+    msg.includes('could not find the') ||
+    details.includes('column')
+  );
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -289,9 +304,68 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               const cloudBIds = new Set(bfB.map(b => b.id));
               const cloudVIds = new Set(bfV.map(v => v.id));
 
-              const mergedC = [...bfC, ...localC.filter(c => !cloudCIds.has(c.id))];
-              const mergedB = [...bfB, ...localB.filter(b => !cloudBIds.has(b.id))];
-              const mergedV = [...bfV, ...localV.filter(v => !cloudVIds.has(v.id))];
+              // Deep merge items to preserve local attributes (video_url, views, description)
+              // if cloud returned rows without those columns or if schema has not migrated yet
+              const mergedC = [
+                ...bfC.map(cc => {
+                  const lc = localC.find(l => l.id === cc.id);
+                  if (!lc) return cc;
+                  return {
+                    ...lc,
+                    ...cc,
+                    name: lc.name || cc.name,
+                    color: lc.color || cc.color || '#818CF8',
+                    instagram_id: (lc.instagram_id !== undefined && lc.instagram_id !== null && lc.instagram_id !== '')
+                      ? lc.instagram_id
+                      : (cc.instagram_id || ''),
+                  };
+                }),
+                ...localC.filter(c => !cloudCIds.has(c.id)),
+              ];
+
+              const mergedB = [
+                ...bfB.map(cb => {
+                  const lb = localB.find(l => l.id === cb.id);
+                  if (!lb) return cb;
+                  return {
+                    ...lb,
+                    ...cb,
+                    name: lb.name || cb.name,
+                    script: (lb.script !== undefined && lb.script !== null && lb.script !== '')
+                      ? lb.script
+                      : (cb.script || ''),
+                  };
+                }),
+                ...localB.filter(b => !cloudBIds.has(b.id)),
+              ];
+
+              const mergedV = [
+                ...bfV.map(cv => {
+                  const lv = localV.find(l => l.id === cv.id);
+                  if (!lv) return cv;
+                  return {
+                    ...lv,
+                    ...cv,
+                    name: lv.name || cv.name || 'New Video',
+                    script_number: (lv.script_number !== undefined && lv.script_number !== null)
+                      ? lv.script_number
+                      : ((cv.script_number !== undefined && cv.script_number !== null) ? cv.script_number : 1),
+                    video_url: (lv.video_url !== undefined && lv.video_url !== null && lv.video_url !== '')
+                      ? lv.video_url
+                      : (cv.video_url || null),
+                    views: (lv.views !== undefined && lv.views !== null && String(lv.views).trim() !== '')
+                      ? lv.views
+                      : (cv.views || null),
+                    description: (lv.description !== undefined && lv.description !== null && lv.description !== '')
+                      ? lv.description
+                      : (cv.description || null),
+                    posted_date: cv.posted_date || lv.posted_date || null,
+                    edited_date: cv.edited_date || lv.edited_date || null,
+                    waiting_date: cv.waiting_date || lv.waiting_date || null,
+                  };
+                }),
+                ...localV.filter(v => !cloudVIds.has(v.id)),
+              ];
 
               setBatchflowClients(mergedC);
               setBatchflowBatches(mergedB);
@@ -305,6 +379,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               storage.setBatchflowClients([...otherC, ...mergedC]);
               storage.setBatchflowBatches([...otherB, ...mergedB]);
               storage.setBatchflowVideos([...otherV, ...mergedV]);
+
+              // If any video in cloud was out of sync (e.g. script_number mismatch due to prior schema errors), sync back to cloud in background
+              const outOfSyncVideos = mergedV.filter(v => {
+                const cv = bfV.find(c => c.id === v.id);
+                return cv && v.script_number !== cv.script_number;
+              });
+              if (outOfSyncVideos.length > 0) {
+                (async () => {
+                  for (const ov of outOfSyncVideos) {
+                    try {
+                      await supabase.from('batchflow_videos').update({ script_number: ov.script_number }).eq('id', ov.id);
+                    } catch {
+                      // ignore background sync errors
+                    }
+                  }
+                })();
+              }
             }
           } catch (err) {
             console.warn('BatchFlow sync failed, loading from local cache:', err);
@@ -325,24 +416,64 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             supabase.from('discounts').select('*').eq('workspace_id', active.id).order('date', { ascending: false }),
           ]);
 
-          const cl = (cRes.data as Client[]) || [];
-          const tk = (tRes.data as Task[]) || [];
-          const pm = (pRes.data as Payment[]) || [];
-          const sr = (rRes.data as SalaryRate[]) || [];
-          const ds = (dRes.data as Discount[]) || [];
+          const hasTableError = Boolean(cRes.error || tRes.error || pRes.error || rRes.error || dRes.error);
+          if (hasTableError) {
+            console.warn('Freelance sync had table/network errors, falling back to local cache');
+            const localC = storage.getClients().filter(c => c.workspace_id === active.id);
+            const localT = storage.getTasks().filter(t => t.workspace_id === active.id);
+            const localP = storage.getPayments().filter(p => p.workspace_id === active.id);
+            const localR = storage.getSalaryRates().filter(r => r.workspace_id === active.id);
+            const localD = storage.getDiscounts().filter(d => d.workspace_id === active.id);
+            setClients(localC);
+            setTasks(localT);
+            setPayments(localP);
+            setSalaryRates(localR);
+            setDiscounts(localD);
+          } else {
+            const cl = (cRes.data as Client[]) || [];
+            const tk = (tRes.data as Task[]) || [];
+            const pm = (pRes.data as Payment[]) || [];
+            const sr = (rRes.data as SalaryRate[]) || [];
+            const ds = (dRes.data as Discount[]) || [];
 
-          setClients(cl);
-          setTasks(tk);
-          setPayments(pm);
-          setSalaryRates(sr);
-          setDiscounts(ds);
+            // Merge local items not in cloud yet
+            const localC = storage.getClients().filter(c => c.workspace_id === active.id);
+            const localT = storage.getTasks().filter(t => t.workspace_id === active.id);
+            const localP = storage.getPayments().filter(p => p.workspace_id === active.id);
+            const localR = storage.getSalaryRates().filter(r => r.workspace_id === active.id);
+            const localD = storage.getDiscounts().filter(d => d.workspace_id === active.id);
 
-          // Update local storage backup
-          storage.setClients(cl);
-          storage.setTasks(tk);
-          storage.setPayments(pm);
-          storage.setSalaryRates(sr);
-          storage.setDiscounts(ds);
+            const cloudCIds = new Set(cl.map(c => c.id));
+            const cloudTIds = new Set(tk.map(t => t.id));
+            const cloudPIds = new Set(pm.map(p => p.id));
+            const cloudRIds = new Set(sr.map(r => r.id));
+            const cloudDIds = new Set(ds.map(d => d.id));
+
+            const mergedC = [...cl, ...localC.filter(c => !cloudCIds.has(c.id))];
+            const mergedT = [...tk, ...localT.filter(t => !cloudTIds.has(t.id))];
+            const mergedP = [...pm, ...localP.filter(p => !cloudPIds.has(p.id))];
+            const mergedR = [...sr, ...localR.filter(r => !cloudRIds.has(r.id))];
+            const mergedD = [...ds, ...localD.filter(d => !cloudDIds.has(d.id))];
+
+            setClients(mergedC);
+            setTasks(mergedT);
+            setPayments(mergedP);
+            setSalaryRates(mergedR);
+            setDiscounts(mergedD);
+
+            // Update storage keeping other workspaces' data intact
+            const otherC = storage.getClients().filter(c => c.workspace_id !== active.id);
+            const otherT = storage.getTasks().filter(t => t.workspace_id !== active.id);
+            const otherP = storage.getPayments().filter(p => p.workspace_id !== active.id);
+            const otherR = storage.getSalaryRates().filter(r => r.workspace_id !== active.id);
+            const otherD = storage.getDiscounts().filter(d => d.workspace_id !== active.id);
+
+            storage.setClients([...otherC, ...mergedC]);
+            storage.setTasks([...otherT, ...mergedT]);
+            storage.setPayments([...otherP, ...mergedP]);
+            storage.setSalaryRates([...otherR, ...mergedR]);
+            storage.setDiscounts([...otherD, ...mergedD]);
+          }
         }
       } else {
         setClients([]);
@@ -559,8 +690,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         .select()
         .single();
       if (!error && cloudTask) {
-        setTasks(prev => [...prev, cloudTask as Task]);
-        return cloudTask as Task;
+        const synced = cloudTask as Task;
+        const all = storage.getTasks();
+        storage.setTasks([...all.filter(t => t.id !== synced.id), synced]);
+        setTasks(prev => [...prev, synced]);
+        return synced;
       }
     }
 
@@ -618,8 +752,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         .select()
         .single();
       if (!error && cloudClient) {
-        setClients(prev => [...prev, cloudClient as Client]);
-        return cloudClient as Client;
+        const synced = cloudClient as Client;
+        const all = storage.getClients();
+        storage.setClients([...all.filter(c => c.id !== synced.id), synced]);
+        setClients(prev => [...prev, synced]);
+        return synced;
       }
     }
 
@@ -674,7 +811,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         .select()
         .single();
       if (!error && cloudPayment) {
-        setPayments(prev => [cloudPayment as Payment, ...prev]);
+        const synced = cloudPayment as Payment;
+        const all = storage.getPayments();
+        storage.setPayments([synced, ...all.filter(p => p.id !== synced.id)]);
+        setPayments(prev => [synced, ...prev]);
         return;
       }
     }
@@ -725,7 +865,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         .select()
         .single();
       if (!error && cloudRate) {
-        setSalaryRates(prev => [...prev, cloudRate as SalaryRate]);
+        const synced = cloudRate as SalaryRate;
+        const all = storage.getSalaryRates();
+        storage.setSalaryRates([...all.filter(r => r.id !== synced.id), synced]);
+        setSalaryRates(prev => [...prev, synced]);
         return;
       }
     }
@@ -778,7 +921,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         .select()
         .single();
       if (!error && cloudDiscount) {
-        setDiscounts(prev => [...prev, cloudDiscount as Discount]);
+        const synced = cloudDiscount as Discount;
+        const all = storage.getDiscounts();
+        storage.setDiscounts([...all.filter(d => d.id !== synced.id), synced]);
+        setDiscounts(prev => [...prev, synced]);
         return;
       }
     }
@@ -828,10 +974,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         };
         const { error } = await supabase.from('settings').upsert(payload, { onConflict: 'user_id' });
         if (error) {
-          // If theme_style column does not exist in legacy cloud table, retry without it
-          if (error.message?.includes('theme_style') || error.code === 'PGRST204' || error.code === '42703' || error.message?.includes('column')) {
-            const { theme_style: _ts, ...payloadNoThemeStyle } = payload;
-            await supabase.from('settings').upsert(payloadNoThemeStyle, { onConflict: 'user_id' });
+          // If theme_style or other column does not exist in legacy cloud table, retry without it
+          if (isSchemaColumnError(error)) {
+            const { theme_style: _ts, meta_app_id: _ma, meta_client_token: _mc, meta_user_token: _mu, meta_ig_user_id: _mi, ...payloadBase } = payload;
+            await supabase.from('settings').upsert(payloadBase, { onConflict: 'user_id' });
           } else {
             console.warn('Could not sync settings to cloud:', error);
           }
@@ -980,7 +1126,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       try {
         await supabase.from('batchflow_batches').insert([newBatch]);
         if (generatedVideos.length) {
-          await supabase.from('batchflow_videos').insert(generatedVideos);
+          const { error: vErr } = await supabase.from('batchflow_videos').insert(generatedVideos);
+          if (vErr && isSchemaColumnError(vErr)) {
+            const baseGenerated = generatedVideos.map(({ video_url, views, description, ...rest }: any) => rest);
+            await supabase.from('batchflow_videos').insert(baseGenerated);
+          }
         }
       } catch (err) {
         console.warn('Could not insert batchflow cloud records:', err);
@@ -1045,6 +1195,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       script_number: data.script_number !== undefined ? data.script_number : 1,
       description: data.description !== undefined ? data.description : null,
       status: data.status || 'Pending',
+      video_url: data.video_url !== undefined ? data.video_url : null,
+      views: data.views !== undefined ? data.views : null,
       waiting_date: now,
       created_at: now,
     };
@@ -1057,8 +1209,36 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           .select()
           .single();
         if (!error && cloudV) {
-          setBatchflowVideos(prev => [...prev, cloudV as BatchflowVideo]);
-          return cloudV as BatchflowVideo;
+          const completeVideo: BatchflowVideo = {
+            ...newVideo,
+            ...(cloudV as BatchflowVideo),
+            video_url: (cloudV as any).video_url ?? newVideo.video_url,
+            views: (cloudV as any).views ?? newVideo.views,
+            description: (cloudV as any).description ?? newVideo.description,
+          };
+          const all = storage.getBatchflowVideos();
+          storage.setBatchflowVideos([...all, completeVideo]);
+          setBatchflowVideos(prev => [...prev, completeVideo]);
+          return completeVideo;
+        } else if (error && isSchemaColumnError(error)) {
+          // Schema column missing in remote DB, retry insert with base columns
+          const { video_url, views, description, ...baseVideo } = newVideo;
+          const { data: cloudVBase } = await supabase
+            .from('batchflow_videos')
+            .insert([baseVideo])
+            .select()
+            .single();
+          const savedVideo: BatchflowVideo = {
+            ...newVideo,
+            ...((cloudVBase as any) || {}),
+            video_url: newVideo.video_url,
+            views: newVideo.views,
+            description: newVideo.description,
+          };
+          const all = storage.getBatchflowVideos();
+          storage.setBatchflowVideos([...all, savedVideo]);
+          setBatchflowVideos(prev => [...prev, savedVideo]);
+          return savedVideo;
         }
       } catch (err) {
         console.warn('Could not insert batchflow_videos:', err);
@@ -1075,7 +1255,19 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     assertCanEdit();
     if (isCloudActive) {
       try {
-        await supabase.from('batchflow_videos').update(data).eq('id', id);
+        const { error } = await supabase.from('batchflow_videos').update(data).eq('id', id);
+        if (error) {
+          console.warn('Could not update batchflow_videos with full fields, retrying with base fields:', error);
+          if (isSchemaColumnError(error)) {
+            const { video_url, views, description, ...baseData } = data;
+            if (Object.keys(baseData).length > 0) {
+              const { error: retryErr } = await supabase.from('batchflow_videos').update(baseData).eq('id', id);
+              if (retryErr) {
+                console.warn('Could not update batchflow_videos with base fields:', retryErr);
+              }
+            }
+          }
+        }
       } catch (err) {
         console.warn('Could not update batchflow_videos:', err);
       }
@@ -1089,7 +1281,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     id: string,
     status: BatchflowVideoStatus,
     videoUrl?: string | null,
-    postedDate?: string | null
+    postedDate?: string | null,
+    views?: string | number | null
   ) => {
     assertCanEdit();
     const now = new Date().toISOString();
@@ -1101,13 +1294,33 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (videoUrl !== undefined) {
         updates.video_url = videoUrl;
       }
-    } else if (videoUrl !== undefined) {
-      updates.video_url = videoUrl;
+      if (views !== undefined) {
+        updates.views = views;
+      }
+    } else {
+      if (videoUrl !== undefined) {
+        updates.video_url = videoUrl;
+      }
+      if (views !== undefined) {
+        updates.views = views;
+      }
     }
 
     if (isCloudActive) {
       try {
-        await supabase.from('batchflow_videos').update(updates).eq('id', id);
+        const { error } = await supabase.from('batchflow_videos').update(updates).eq('id', id);
+        if (error) {
+          console.warn('Could not update status in batchflow_videos with full fields, retrying with base fields:', error);
+          if (isSchemaColumnError(error)) {
+            const { video_url, views, description, ...baseUpdates } = updates;
+            if (Object.keys(baseUpdates).length > 0) {
+              const { error: retryErr } = await supabase.from('batchflow_videos').update(baseUpdates).eq('id', id);
+              if (retryErr) {
+                console.warn('Could not update status with base fields:', retryErr);
+              }
+            }
+          }
+        }
       } catch (err) {
         console.warn('Could not update status in batchflow_videos:', err);
       }
@@ -1319,7 +1532,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const allBfV = storage.getBatchflowVideos();
         storage.setBatchflowVideos([...allBfV, ...mappedVideos]);
         if (isCloudActive) {
-          try { await supabase.from('batchflow_videos').insert(mappedVideos); } catch {}
+          try {
+            const { error } = await supabase.from('batchflow_videos').insert(mappedVideos);
+            if (error && isSchemaColumnError(error)) {
+              const baseVideos = mappedVideos.map(({ video_url, views, description, ...rest }: any) => rest);
+              await supabase.from('batchflow_videos').insert(baseVideos);
+            }
+          } catch {}
         }
         importedCount += mappedVideos.length;
       }

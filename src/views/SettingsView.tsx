@@ -76,7 +76,10 @@ create table if not exists public.batchflow_videos (
   batch_id text references public.batchflow_batches(id) on delete cascade not null,
   name text not null,
   script_number integer default 1,
+  description text default '',
   status text default 'Pending',
+  video_url text,
+  views text,
   waiting_date text,
   edited_date text,
   posted_date text,
@@ -101,7 +104,17 @@ create policy "Batchflow batches access policy" on public.batchflow_batches
 drop policy if exists "Batchflow videos access policy" on public.batchflow_videos;
 create policy "Batchflow videos access policy" on public.batchflow_videos
   for all using (user_id = auth.uid() or public.has_workspace_access(workspace_id, 'viewer'))
-  with check (user_id = auth.uid() or public.has_workspace_access(workspace_id, 'manager'));`;
+  with check (user_id = auth.uid() or public.has_workspace_access(workspace_id, 'manager'));
+
+-- 6. Video URLs, Views, & Descriptions Schema Extension
+alter table public.batchflow_videos add column if not exists script_number integer default 1;
+alter table public.batchflow_videos add column if not exists video_url text;
+alter table public.batchflow_videos add column if not exists views text;
+alter table public.batchflow_videos add column if not exists description text;
+alter table public.settings add column if not exists meta_app_id text;
+alter table public.settings add column if not exists meta_client_token text;
+alter table public.settings add column if not exists meta_user_token text;
+alter table public.settings add column if not exists meta_ig_user_id text;`;
 
 const THEMES: { id: ThemeStyle; name: string; tag: string; desc: string; bg: string; card: string; accent: string; isLight?: boolean; icon: React.ReactNode }[] = [
   // 4 Dark Themes

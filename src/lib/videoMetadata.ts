@@ -142,6 +142,32 @@ export async function fetchVideoMetadata(
             }
           }
 
+          // Check cached recent posts in localStorage for views or likes
+          let viewsCount: string | null = null;
+          try {
+            const allKeys = Object.keys(localStorage);
+            for (const k of allKeys) {
+              if (k.startsWith('trackrr_recent_ig_')) {
+                const raw = localStorage.getItem(k);
+                if (raw) {
+                  const posts = JSON.parse(raw);
+                  if (Array.isArray(posts)) {
+                    const match = posts.find((p: any) => cleanVideoUrl(p.permalink) === cleanUrl);
+                    if (match) {
+                      viewsCount = match.viewsCount ? String(match.viewsCount) : match.likesCount ? `${match.likesCount} likes` : null;
+                      if (!postedDate && match.postedDate) {
+                        postedDate = match.postedDate;
+                      }
+                      break;
+                    }
+                  }
+                }
+              }
+            }
+          } catch {
+            // ignore localStorage error
+          }
+
           return {
             postedDate,
             postedDateTime,
@@ -150,6 +176,7 @@ export async function fetchVideoMetadata(
             creatorHandle: data.author_name || undefined,
             thumbnailUrl: data.thumbnail_url || undefined,
             caption: data.title || undefined,
+            viewsCount,
             provider: 'instagram',
             rawHtml: data.html,
             usedOfficialMetaApi: true,
@@ -193,7 +220,7 @@ export async function fetchVideoMetadata(
             thumbnailUrl: d?.image?.url || undefined,
             likesCount: parsed.likesCount || null,
             commentsCount: parsed.commentsCount || null,
-            viewsCount: parsed.viewsCount || null,
+            viewsCount: parsed.viewsCount || (parsed.likesCount ? `${parsed.likesCount} likes` : null),
             caption: parsed.caption || d?.description || null,
             provider: 'instagram',
             usedOfficialMetaApi: false,
@@ -210,43 +237,86 @@ export async function fetchVideoMetadata(
     };
   }
 
-  // --- 2. YOUTUBE (Open oEmbed API + Views Fetch) ---
+  // --- 2. YOUTUBE (Open oEmbed API + CORS-Enabled Live View Count) ---
   if (provider === 'youtube') {
     try {
-      const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(cleanUrl)}&format=json`;
-      const response = await fetch(oembedUrl);
+      const vidMatch = cleanUrl.match(/(?:v=|\/embed\/|\/shorts\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/i);
+      const vid = vidMatch ? vidMatch[1] : null;
 
       let viewsCount: string | null = null;
+      let postedDate: string | null = null;
+      let title: string | undefined = undefined;
+      let author: string | undefined = undefined;
+      let thumbnailUrl: string | undefined = vid ? `https://img.youtube.com/vi/${vid}/hqdefault.jpg` : undefined;
+
+      // 1. Fetch oEmbed for basic details (title, author, thumbnail)
       try {
-        const vidMatch = cleanUrl.match(/(?:v=|\/embed\/|\/shorts\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/i);
-        if (vidMatch && vidMatch[1]) {
-          const ytHtmlResp = await fetch(`https://www.youtube.com/watch?v=${vidMatch[1]}`, {
-            headers: { 'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64)' },
-          });
-          if (ytHtmlResp.ok) {
-            const ytHtml = await ytHtmlResp.text();
-            const vm = ytHtml.match(/"viewCount":\s*"(\d+)"/i) || ytHtml.match(/viewCount[^:]*:\s*"(\d+)"/i);
-            if (vm && vm[1]) {
-              const num = parseInt(vm[1], 10);
-              viewsCount = num >= 1000000 ? `${(num / 1000000).toFixed(1)}M` : num >= 1000 ? `${(num / 1000).toFixed(1)}K` : String(num);
-            }
-          }
+        const oembedUrl = `https://www.youtube.com/oembed?url=${encodeURIComponent(cleanUrl)}&format=json`;
+        const oeResp = await fetch(oembedUrl);
+        if (oeResp.ok) {
+          const oeData = await oeResp.json();
+          title = oeData.title || title;
+          author = oeData.author_name || author;
+          thumbnailUrl = oeData.thumbnail_url || thumbnailUrl;
         }
       } catch {
-        // ignore YouTube html fetch error
+        // ignore oEmbed error
       }
 
-      if (response.ok) {
-        const data = await response.json();
+      // 2. Fetch live views & upload date from CORS-enabled streaming instances
+      if (vid) {
+        const instances = [
+          `https://api.piped.private.coffee/streams/${vid}`,
+          `https://piped-api.garudalinux.org/streams/${vid}`,
+          `https://inv.nadeko.net/api/v1/videos/${vid}`,
+          `https://invidious.jing.rocks/api/v1/videos/${vid}`,
+        ];
+        for (const ep of instances) {
+          try {
+            const resp = await fetch(ep, { signal: AbortSignal.timeout(2500) });
+            if (resp.ok) {
+              const d = await resp.json();
+              const rawV = d.views ?? d.viewCount;
+              if (rawV !== undefined && rawV !== null) {
+                const num = typeof rawV === 'number' ? rawV : parseInt(String(rawV).replace(/[^0-9]/g, ''), 10);
+                if (!isNaN(num)) {
+                  if (num >= 1_000_000_000) {
+                    const formatted = (num / 1_000_000_000).toFixed(1);
+                    viewsCount = formatted.endsWith('.0') ? `${formatted.slice(0, -2)}B` : `${formatted}B`;
+                  } else if (num >= 1_000_000) {
+                    const formatted = (num / 1_000_000).toFixed(1);
+                    viewsCount = formatted.endsWith('.0') ? `${formatted.slice(0, -2)}M` : `${formatted}M`;
+                  } else if (num >= 1_000) {
+                    const formatted = (num / 1_000).toFixed(1);
+                    viewsCount = formatted.endsWith('.0') ? `${formatted.slice(0, -2)}K` : `${formatted}K`;
+                  } else {
+                    viewsCount = String(num);
+                  }
+                  if (!postedDate && (d.uploadDate || d.published)) {
+                    postedDate = String(d.uploadDate || d.published).split('T')[0];
+                  }
+                  if (!title && d.title) title = d.title;
+                  if (!author && (d.uploader || d.author)) author = d.uploader || d.author;
+                  break;
+                }
+              }
+            }
+          } catch {
+            // try next endpoint
+          }
+        }
+      }
+
+      if (title || viewsCount) {
         return {
-          title: data.title || undefined,
-          author: data.author_name || undefined,
-          creatorHandle: data.author_name || undefined,
-          thumbnailUrl: data.thumbnail_url || undefined,
-          caption: data.title || undefined,
+          title,
+          author,
+          creatorHandle: author,
+          thumbnailUrl,
+          caption: title,
+          postedDate,
           viewsCount,
           provider: 'youtube',
-          rawHtml: data.html,
         };
       }
     } catch (err) {

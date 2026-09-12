@@ -328,7 +328,7 @@ export default function BatchflowBatches() {
   const [editingVideo, setEditingVideo] = useState<{
     id: string;
     name: string;
-    script_number: number;
+    script_number: number | string;
     description?: string | null;
     video_url?: string;
     posted_date?: string;
@@ -487,17 +487,17 @@ export default function BatchflowBatches() {
 
   const currentBatchVideos = batchflowVideos.filter(v => v.batch_id === selectedBatch?.id);
   const sortedVideos = [...currentBatchVideos].sort((a, b) => {
-    if (sortOrder === 'script_asc') return (a.script_number || 0) - (b.script_number || 0);
-    if (sortOrder === 'script_desc') return (b.script_number || 0) - (a.script_number || 0);
+    if (sortOrder === 'script_asc') return (a.script_number ?? 0) - (b.script_number ?? 0);
+    if (sortOrder === 'script_desc') return (b.script_number ?? 0) - (a.script_number ?? 0);
     if (sortOrder === 'status_pending') {
       const diff = (statusPriorityPendingFirst[a.status] || 99) - (statusPriorityPendingFirst[b.status] || 99);
       if (diff !== 0) return diff;
-      return (a.script_number || 0) - (b.script_number || 0);
+      return (a.script_number ?? 0) - (b.script_number ?? 0);
     }
     if (sortOrder === 'status_posted') {
       const diff = (statusPriorityPostedFirst[a.status] || 99) - (statusPriorityPostedFirst[b.status] || 99);
       if (diff !== 0) return diff;
-      return (a.script_number || 0) - (b.script_number || 0);
+      return (a.script_number ?? 0) - (b.script_number ?? 0);
     }
     return a.name.localeCompare(b.name, undefined, { numeric: true });
   });
@@ -553,10 +553,7 @@ export default function BatchflowBatches() {
     const viewsToSave = skip ? null : (postedViews.trim() || postedMetaResult?.viewsCount || null);
 
     if (postedTargetVideo.status !== 'Posted') {
-      await updateBatchflowVideoStatus(postedTargetVideo.id, 'Posted', urlToSave, dateToSave);
-      if (viewsToSave !== null) {
-        await updateBatchflowVideo(postedTargetVideo.id, { views: viewsToSave });
-      }
+      await updateBatchflowVideoStatus(postedTargetVideo.id, 'Posted', urlToSave, dateToSave, viewsToSave);
     } else {
       await updateBatchflowVideo(postedTargetVideo.id, {
         video_url: skip ? null : urlToSave,
@@ -958,7 +955,7 @@ export default function BatchflowBatches() {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8);
       doc.setTextColor(15, 23, 42);
-      const title = v.name || `Video #${v.script_number || index + 1}`;
+      const title = v.name || `Video #${v.script_number ?? index + 1}`;
       const truncatedTitle = doc.splitTextToSize(title, 74)[0];
       doc.text(truncatedTitle, margin + 16, curY + 6.0);
       if (v.video_url) {
@@ -1050,7 +1047,7 @@ export default function BatchflowBatches() {
             });
             const meta = await Promise.race([
               metaPromise,
-              new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500)),
+              new Promise<null>((resolve) => setTimeout(() => resolve(null), 3500)),
             ]);
             if (meta?.viewsCount) {
               viewsMap.set(v.id, meta.viewsCount);
@@ -1108,7 +1105,7 @@ export default function BatchflowBatches() {
             });
             const meta = await Promise.race([
               metaPromise,
-              new Promise<null>((resolve) => setTimeout(() => resolve(null), 2500)),
+              new Promise<null>((resolve) => setTimeout(() => resolve(null), 3500)),
             ]);
             if (meta?.viewsCount) {
               viewsMap.set(v.id, meta.viewsCount);
@@ -2367,12 +2364,12 @@ script 2
             type="number"
             fullWidth
             size="small"
-            value={editingVideo?.script_number !== undefined ? editingVideo.script_number : 1}
+            value={editingVideo?.script_number !== undefined ? editingVideo.script_number : ''}
             onChange={e => {
               const val = e.target.value;
               setEditingVideo(prev => prev ? {
                 ...prev,
-                script_number: val === '' ? 0 : Math.max(0, parseInt(val, 10) || 0)
+                script_number: val === '' ? '' : Math.max(0, parseInt(val, 10) || 0)
               } : null);
             }}
             slotProps={{ htmlInput: { min: 0 } }}
@@ -2473,9 +2470,13 @@ script 2
                 const dateVal = editingVideo.posted_date?.trim()
                   ? (editingVideo.posted_date.includes('T') ? editingVideo.posted_date : `${editingVideo.posted_date}T12:00:00.000Z`)
                   : undefined;
+                const rawScriptNum = editingVideo.script_number;
+                const scriptNum = typeof rawScriptNum === 'number'
+                  ? Math.max(0, rawScriptNum)
+                  : (rawScriptNum === '' ? 0 : Math.max(0, parseInt(String(rawScriptNum), 10) || 0));
                 await updateBatchflowVideo(editingVideo.id, {
                   name: editingVideo.name.trim(),
-                  script_number: editingVideo.script_number,
+                  script_number: scriptNum,
                   description: editingVideo.description?.trim() || null,
                   video_url: clean,
                   views: editingVideo.views != null && String(editingVideo.views).trim() !== '' ? String(editingVideo.views).trim() : null,
