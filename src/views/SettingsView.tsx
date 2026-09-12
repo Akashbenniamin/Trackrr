@@ -35,7 +35,7 @@ import WorkOutlineRoundedIcon from '@mui/icons-material/WorkOutlineRounded';
 import { useApp } from '../contexts/AppContext';
 import { useAuth } from '../contexts/AuthContext';
 import { storage } from '../lib/storage';
-import { fetchVideoMetadata, openInstagramReelsPopup, type VideoMetadataResult } from '../lib/videoMetadata';
+import { fetchVideoMetadata, openInstagramReelsPopup, resolveInstagramBusinessAccountId, type VideoMetadataResult } from '../lib/videoMetadata';
 import InstagramRecentPostsDialog from '../components/InstagramRecentPostsDialog';
 import type { WorkspaceType, ThemeStyle } from '../types';
 
@@ -275,6 +275,31 @@ export default function SettingsView() {
     setToastMessage('Meta / Instagram API credentials saved successfully!');
   };
 
+  const [detectingIgId, setDetectingIgId] = useState(false);
+
+  const handleAutoDetectIgId = async () => {
+    if (!metaUserToken.trim()) {
+      setToastMessage('Please paste your Graph API User Token first.');
+      return;
+    }
+    setDetectingIgId(true);
+    try {
+      const res = await resolveInstagramBusinessAccountId(metaUserToken.trim());
+      if (res?.id) {
+        setMetaIgUserId(res.id);
+        updateSettings({ meta_ig_user_id: res.id });
+        localStorage.setItem('trackrr_meta_ig_user_id', res.id);
+        setToastMessage(`Found Instagram Account: @${res.username || 'Account'} (${res.id})`);
+      } else {
+        setToastMessage('No linked Instagram Business/Creator Account found. See instructions below.');
+      }
+    } catch {
+      setToastMessage('Error detecting Instagram Account ID.');
+    } finally {
+      setDetectingIgId(false);
+    }
+  };
+
   const handleTestMetaApi = async () => {
     if (!metaTestUrl.trim()) return;
     setMetaTesting(true);
@@ -288,6 +313,11 @@ export default function SettingsView() {
         clientHandle: metaTestHandle.trim() || undefined,
       });
       setMetaTestResult(res);
+      const storedId = localStorage.getItem('trackrr_meta_ig_user_id');
+      if (storedId && !metaIgUserId) {
+        setMetaIgUserId(storedId);
+        updateSettings({ meta_ig_user_id: storedId });
+      }
     } catch (err: any) {
       setMetaTestResult({
         provider: 'other',
@@ -889,7 +919,7 @@ export default function SettingsView() {
               />
             </Box>
 
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '2fr 1fr' }, gap: 2 }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1.8fr 1.2fr' }, gap: 2 }}>
               <TextField
                 label="Graph API User Token (Unlocks Live Reels Views & Sync)"
                 size="small"
@@ -899,36 +929,36 @@ export default function SettingsView() {
                 onChange={e => setMetaUserToken(e.target.value)}
                 helperText="Required to pull live public views (e.g. 25.8K views) via Meta Business Discovery"
               />
-              <TextField
-                label="Instagram Account ID (Optional)"
-                size="small"
-                fullWidth
-                placeholder="e.g. 178414... (default: me)"
-                value={metaIgUserId}
-                onChange={e => setMetaIgUserId(e.target.value)}
-                helperText="Your IG Business/Creator Account ID"
-              />
+              <Box sx={{ display: 'flex', gap: 1, alignItems: 'flex-start' }}>
+                <TextField
+                  label="Instagram Account ID"
+                  size="small"
+                  fullWidth
+                  placeholder="e.g. 178414..."
+                  value={metaIgUserId}
+                  onChange={e => setMetaIgUserId(e.target.value)}
+                  helperText="Your IG Creator/Business ID"
+                />
+                <Button
+                  variant="outlined"
+                  onClick={handleAutoDetectIgId}
+                  disabled={detectingIgId || !metaUserToken.trim()}
+                  sx={{ textTransform: 'none', fontWeight: 700, whiteSpace: 'nowrap', minWidth: 105, height: 40 }}
+                >
+                  {detectingIgId ? <CircularProgress size={16} /> : 'Auto-Detect'}
+                </Button>
+              </Box>
             </Box>
 
             <Box sx={{ p: 1.5, borderRadius: 1.5, bgcolor: 'rgba(56, 189, 248, 0.05)', border: '1px dashed rgba(56, 189, 248, 0.25)' }}>
               <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '0.74rem', lineHeight: 1.5 }}>
-                🔑 <strong>How to get your User Token for view counts:</strong>
+                🔑 <strong>How Instagram Business Discovery pulls view counts:</strong>
                 <br />
-                1. Open the{' '}
-                <a
-                  href="https://developers.facebook.com/tools/explorer/"
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  style={{ color: '#38BDF8', fontWeight: 700, textDecoration: 'underline' }}
-                >
-                  Meta Graph API Explorer ↗
-                </a>
+                • Meta requires an <strong>Instagram Creator or Business Account ID</strong> (starts with <code>1784...</code>) to discover public client reels.
                 <br />
-                2. Select your App from the top dropdown.
+                • Paste your User Token above and click <strong>Auto-Detect</strong> to automatically find your ID.
                 <br />
-                3. Under permissions, add <code>instagram_basic</code> and <code>pages_show_list</code>.
-                <br />
-                4. Click <strong>Generate Access Token</strong>, copy it, and paste it into the <strong>Graph API User Token</strong> box above!
+                • <em>Don't have a linked account yet?</em> In the Instagram mobile app: go to <strong>Settings → Account type → Switch to Professional Account</strong> (free), then connect it to your Facebook profile or Page.
               </Typography>
             </Box>
 
@@ -1146,6 +1176,12 @@ export default function SettingsView() {
                             }}
                           />
                         </Box>
+
+                        {metaTestResult.metaApiError && (
+                          <Alert severity="warning" sx={{ py: 0.5, px: 1.5, fontSize: '0.74rem' }}>
+                            <strong>Meta API Notice:</strong> {metaTestResult.metaApiError}
+                          </Alert>
+                        )}
 
                         {/* Informative notice if views are missing in public fallback mode */}
                         {!metaTestResult.viewsCount && !metaTestResult.usedOfficialMetaApi && (

@@ -14,6 +14,7 @@ export interface VideoMetadataResult {
   error?: string;
   usedOfficialMetaApi?: boolean;
   viewsStatus?: 'available' | 'hidden_by_creator' | 'requires_user_token' | 'unsupported';
+  metaApiError?: string;
 }
 
 export interface MetaApiCredentials {
@@ -186,6 +187,62 @@ export function parseInstagramDescription(text?: string | null) {
 }
 
 /**
+ * Automatically resolve the user's connected Instagram Business / Creator Account ID from their User Token.
+ */
+export async function resolveInstagramBusinessAccountId(userToken: string): Promise<{ id: string; username?: string; error?: string } | null> {
+  const token = userToken?.trim();
+  if (!token) return null;
+
+  try {
+    // 1. Try /me/accounts with instagram_business_account (standard Facebook Page linked to Instagram)
+    const pageUrl = `https://graph.facebook.com/v19.0/me/accounts?fields=name,instagram_business_account{id,username}&access_token=${encodeURIComponent(token)}`;
+    const pageResp = await fetch(pageUrl);
+    if (pageResp.ok) {
+      const pageData = await pageResp.json();
+      for (const page of pageData?.data || []) {
+        if (page.instagram_business_account?.id) {
+          return {
+            id: page.instagram_business_account.id,
+            username: page.instagram_business_account.username || page.name,
+          };
+        }
+      }
+    }
+
+    // 2. Try /me?fields=instagram_business_account
+    const meUrl = `https://graph.facebook.com/v19.0/me?fields=instagram_business_account{id,username}&access_token=${encodeURIComponent(token)}`;
+    const meResp = await fetch(meUrl);
+    if (meResp.ok) {
+      const meData = await meResp.json();
+      if (meData?.instagram_business_account?.id) {
+        return {
+          id: meData.instagram_business_account.id,
+          username: meData.instagram_business_account.username,
+        };
+      }
+    }
+
+    // 3. Try /me on graph.instagram.com for direct Instagram Login
+    const igUrl = `https://graph.instagram.com/v19.0/me?fields=id,username,account_type&access_token=${encodeURIComponent(token)}`;
+    const igResp = await fetch(igUrl);
+    if (igResp.ok) {
+      const igData = await igResp.json();
+      if (igData?.id) {
+        return {
+          id: igData.id,
+          username: igData.username,
+        };
+      }
+    }
+  } catch (err: any) {
+    console.warn('Could not auto-resolve Instagram Account ID:', err);
+    return { id: '', error: err?.message };
+  }
+
+  return null;
+}
+
+/**
  * Query Meta Graph API Business Discovery for a given creator handle and match target reel.
  */
 export async function queryMetaBusinessDiscovery(
@@ -202,13 +259,43 @@ export async function queryMetaBusinessDiscovery(
   postedDateTime: string | null;
   caption: string | null;
   matched: boolean;
+  metaApiError?: string;
 } | null> {
   const cleanH = cleanInstagramHandle(targetHandle);
   if (!cleanH || !userToken) return null;
 
+  let activeIgId = igUserId?.trim();
+
+  // If igUserId is missing or 'me', attempt to auto-resolve from the user's token!
+  if (!activeIgId || activeIgId === 'me') {
+    const resolved = await resolveInstagramBusinessAccountId(userToken);
+    if (resolved?.id) {
+      activeIgId = resolved.id;
+      try {
+        localStorage.setItem('trackrr_meta_ig_user_id', resolved.id);
+      } catch {
+        // ignore
+      }
+    }
+  }
+
+  // If still missing or 'me', explain clearly that an Instagram Business Account ID is needed
+  if (!activeIgId || activeIgId === 'me') {
+    return {
+      matched: false,
+      viewsCount: null,
+      likesCount: null,
+      commentsCount: null,
+      postedDate: null,
+      postedDateTime: null,
+      caption: null,
+      metaApiError: 'Meta requires an Instagram Business/Creator Account ID (starts with 178414...). Your Facebook profile does not have a linked Instagram Professional account.',
+    };
+  }
+
   try {
     const bdFields = `business_discovery.username(${cleanH}){id,name,username,media.limit(50){id,shortcode,permalink,timestamp,media_type,like_count,comments_count,view_count,caption}}`;
-    const bdUrl = `https://graph.facebook.com/v19.0/${igUserId}?fields=${encodeURIComponent(bdFields)}&access_token=${encodeURIComponent(userToken)}`;
+    const bdUrl = `https://graph.facebook.com/v19.0/${activeIgId}?fields=${encodeURIComponent(bdFields)}&access_token=${encodeURIComponent(userToken)}`;
     const bdResp = await fetch(bdUrl);
 
     if (bdResp.ok) {
@@ -250,10 +337,31 @@ export async function queryMetaBusinessDiscovery(
       }
     } else {
       const errJson = await bdResp.json().catch(() => ({}));
+      const errMsg = errJson?.error?.message || 'Meta Business Discovery API error';
       console.warn('Meta Business Discovery API response error:', errJson);
+      return {
+        matched: false,
+        viewsCount: null,
+        likesCount: null,
+        commentsCount: null,
+        postedDate: null,
+        postedDateTime: null,
+        caption: null,
+        metaApiError: errMsg,
+      };
     }
-  } catch (err) {
+  } catch (err: any) {
     console.warn('Meta Business Discovery API network error:', err);
+    return {
+      matched: false,
+      viewsCount: null,
+      likesCount: null,
+      commentsCount: null,
+      postedDate: null,
+      postedDateTime: null,
+      caption: null,
+      metaApiError: err?.message,
+    };
   }
 
   return null;
@@ -292,6 +400,7 @@ export async function fetchVideoMetadata(
     let rawHtml: string | undefined = undefined;
     let usedOfficialMetaApi = false;
     let mediaId: string | null = null;
+    let metaApiError: string | undefined = undefined;
 
     const shortcode = extractInstagramShortcode(cleanUrl);
     const urlHandle = extractInstagramUsername(cleanUrl);
@@ -350,6 +459,8 @@ export async function fetchVideoMetadata(
       const bdRes = await queryMetaBusinessDiscovery(targetHandle, userToken, igUserId, shortcode, cleanUrl);
       if (bdRes?.matched) {
         applyBdResult(bdRes);
+      } else if (bdRes?.metaApiError) {
+        metaApiError = bdRes.metaApiError;
       }
     }
 
@@ -471,6 +582,8 @@ export async function fetchVideoMetadata(
       const bdRes = await queryMetaBusinessDiscovery(creatorHandle, userToken, igUserId, shortcode, cleanUrl);
       if (bdRes?.matched) {
         applyBdResult(bdRes);
+      } else if (bdRes?.metaApiError) {
+        metaApiError = bdRes.metaApiError;
       }
     }
 
@@ -499,6 +612,7 @@ export async function fetchVideoMetadata(
         rawHtml,
         usedOfficialMetaApi,
         viewsStatus,
+        metaApiError,
       };
     }
 
