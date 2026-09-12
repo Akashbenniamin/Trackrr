@@ -18,6 +18,8 @@ export interface VideoMetadataResult {
 export interface MetaApiCredentials {
   metaAppId?: string;
   metaClientToken?: string;
+  metaUserToken?: string;
+  metaIgUserId?: string;
 }
 
 /**
@@ -61,6 +63,27 @@ export function getMetaAccessToken(credentials?: MetaApiCredentials): string | n
   }
 
   const storedToken = localStorage.getItem('trackrr_meta_access_token');
+  if (storedToken?.trim()) {
+    return storedToken.trim();
+  }
+
+  return null;
+}
+
+/**
+ * Get Meta user access token from options, env variables, or localStorage
+ */
+export function getMetaUserToken(credentials?: MetaApiCredentials): string | null {
+  if (credentials?.metaUserToken?.trim()) {
+    return credentials.metaUserToken.trim();
+  }
+
+  const envUserToken = import.meta.env.VITE_META_USER_TOKEN;
+  if (envUserToken?.trim()) {
+    return envUserToken.trim();
+  }
+
+  const storedToken = localStorage.getItem('trackrr_meta_user_token');
   if (storedToken?.trim()) {
     return storedToken.trim();
   }
@@ -118,10 +141,26 @@ export async function fetchVideoMetadata(
     return { provider: 'other', error: 'Empty URL provided.' };
   }
 
-  // --- 1. INSTAGRAM (Meta Official oEmbed API) ---
+  // --- 1. INSTAGRAM (Meta Official oEmbed + Graph API Insights + Fallback) ---
   if (provider === 'instagram') {
     const metaToken = getMetaAccessToken(credentials);
+    const userToken = getMetaUserToken(credentials);
 
+    let postedDate: string | null = null;
+    let postedDateTime: string | null = null;
+    let title: string | undefined = undefined;
+    let author: string | undefined = undefined;
+    let creatorHandle: string | undefined = undefined;
+    let thumbnailUrl: string | undefined = undefined;
+    let caption: string | null = null;
+    let likesCount: string | null = null;
+    let viewsCount: string | null = null;
+    let commentsCount: string | null = null;
+    let rawHtml: string | undefined = undefined;
+    let usedOfficialMetaApi = false;
+    let mediaId: string | null = null;
+
+    // A. Meta Official oEmbed API (uses App ID | Client Token from Meta Dev Account)
     if (metaToken) {
       try {
         const oembedUrl = `https://graph.facebook.com/v19.0/instagram_oembed?url=${encodeURIComponent(cleanUrl)}&access_token=${metaToken}`;
@@ -129,109 +168,166 @@ export async function fetchVideoMetadata(
 
         if (response.ok) {
           const data = await response.json();
-          let postedDate: string | null = null;
-          let postedDateTime: string | null = null;
+          usedOfficialMetaApi = true;
+          title = data.title || undefined;
+          author = data.author_name || undefined;
+          creatorHandle = data.author_name || undefined;
+          thumbnailUrl = data.thumbnail_url || undefined;
+          caption = data.title || undefined;
+          rawHtml = data.html;
+          mediaId = data.media_id || null;
 
-          // Parse <time datetime="..."> inside the oEmbed blockquote
           if (data.html) {
             const timeMatch = data.html.match(/<time[^>]*datetime="([^"]+)"/i);
             if (timeMatch && timeMatch[1]) {
-              const matchedStr = timeMatch[1];
-              postedDateTime = matchedStr;
-              postedDate = matchedStr.split('T')[0];
+              postedDateTime = timeMatch[1];
+              postedDate = timeMatch[1].split('T')[0];
             }
           }
-
-          // Check cached recent posts in localStorage for views or likes
-          let viewsCount: string | null = null;
-          let likesCount: string | null = null;
-          try {
-            const allKeys = Object.keys(localStorage);
-            for (const k of allKeys) {
-              if (k.startsWith('trackrr_recent_ig_')) {
-                const raw = localStorage.getItem(k);
-                if (raw) {
-                  const posts = JSON.parse(raw);
-                  if (Array.isArray(posts)) {
-                    const match = posts.find((p: any) => cleanVideoUrl(p.permalink) === cleanUrl);
-                    if (match) {
-                      viewsCount = match.viewsCount ? String(match.viewsCount).replace(/views?/i, '').trim() : null;
-                      likesCount = match.likesCount ? String(match.likesCount).replace(/likes?/i, '').trim() : null;
-                      if (!postedDate && match.postedDate) {
-                        postedDate = match.postedDate;
-                      }
-                      break;
-                    }
-                  }
-                }
-              }
-            }
-          } catch {
-            // ignore localStorage error
-          }
-
-          return {
-            postedDate,
-            postedDateTime,
-            title: data.title || undefined,
-            author: data.author_name || undefined,
-            creatorHandle: data.author_name || undefined,
-            thumbnailUrl: data.thumbnail_url || undefined,
-            caption: data.title || undefined,
-            viewsCount,
-            likesCount,
-            provider: 'instagram',
-            rawHtml: data.html,
-            usedOfficialMetaApi: true,
-          };
+        } else {
+          const errData = await response.json().catch(() => ({}));
+          console.warn('Meta oEmbed API error:', errData);
         }
-
-        const errData = await response.json().catch(() => ({}));
-        console.warn('Meta oEmbed API error:', errData);
       } catch (err) {
         console.warn('Network error calling Meta oEmbed API:', err);
       }
     }
 
-    // Fallback: Free public metadata service (Microlink) if Meta token is missing, pending review, or failed
-    try {
-      const fallbackUrl = `https://api.microlink.io?url=${encodeURIComponent(cleanUrl)}`;
-      const fbResponse = await fetch(fallbackUrl);
-      if (fbResponse.ok) {
-        const fbData = await fbResponse.json();
-        const d = fbData?.data;
-        const descText = d?.description || d?.title || '';
-        const parsed = parseInstagramDescription(descText);
-
-        let pDate: string | null = null;
-        if (d?.date) {
-          pDate = String(d.date).split('T')[0];
-        } else if (parsed.dateStr) {
-          const parsedD = new Date(parsed.dateStr);
-          if (!isNaN(parsedD.getTime())) {
-            pDate = parsedD.toISOString().slice(0, 10);
+    // B. Meta Graph API Insights (if User Token is available from Meta Dev Account)
+    if (userToken && mediaId) {
+      try {
+        const fieldsUrl = `https://graph.facebook.com/v19.0/${mediaId}?fields=id,like_count,comments_count,video_view_count,insights.metric(plays,reach,views)&access_token=${encodeURIComponent(userToken)}`;
+        const gResp = await fetch(fieldsUrl);
+        if (gResp.ok) {
+          const gData = await gResp.json();
+          if (gData.like_count !== undefined) likesCount = String(gData.like_count);
+          if (gData.comments_count !== undefined) commentsCount = String(gData.comments_count);
+          if (gData.video_view_count !== undefined) viewsCount = String(gData.video_view_count);
+          if (gData.insights?.data) {
+            for (const item of gData.insights.data) {
+              if ((item.name === 'plays' || item.name === 'views') && item.values?.[0]?.value !== undefined) {
+                viewsCount = String(item.values[0].value);
+                break;
+              }
+            }
+          }
+        } else {
+          // Direct insights query
+          const insUrl = `https://graph.facebook.com/v19.0/${mediaId}/insights?metric=plays&access_token=${encodeURIComponent(userToken)}`;
+          const insResp = await fetch(insUrl);
+          if (insResp.ok) {
+            const insData = await insResp.json();
+            const val = insData?.data?.[0]?.values?.[0]?.value;
+            if (val !== undefined && val !== null) {
+              viewsCount = String(val);
+            }
           }
         }
+      } catch (err) {
+        console.warn('Meta Graph API media insights error:', err);
+      }
+    }
 
-        if (pDate || parsed.caption || d?.author) {
-          return {
-            postedDate: pDate,
-            postedDateTime: d?.date || null,
-            title: d?.title || (parsed.caption ? parsed.caption.slice(0, 80) : undefined),
-            author: d?.author || d?.publisher || undefined,
-            creatorHandle: parsed.creatorHandle || d?.author || undefined,
-            thumbnailUrl: d?.image?.url || undefined,
-            likesCount: parsed.likesCount ? String(parsed.likesCount).replace(/likes?/i, '').trim() : null,
-            commentsCount: parsed.commentsCount || null,
-            viewsCount: parsed.viewsCount ? String(parsed.viewsCount).replace(/views?/i, '').trim() : null,
-            caption: parsed.caption || d?.description || null,
-            provider: 'instagram',
-            usedOfficialMetaApi: false,
-          };
+    // C. Check cached recent posts in localStorage
+    try {
+      const allKeys = Object.keys(localStorage);
+      for (const k of allKeys) {
+        if (k.startsWith('trackrr_recent_ig_')) {
+          const raw = localStorage.getItem(k);
+          if (raw) {
+            const posts = JSON.parse(raw);
+            if (Array.isArray(posts)) {
+              const match = posts.find((p: any) => cleanVideoUrl(p.permalink) === cleanUrl);
+              if (match) {
+                if (!viewsCount && match.viewsCount) {
+                  viewsCount = String(match.viewsCount).replace(/views?/i, '').trim();
+                }
+                if (!likesCount && match.likesCount) {
+                  likesCount = String(match.likesCount).replace(/likes?/i, '').trim();
+                }
+                if (!postedDate && match.postedDate) {
+                  postedDate = match.postedDate;
+                }
+                break;
+              }
+            }
+          }
         }
       }
-    } catch (err) {
-      console.warn('Fallback resolver error:', err);
+    } catch {
+      // ignore
+    }
+
+    // D. Fetch public metadata resolver (Microlink) if likes, date, or caption are missing
+    if (!likesCount || !postedDate || !caption) {
+      try {
+        const fallbackUrl = `https://api.microlink.io?url=${encodeURIComponent(cleanUrl)}`;
+        const fbResponse = await fetch(fallbackUrl);
+        if (fbResponse.ok) {
+          const fbData = await fbResponse.json();
+          const d = fbData?.data;
+          const descText = d?.description || d?.title || '';
+          const parsed = parseInstagramDescription(descText);
+
+          if (!postedDate) {
+            if (d?.date) {
+              postedDate = String(d.date).split('T')[0];
+            } else if (parsed.dateStr) {
+              const parsedD = new Date(parsed.dateStr);
+              if (!isNaN(parsedD.getTime())) {
+                postedDate = parsedD.toISOString().slice(0, 10);
+              }
+            }
+          }
+          if (!postedDateTime && d?.date) {
+            postedDateTime = d.date;
+          }
+          if (!title) {
+            title = d?.title || (parsed.caption ? parsed.caption.slice(0, 80) : undefined);
+          }
+          if (!author) {
+            author = d?.author || d?.publisher || undefined;
+          }
+          if (!creatorHandle) {
+            creatorHandle = parsed.creatorHandle || d?.author || undefined;
+          }
+          if (!thumbnailUrl) {
+            thumbnailUrl = d?.image?.url || undefined;
+          }
+          if (!likesCount && parsed.likesCount) {
+            likesCount = String(parsed.likesCount).replace(/likes?/i, '').trim();
+          }
+          if (!commentsCount && parsed.commentsCount) {
+            commentsCount = parsed.commentsCount;
+          }
+          if (!viewsCount && parsed.viewsCount) {
+            viewsCount = String(parsed.viewsCount).replace(/views?/i, '').trim();
+          }
+          if (!caption) {
+            caption = parsed.caption || d?.description || null;
+          }
+        }
+      } catch (err) {
+        console.warn('Fallback resolver error:', err);
+      }
+    }
+
+    if (postedDate || caption || author || likesCount || viewsCount) {
+      return {
+        postedDate,
+        postedDateTime,
+        title,
+        author,
+        creatorHandle,
+        thumbnailUrl,
+        caption,
+        viewsCount: viewsCount ? String(viewsCount).replace(/views?/i, '').trim() : null,
+        likesCount: likesCount ? String(likesCount).replace(/likes?/i, '').trim() : null,
+        commentsCount: commentsCount || null,
+        provider: 'instagram',
+        rawHtml,
+        usedOfficialMetaApi,
+      };
     }
 
     return {

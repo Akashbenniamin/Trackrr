@@ -366,6 +366,8 @@ export default function BatchflowBatches() {
       const res = await fetchVideoMetadata(cleaned, {
         metaAppId: settings.meta_app_id,
         metaClientToken: settings.meta_client_token,
+        metaUserToken: settings.meta_user_token,
+        metaIgUserId: settings.meta_ig_user_id,
       });
       setPostedMetaResult(res);
 
@@ -402,6 +404,8 @@ export default function BatchflowBatches() {
       const res = await fetchVideoMetadata(cleaned, {
         metaAppId: settings.meta_app_id,
         metaClientToken: settings.meta_client_token,
+        metaUserToken: settings.meta_user_token,
+        metaIgUserId: settings.meta_ig_user_id,
       });
       setEditingMetaResult(res);
 
@@ -997,7 +1001,7 @@ export default function BatchflowBatches() {
         doc.text(vViews, margin + 80, curY + 6.0);
       } else {
         doc.setTextColor(148, 163, 184);
-        doc.text('N/A', margin + 80, curY + 6.0);
+        doc.text('-', margin + 80, curY + 6.0);
       }
 
       // Col 4: Likes (Soft red number only)
@@ -1013,7 +1017,7 @@ export default function BatchflowBatches() {
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(8);
         doc.setTextColor(148, 163, 184);
-        doc.text('N/A', margin + 101, curY + 6.0);
+        doc.text('-', margin + 101, curY + 6.0);
       }
 
       // Col 5: SCRIPT NO.
@@ -1094,6 +1098,8 @@ export default function BatchflowBatches() {
             const metaPromise = fetchVideoMetadata(v.video_url, {
               metaAppId: settings.meta_app_id,
               metaClientToken: settings.meta_client_token,
+              metaUserToken: settings.meta_user_token,
+              metaIgUserId: settings.meta_ig_user_id,
             });
             const meta = await Promise.race([
               metaPromise,
@@ -2559,7 +2565,7 @@ script 2
           </Box>
 
           {editingMetaResult && (
-            <Box sx={{ p: 1, borderRadius: 1.5, bgcolor: 'action.hover', border: '1px solid', borderColor: 'divider' }}>
+            <Box sx={{ p: 1.25, borderRadius: 1.5, bgcolor: 'action.hover', border: '1px solid', borderColor: 'divider', display: 'flex', flexDirection: 'column', gap: 0.75 }}>
               {editingMetaResult.postedDate ? (
                 <Typography variant="caption" sx={{ fontWeight: 700, color: '#10B981', display: 'flex', alignItems: 'center', gap: 0.5 }}>
                   <CheckCircleRoundedIcon sx={{ fontSize: 15 }} />
@@ -2570,29 +2576,26 @@ script 2
                   {editingMetaResult.error || 'No date found for this URL.'}
                 </Typography>
               )}
+              {(editingMetaResult.likesCount || editingMetaResult.viewsCount) && (
+                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+                  {editingMetaResult.likesCount && (
+                    <Chip
+                      label={`${editingMetaResult.likesCount} Likes`}
+                      size="small"
+                      sx={{ height: 20, fontSize: '0.68rem', fontWeight: 700, color: '#EF4444', bgcolor: 'rgba(239, 68, 68, 0.1)' }}
+                    />
+                  )}
+                  {editingMetaResult.viewsCount && (
+                    <Chip
+                      label={`${editingMetaResult.viewsCount} Views`}
+                      size="small"
+                      sx={{ height: 20, fontSize: '0.68rem', fontWeight: 700, color: '#3B82F6', bgcolor: 'rgba(59, 130, 246, 0.1)' }}
+                    />
+                  )}
+                </Box>
+              )}
             </Box>
           )}
-
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
-            <TextField
-              label="Views Count (Optional)"
-              placeholder="e.g. 12.5K, 1500, or 250,000"
-              fullWidth
-              size="small"
-              value={editingVideo?.views ?? ''}
-              onChange={e => setEditingVideo(prev => prev ? { ...prev, views: e.target.value } : null)}
-              helperText="Shown in PDF table VIEWS"
-            />
-            <TextField
-              label="Likes Count (Optional)"
-              placeholder="e.g. 105, 1,097, or 850"
-              fullWidth
-              size="small"
-              value={editingVideo?.likes ?? ''}
-              onChange={e => setEditingVideo(prev => prev ? { ...prev, likes: e.target.value } : null)}
-              helperText="Shown in PDF table LIKES"
-            />
-          </Box>
 
           <TextField
             label="Posted Date"
@@ -2848,29 +2851,26 @@ script 2
                     {postedMetaResult.error || 'Could not auto-extract publication date. Please pick a date below.'}
                   </Typography>
                 )}
+                {(postedMetaResult.likesCount || postedMetaResult.viewsCount) && (
+                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', mt: 0.5 }}>
+                    {postedMetaResult.likesCount && (
+                      <Chip
+                        label={`${postedMetaResult.likesCount} Likes`}
+                        size="small"
+                        sx={{ height: 20, fontSize: '0.68rem', fontWeight: 700, color: '#EF4444', bgcolor: 'rgba(239, 68, 68, 0.1)' }}
+                      />
+                    )}
+                    {postedMetaResult.viewsCount && (
+                      <Chip
+                        label={`${postedMetaResult.viewsCount} Views`}
+                        size="small"
+                        sx={{ height: 20, fontSize: '0.68rem', fontWeight: 700, color: '#3B82F6', bgcolor: 'rgba(59, 130, 246, 0.1)' }}
+                      />
+                    )}
+                  </Box>
+                )}
               </Box>
             )}
-          </Box>
-
-          <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
-            <TextField
-              label="Views Count (Optional)"
-              placeholder="e.g. 12.5K, 1500, or 250,000"
-              fullWidth
-              size="small"
-              value={postedViews}
-              onChange={(e) => setPostedViews(e.target.value)}
-              helperText="Shown in PDF table VIEWS"
-            />
-            <TextField
-              label="Likes Count (Optional)"
-              placeholder="e.g. 105, 1,097, or 850"
-              fullWidth
-              size="small"
-              value={postedLikes}
-              onChange={(e) => setPostedLikes(e.target.value)}
-              helperText="Shown in PDF table LIKES"
-            />
           </Box>
 
           <TextField
