@@ -174,7 +174,42 @@ export const PAYMENT_METHODS = ['Cash', 'UPI', 'Bank Transfer', 'Card', 'PayPal'
 export const CLIENT_COLORS = [
   '#818CF8', '#34D399', '#F59E0B', '#F87171',
   '#A78BFA', '#60A5FA', '#FB7185', '#4ADE80',
+  '#06B6D4', '#EC4899', '#F97316', '#84CC16',
 ];
+
+export interface ClientGradient {
+  name: string;
+  value: string;
+  primary: string;
+}
+
+export const CLIENT_GRADIENTS: ClientGradient[] = [
+  { name: 'Sunset Glow', value: 'linear-gradient(135deg, #FF6B6B 0%, #FFE66D 100%)', primary: '#FF6B6B' },
+  { name: 'Neon Violet', value: 'linear-gradient(135deg, #8B5CF6 0%, #EC4899 100%)', primary: '#8B5CF6' },
+  { name: 'Ocean Breeze', value: 'linear-gradient(135deg, #06B6D4 0%, #3B82F6 100%)', primary: '#06B6D4' },
+  { name: 'Cyber Emerald', value: 'linear-gradient(135deg, #10B981 0%, #06B6D4 100%)', primary: '#10B981' },
+  { name: 'Royal Indigo', value: 'linear-gradient(135deg, #6366F1 0%, #A855F7 100%)', primary: '#6366F1' },
+  { name: 'Cosmic Fire', value: 'linear-gradient(135deg, #F97316 0%, #EF4444 100%)', primary: '#F97316' },
+  { name: 'Northern Lights', value: 'linear-gradient(135deg, #34D399 0%, #60A5FA 100%)', primary: '#34D399' },
+  { name: 'Deep Amethyst', value: 'linear-gradient(135deg, #7C3AED 0%, #C084FC 100%)', primary: '#7C3AED' },
+];
+
+export function isGradient(color?: string | null): boolean {
+  return typeof color === 'string' && color.includes('gradient');
+}
+
+export function getClientPrimaryColor(color?: string | null): string {
+  if (!color) return '#818CF8';
+  if (!color.includes('gradient')) {
+    const match = color.match(/#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})/);
+    return match ? match[0] : (color.startsWith('#') ? color : '#818CF8');
+  }
+  const foundGrad = CLIENT_GRADIENTS.find(g => g.value === color);
+  if (foundGrad) return foundGrad.primary;
+  const match = color.match(/#(?:[0-9a-fA-F]{6}|[0-9a-fA-F]{3})/);
+  return match ? match[0] : '#818CF8';
+}
+
 
 export function calcTaskRevenue(task: Task, client?: Client | null): number {
   if (client?.payment_type === 'monthly') return 0;

@@ -12,8 +12,9 @@ import InstagramIcon from '@mui/icons-material/Instagram';
 import MovieRoundedIcon from '@mui/icons-material/MovieRounded';
 import LayersRoundedIcon from '@mui/icons-material/LayersRounded';
 import { useApp } from '../../contexts/AppContext';
-import { CLIENT_COLORS, type BatchflowClient } from '../../types';
+import { CLIENT_COLORS, getClientPrimaryColor, isGradient, type BatchflowClient } from '../../types';
 import InstagramRecentPostsDialog from '../../components/InstagramRecentPostsDialog';
+import ClientColorPicker from '../../components/ClientColorPicker';
 
 export default function BatchflowClients() {
   const { batchflowClients, batchflowBatches, batchflowVideos, addBatchflowClient, updateBatchflowClient, canEdit } = useApp();
@@ -127,7 +128,7 @@ export default function BatchflowClients() {
                   p: 2.5,
                   borderRadius: 1,
                   cursor: canEdit ? 'pointer' : 'default',
-                  borderLeft: `4px solid ${c.color || '#818CF8'}`,
+                  borderLeft: `4px solid ${getClientPrimaryColor(c.color)}`,
                   display: 'flex',
                   flexDirection: 'column',
                   justifyContent: 'space-between',
@@ -136,14 +137,34 @@ export default function BatchflowClients() {
                   minHeight: 235,
                   gap: 1.5,
                   position: 'relative',
+                  overflow: 'hidden',
                   transition: 'transform 0.15s ease, box-shadow 0.15s ease',
                   '&:hover': { transform: 'translateY(-2px)' },
                 }}
               >
+                {/* Top accent stripe with full gradient/color support */}
+                <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2.5, background: c.color || '#818CF8' }} />
+
                 {/* Card Header */}
                 <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
                   <Box sx={{ minWidth: 0, minHeight: 44, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
-                    <Typography variant="h6" noWrap sx={{ fontWeight: 800, fontSize: '1.1rem', lineHeight: 1.2 }}>
+                    <Typography
+                      variant="h6"
+                      noWrap
+                      sx={{
+                        fontWeight: 800,
+                        fontSize: '1.1rem',
+                        lineHeight: 1.2,
+                        ...(isGradient(c.color)
+                          ? {
+                              background: c.color,
+                              WebkitBackgroundClip: 'text',
+                              WebkitTextFillColor: 'transparent',
+                              display: 'inline-block',
+                            }
+                          : {}),
+                      }}
+                    >
                       {c.name}
                     </Typography>
                     {c.instagram_id ? (
@@ -225,7 +246,7 @@ export default function BatchflowClients() {
                 {/* Batch & Video Stats */}
                 <Box sx={{ display: 'flex', gap: 2, bgcolor: 'rgba(255,255,255,0.03)', p: 1.5, borderRadius: 1 }}>
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                    <LayersRoundedIcon sx={{ fontSize: 18, color: c.color || 'primary.main' }} />
+                    <LayersRoundedIcon sx={{ fontSize: 18, color: getClientPrimaryColor(c.color) }} />
                     <Box>
                       <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '0.68rem' }}>Batches</Typography>
                       <Typography variant="body2" sx={{ fontWeight: 700 }}>{clientBatches.length}</Typography>
@@ -260,7 +281,7 @@ export default function BatchflowClients() {
                       height: 6,
                       borderRadius: 1.5,
                       bgcolor: 'rgba(255,255,255,0.06)',
-                      '& .MuiLinearProgress-bar': { bgcolor: c.color || '#10B981', borderRadius: 1.5 },
+                      '& .MuiLinearProgress-bar': { background: c.color || '#10B981', borderRadius: 1.5 },
                     }}
                   />
                 </Box>
@@ -273,28 +294,29 @@ export default function BatchflowClients() {
           <Grid size={{ xs: 12 }}>
             <Card sx={{ p: 4, textAlign: 'center' }}>
               <Typography variant="body2" sx={{ color: 'text.secondary' }}>
-                {search ? 'No clients match your search query.' : 'No clients yet. Click "Add Client" to create your first client!'}
+                No clients found matching "{search}".
               </Typography>
             </Card>
           </Grid>
         )}
       </Grid>
 
-      {/* Add / Edit Client Dialog */}
+      {/* Add / Edit Dialog */}
       <Dialog open={dialogOpen} onClose={() => setDialogOpen(false)} maxWidth="xs" fullWidth>
         <DialogTitle sx={{ fontWeight: 800 }}>
           {editingClient?.id ? 'Edit Client' : 'New Client'}
         </DialogTitle>
-        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+        <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2.5, pt: 1 }}>
           <TextField
             label="Client Name"
             fullWidth
+            required
+            autoFocus
             value={editingClient?.name ?? ''}
             onChange={e => setEditingClient(prev => prev ? { ...prev, name: e.target.value } : null)}
-            autoFocus
           />
           <TextField
-            label="Instagram Username (Optional)"
+            label="Instagram Handle"
             placeholder="@username"
             fullWidth
             value={editingClient?.instagram_id ?? ''}
@@ -303,29 +325,11 @@ export default function BatchflowClients() {
               startAdornment: <InputAdornment position="start"><InstagramIcon sx={{ fontSize: 16 }} /></InputAdornment>,
             }}
           />
-          <Box>
-            <Typography variant="body2" sx={{ mb: 1, color: 'text.secondary', fontWeight: 600 }}>
-              Client Color Tag
-            </Typography>
-            <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-              {CLIENT_COLORS.map(color => (
-                <Box
-                  key={color}
-                  onClick={() => setEditingClient(prev => prev ? { ...prev, color } : null)}
-                  sx={{
-                    width: 32,
-                    height: 32,
-                    borderRadius: '50%',
-                    bgcolor: color,
-                    cursor: 'pointer',
-                    border: editingClient?.color === color ? '3px solid #fff' : '3px solid transparent',
-                    transition: 'transform 0.15s ease',
-                    '&:hover': { transform: 'scale(1.15)' },
-                  }}
-                />
-              ))}
-            </Box>
-          </Box>
+          <ClientColorPicker
+            value={editingClient?.color || CLIENT_COLORS[0]}
+            onChange={color => setEditingClient(prev => prev ? { ...prev, color } : null)}
+            previewName={editingClient?.name || 'Client Name'}
+          />
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setDialogOpen(false)}>Cancel</Button>

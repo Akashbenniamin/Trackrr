@@ -1,15 +1,16 @@
 import {
-  Box, Card, Typography, Grid, IconButton, Tooltip,
+  Box, Card, Typography, Grid, IconButton, Tooltip, Chip,
 } from '@mui/material';
 import RestoreRoundedIcon from '@mui/icons-material/RestoreRounded';
 import DeleteForeverRoundedIcon from '@mui/icons-material/DeleteForeverRounded';
 import PeopleRoundedIcon from '@mui/icons-material/PeopleRounded';
 import LayersRoundedIcon from '@mui/icons-material/LayersRounded';
 import { useApp } from '../../contexts/AppContext';
+import { getClientPrimaryColor, isGradient } from '../../types';
 
 export default function BatchflowArchive() {
   const {
-    batchflowClients, batchflowBatches,
+    batchflowClients, batchflowBatches, batchflowVideos,
     updateBatchflowClient, deleteBatchflowClient,
     updateBatchflowBatch, deleteBatchflowBatch,
     canEdit,
@@ -105,23 +106,46 @@ export default function BatchflowArchive() {
             </Box>
 
             <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-              {archivedBatches.map(b => (
-                <Box
-                  key={b.id}
-                  sx={{
-                    p: 1.5,
-                    borderRadius: 1,
-                    bgcolor: 'rgba(255,255,255,0.03)',
-                    border: '1px solid rgba(255,255,255,0.06)',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                  }}
-                >
-                  <Box>
-                    <Typography variant="body2" sx={{ fontWeight: 700 }}>{b.name}</Typography>
-                    <Typography variant="caption" sx={{ color: 'text.secondary' }}>Shoot Date: {b.shoot_date || 'N/A'}</Typography>
-                  </Box>
+              {archivedBatches.map(b => {
+                const client = batchflowClients.find(c => c.id === b.client_id);
+                const vCount = batchflowVideos.filter(v => v.batch_id === b.id).length;
+
+                return (
+                  <Box
+                    key={b.id}
+                    sx={{
+                      p: 1.5,
+                      borderRadius: 1,
+                      bgcolor: 'rgba(255,255,255,0.03)',
+                      border: '1px solid rgba(255,255,255,0.06)',
+                      borderLeft: client ? `4px solid ${getClientPrimaryColor(client.color)}` : undefined,
+                      display: 'flex',
+                      justifyContent: 'space-between',
+                      alignItems: 'center',
+                    }}
+                  >
+                    <Box>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                        <Typography variant="body2" sx={{ fontWeight: 700 }}>{b.name}</Typography>
+                        {client && (
+                          <Chip
+                            label={client.name}
+                            size="small"
+                            sx={{
+                              height: 18,
+                              fontSize: '0.64rem',
+                              fontWeight: 700,
+                              background: isGradient(client.color) ? client.color : `${getClientPrimaryColor(client.color)}20`,
+                              color: isGradient(client.color) ? '#FFFFFF' : getClientPrimaryColor(client.color),
+                              border: `1px solid ${getClientPrimaryColor(client.color)}35`,
+                            }}
+                          />
+                        )}
+                      </Box>
+                      <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.25 }}>
+                        Shoot Date: {b.shoot_date || 'N/A'} • {vCount} {vCount === 1 ? 'video' : 'videos'}
+                      </Typography>
+                    </Box>
                   {canEdit && (
                     <Box sx={{ display: 'flex', gap: 0.5 }}>
                       <Tooltip title="Restore Batch">
@@ -149,7 +173,8 @@ export default function BatchflowArchive() {
                     </Box>
                   )}
                 </Box>
-              ))}
+              );
+            })}
 
               {archivedBatches.length === 0 && (
                 <Typography variant="caption" sx={{ color: 'text.disabled', textAlign: 'center', py: 3, display: 'block' }}>

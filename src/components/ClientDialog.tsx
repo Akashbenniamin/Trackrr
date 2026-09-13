@@ -12,6 +12,7 @@ import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import { useApp } from '../contexts/AppContext';
 import type { Client, SalaryRate } from '../types';
 import { CLIENT_COLORS, getSalaryForMonth, formatCurrency, formatDate } from '../types';
+import ClientColorPicker from './ClientColorPicker';
 
 const Transition = React.forwardRef(function Transition(
   props: TransitionProps & { children: React.ReactElement },
@@ -284,23 +285,11 @@ export default function ClientDialog({ open, client, onClose }: ClientDialogProp
         )}
 
         {/* Color picker */}
-        <Box>
-          <Typography variant="body2" sx={{ color: 'text.secondary', mb: 1 }}>Client Color</Typography>
-          <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-            {CLIENT_COLORS.map(c => (
-              <Box
-                key={c}
-                onClick={() => set('color', c)}
-                sx={{
-                  width: 32, height: 32, borderRadius: '50%', bgcolor: c, cursor: 'pointer',
-                  border: form.color === c ? '3px solid #fff' : '3px solid transparent',
-                  transition: 'transform 0.15s, border 0.15s',
-                  '&:hover': { transform: 'scale(1.15)' },
-                }}
-              />
-            ))}
-          </Box>
-        </Box>
+        <ClientColorPicker
+          value={form.color || CLIENT_COLORS[0]}
+          onChange={c => set('color', c)}
+          previewName={form.name || 'Client Name'}
+        />
 
         <TextField
           label="Notes"

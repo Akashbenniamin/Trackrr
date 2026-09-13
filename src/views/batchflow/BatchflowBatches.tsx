@@ -23,6 +23,7 @@ import LinkRoundedIcon from '@mui/icons-material/LinkRounded';
 import InstagramIcon from '@mui/icons-material/Instagram';
 import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
 import SyncRoundedIcon from '@mui/icons-material/SyncRounded';
+import ArchiveRoundedIcon from '@mui/icons-material/ArchiveRounded';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import { registerOkineFont } from '../../lib/okineFont';
@@ -37,7 +38,13 @@ import {
   fetchImageBase64,
   type VideoMetadataResult,
 } from '../../lib/videoMetadata';
-import type { BatchflowBatch, BatchflowVideo, BatchflowVideoStatus } from '../../types';
+import {
+  type BatchflowBatch,
+  type BatchflowVideo,
+  type BatchflowVideoStatus,
+  getClientPrimaryColor,
+  isGradient,
+} from '../../types';
 
 export type BatchVideoSortOption =
   | 'script_asc'
@@ -93,7 +100,8 @@ const VIDEO_CARD_STYLES: Record<BatchflowVideoStatus, {
 };
 
 function hexToRgb(hex: string): [number, number, number] {
-  const clean = (hex || '#818CF8').replace('#', '');
+  const primaryHex = getClientPrimaryColor(hex);
+  const clean = primaryHex.replace('#', '');
   if (clean.length === 3) {
     return [
       parseInt(clean[0] + clean[0], 16) || 0,
@@ -343,6 +351,14 @@ export default function BatchflowBatches() {
       client_id: editingBatch.client_id,
     });
     setEditBatchOpen(false);
+  };
+
+  const handleArchiveBatch = async (batchId: string, batchName: string) => {
+    if (window.confirm(`Archive batch "${batchName}"? You can restore it anytime from Archive Management.`)) {
+      await updateBatchflowBatch(batchId, { archived: 1 });
+      const remaining = activeBatches.filter(b => b.id !== batchId);
+      setSelectedBatchId(remaining[0]?.id || null);
+    }
   };
 
   const [statusFilter, setStatusFilter] = useState<'ALL' | BatchflowVideoStatus>('ALL');
@@ -889,7 +905,7 @@ export default function BatchflowBatches() {
     const pPostedCount = videos.filter(v => v.status === 'Posted').length;
     const totalCount = videos.length;
 
-    const clientColorHex = client?.color || '#6366F1';
+    const clientColorHex = getClientPrimaryColor(client?.color);
     const [cr, cg, cb] = hexToRgb(clientColorHex);
 
     // --- Top Dark Header Banner ---
@@ -1601,7 +1617,7 @@ export default function BatchflowBatches() {
                       cursor: 'pointer',
                       bgcolor: isSelected ? 'rgba(129,140,248,0.12)' : 'rgba(255,255,255,0.03)',
                       border: isSelected ? '1px solid rgba(129,140,248,0.45)' : '1px solid rgba(255,255,255,0.06)',
-                      borderLeft: `4px solid ${client?.color || '#818CF8'}`,
+                      borderLeft: `4px solid ${getClientPrimaryColor(client?.color)}`,
                       boxShadow: isSelected ? '0 4px 14px rgba(0,0,0,0.25)' : 'none',
                       transition: 'all 0.2s cubic-bezier(0.4, 0, 0.2, 1)',
                       '&:hover': {
@@ -1621,7 +1637,16 @@ export default function BatchflowBatches() {
                             fontWeight: 800,
                             fontSize: '0.92rem',
                             letterSpacing: '-0.01em',
-                            color: client?.color || '#818CF8',
+                            ...(isGradient(client?.color)
+                              ? {
+                                  background: client!.color,
+                                  WebkitBackgroundClip: 'text',
+                                  WebkitTextFillColor: 'transparent',
+                                  display: 'inline-block',
+                                }
+                              : {
+                                  color: client?.color || '#818CF8',
+                                }),
                           }}
                         >
                           {client?.name || 'Client'}
@@ -1641,19 +1666,43 @@ export default function BatchflowBatches() {
                         />
                       </Box>
 
-                      {/* Second Row: Batch Name (Smaller, secondary) */}
-                      <Typography
-                        variant="body2"
-                        noWrap
-                        sx={{
-                          fontWeight: 600,
-                          fontSize: '0.78rem',
-                          color: isSelected ? 'text.primary' : 'text.secondary',
-                          lineHeight: 1.25,
-                        }}
-                      >
-                        {b.name}
-                      </Typography>
+                      {/* Second Row: Batch Name & Quick Archive Button */}
+                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', gap: 0.5 }}>
+                        <Typography
+                          variant="body2"
+                          noWrap
+                          sx={{
+                            fontWeight: 600,
+                            fontSize: '0.78rem',
+                            color: isSelected ? 'text.primary' : 'text.secondary',
+                            lineHeight: 1.25,
+                            flex: 1,
+                            minWidth: 0,
+                          }}
+                        >
+                          {b.name}
+                        </Typography>
+                        {canEdit && (
+                          <Tooltip title="Archive Batch">
+                            <IconButton
+                              size="small"
+                              onClick={(e) => {
+                                e.stopPropagation();
+                                handleArchiveBatch(b.id, b.name);
+                              }}
+                              onDoubleClick={(e) => e.stopPropagation()}
+                              sx={{
+                                p: 0.25,
+                                color: 'text.disabled',
+                                opacity: 0.5,
+                                '&:hover': { opacity: 1, color: '#F59E0B' },
+                              }}
+                            >
+                              <ArchiveRoundedIcon sx={{ fontSize: 13 }} />
+                            </IconButton>
+                          </Tooltip>
+                        )}
+                      </Box>
 
                       {/* Third Row: Shoot date */}
                       {b.shoot_date ? (
@@ -1714,7 +1763,7 @@ export default function BatchflowBatches() {
               }}
             >
               {/* Subtle top accent line using client's color */}
-              <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2.5, bgcolor: selectedClient?.color || 'primary.main', opacity: 0.8 }} />
+              <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 2.5, background: selectedClient?.color || 'primary.main', opacity: 0.8 }} />
 
               {/* Top Row: Batch Title, Client Tag, Shoot Date, Action Buttons */}
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: 1.25, mb: 1.5 }}>
@@ -1729,9 +1778,13 @@ export default function BatchflowBatches() {
                           label={selectedClient.name}
                           size="small"
                           sx={{
-                            bgcolor: `${selectedClient.color || '#818CF8'}18`,
-                            color: selectedClient.color || '#818CF8',
-                            border: `1px solid ${selectedClient.color || '#818CF8'}35`,
+                            background: isGradient(selectedClient.color)
+                              ? selectedClient.color
+                              : `${getClientPrimaryColor(selectedClient.color)}18`,
+                            color: isGradient(selectedClient.color)
+                              ? '#FFFFFF'
+                              : getClientPrimaryColor(selectedClient.color),
+                            border: `1px solid ${getClientPrimaryColor(selectedClient.color)}35`,
                             fontWeight: 800,
                             fontSize: '0.72rem',
                             height: 22,
@@ -1832,6 +1885,15 @@ export default function BatchflowBatches() {
                       <Tooltip title="Edit Batch">
                         <IconButton size="small" onClick={() => handleOpenEditBatch()} sx={{ color: 'text.secondary', p: 0.6, bgcolor: 'rgba(255,255,255,0.04)', '&:hover': { bgcolor: 'rgba(255,255,255,0.08)' } }}>
                           <EditRoundedIcon sx={{ fontSize: 16 }} />
+                        </IconButton>
+                      </Tooltip>
+                      <Tooltip title="Archive Batch">
+                        <IconButton
+                          size="small"
+                          onClick={() => handleArchiveBatch(selectedBatch.id, selectedBatch.name)}
+                          sx={{ color: '#F59E0B', p: 0.6, bgcolor: 'rgba(245, 158, 11, 0.08)', '&:hover': { bgcolor: 'rgba(245, 158, 11, 0.16)' } }}
+                        >
+                          <ArchiveRoundedIcon sx={{ fontSize: 16 }} />
                         </IconButton>
                       </Tooltip>
                       <Tooltip title="Delete Batch">
@@ -2149,7 +2211,7 @@ export default function BatchflowBatches() {
                         height: 4,
                         borderRadius: 1,
                         bgcolor: 'rgba(255,255,255,0.06)',
-                        '& .MuiLinearProgress-bar': { bgcolor: selectedClient?.color || '#10B981', borderRadius: 1 },
+                        '& .MuiLinearProgress-bar': { background: selectedClient?.color || '#10B981', borderRadius: 1 },
                       }}
                     />
                   </Box>
@@ -2780,15 +2842,30 @@ script 2
             InputLabelProps={{ shrink: true }}
           />
         </DialogContent>
-        <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setEditBatchOpen(false)}>Cancel</Button>
+        <DialogActions sx={{ px: 3, pb: 2, display: 'flex', justifyContent: 'space-between' }}>
           <Button
-            variant="contained"
-            onClick={handleSaveEditBatch}
-            disabled={!editingBatch?.name.trim()}
+            color="warning"
+            variant="outlined"
+            startIcon={<ArchiveRoundedIcon />}
+            onClick={async () => {
+              if (editingBatch) {
+                await handleArchiveBatch(editingBatch.id, editingBatch.name);
+                setEditBatchOpen(false);
+              }
+            }}
           >
-            Save Batch
+            Archive Batch
           </Button>
+          <Box sx={{ display: 'flex', gap: 1 }}>
+            <Button onClick={() => setEditBatchOpen(false)}>Cancel</Button>
+            <Button
+              variant="contained"
+              onClick={handleSaveEditBatch}
+              disabled={!editingBatch?.name.trim()}
+            >
+              Save Batch
+            </Button>
+          </Box>
         </DialogActions>
       </Dialog>
 
@@ -3371,7 +3448,7 @@ script 2
             {/* Top Dark Header Banner */}
             <Box sx={{ bgcolor: '#0F172A', position: 'relative', pt: '4px', px: 4, pb: 3 }}>
               {/* Top accent bar in client's color */}
-              <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 4, bgcolor: selectedClient?.color || '#6366F1' }} />
+              <Box sx={{ position: 'absolute', top: 0, left: 0, right: 0, height: 4, background: selectedClient?.color || '#6366F1' }} />
 
               <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mt: 1 }}>
                 <Box>
@@ -3396,7 +3473,24 @@ script 2
                       border: '1px solid rgba(255,255,255,0.08)',
                     }}
                   >
-                    <Typography sx={{ fontSize: '13px', fontWeight: 800, color: selectedClient?.color || '#818CF8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                    <Typography
+                      sx={{
+                        fontSize: '13px',
+                        fontWeight: 800,
+                        textTransform: 'uppercase',
+                        letterSpacing: '0.05em',
+                        ...(isGradient(selectedClient?.color)
+                          ? {
+                              background: selectedClient!.color,
+                              WebkitBackgroundClip: 'text',
+                              WebkitTextFillColor: 'transparent',
+                              display: 'inline-block',
+                            }
+                          : {
+                              color: selectedClient?.color || '#818CF8',
+                            }),
+                      }}
+                    >
                       {selectedBatch.name.toUpperCase()}
                     </Typography>
                   </Box>
