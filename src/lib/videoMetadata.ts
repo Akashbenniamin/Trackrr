@@ -119,24 +119,98 @@ export function getCaptionSnippet(caption?: string | null, maxWords = 5): string
 }
 
 /**
+ * Center-crops any image data URL to a 1:1 square canvas to eliminate stretching in PDF exports.
+ */
+export function cropImageToSquareDataUrl(dataUrl: string, size = 200): Promise<string> {
+  if (typeof window === 'undefined' || typeof document === 'undefined') {
+    return Promise.resolve(dataUrl);
+  }
+  return new Promise<string>((resolve) => {
+    const img = new Image();
+    img.crossOrigin = 'anonymous';
+    img.onload = () => {
+      try {
+        const canvas = document.createElement('canvas');
+        canvas.width = size;
+        canvas.height = size;
+        const ctx = canvas.getContext('2d');
+        if (!ctx) {
+          resolve(dataUrl);
+          return;
+        }
+        const w = img.naturalWidth || img.width;
+        const h = img.naturalHeight || img.height;
+        if (!w || !h) {
+          resolve(dataUrl);
+          return;
+        }
+        let sx = 0, sy = 0, sWidth = w, sHeight = h;
+        if (w > h) {
+          sx = (w - h) / 2;
+          sWidth = h;
+        } else if (h > w) {
+          sy = (h - w) / 2;
+          sHeight = w;
+        }
+        ctx.drawImage(img, sx, sy, sWidth, sHeight, 0, 0, size, size);
+        resolve(canvas.toDataURL('image/jpeg', 0.9));
+      } catch {
+        resolve(dataUrl);
+      }
+    };
+    img.onerror = () => resolve(dataUrl);
+    img.src = dataUrl;
+  });
+}
+
+/**
+ * Sanitizes any text string for jsPDF rendering:
+ * - Strips emojis, astral plane unicode characters, and surrogate pairs that corrupt PDF font encoding.
+ * - Standardizes dashes and curly quotes into clean ASCII.
+ * - Strips characters that trigger spacing/kerning matrix corruption in PDF streams.
+ */
+export function sanitizePdfText(str?: string | null): string {
+  if (!str) return '';
+  return str
+    .replace(/[\u2018\u2019]/g, "'")
+    .replace(/[\u201C\u201D]/g, '"')
+    .replace(/[\u2013\u2014]/g, '-')
+    // Strip surrogate pairs (UTF-16 emojis)
+    .replace(/[\uD800-\uDBFF][\uDC00-\uDFFF]/g, '')
+    // Strip symbols, dingbats, variation selectors, astral pictographs
+    .replace(/[\u2600-\u27BF]/g, '')
+    .replace(/[\uFE00-\uFE0F]/g, '')
+    .replace(/[\u{1F000}-\u{1FFFF}]/gu, '')
+    // Replace non-printable or unsupported characters outside ASCII / Latin-1
+    .replace(/[^\x20-\x7E\xA0-\xFF]/g, ' ')
+    .replace(/\s+/g, ' ')
+    .trim();
+}
+
+/**
  * Convert any image URL to a base64 data URL with CORS support.
+ * Center-crops to 1:1 square so PDF and PNG exports are never stretched.
  * First tries direct fetch, then falls back to weserv CORS proxy.
  */
 export async function fetchImageBase64(url?: string | null): Promise<string | null> {
   if (!url) return null;
-  if (url.startsWith('data:image')) return url;
+  if (url.startsWith('data:image')) {
+    return cropImageToSquareDataUrl(url, 200);
+  }
 
   const tryFetchToDataUrl = async (targetUrl: string): Promise<string | null> => {
     try {
       const resp = await fetch(targetUrl);
       if (!resp.ok) return null;
       const blob = await resp.blob();
-      return new Promise<string | null>((resolve) => {
+      const rawData = await new Promise<string | null>((resolve) => {
         const reader = new FileReader();
         reader.onloadend = () => resolve(typeof reader.result === 'string' ? reader.result : null);
         reader.onerror = () => resolve(null);
         reader.readAsDataURL(blob);
       });
+      if (!rawData) return null;
+      return cropImageToSquareDataUrl(rawData, 200);
     } catch {
       return null;
     }
@@ -146,7 +220,7 @@ export async function fetchImageBase64(url?: string | null): Promise<string | nu
   if (direct) return direct;
 
   try {
-    const proxyUrl = `https://images.weserv.nl/?url=${encodeURIComponent(url)}&w=120&h=120&fit=cover&output=jpg`;
+    const proxyUrl = `https://images.weserv.nl/?url=${encodeURIComponent(url)}&w=200&h=200&fit=cover&output=jpg`;
     const proxied = await tryFetchToDataUrl(proxyUrl);
     if (proxied) return proxied;
   } catch {

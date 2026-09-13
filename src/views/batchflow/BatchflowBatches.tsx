@@ -36,6 +36,7 @@ import {
   extractDateFromVideoUrl,
   getCaptionSnippet,
   fetchImageBase64,
+  sanitizePdfText,
   type VideoMetadataResult,
 } from '../../lib/videoMetadata';
 import {
@@ -1131,27 +1132,45 @@ export default function BatchflowBatches() {
       doc.text(String(index + 1), margin + 3, curY + 6.8);
 
       // Col 2: Thumbnail & Video Title
-      const thumbX = margin + 12;
+      const thumbX = margin + 11;
       const thumbY = curY + 1.75;
       const thumbSize = 7.5;
       const base64Img = thumbsBase64Map?.get(v.id);
 
+      doc.setFillColor(241, 245, 249);
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.2);
+      doc.roundedRect(thumbX, thumbY, thumbSize, thumbSize, 1.2, 1.2, 'FD');
+
       if (base64Img) {
         try {
-          doc.addImage(base64Img, 'JPEG', thumbX, thumbY, thumbSize, thumbSize);
+          let drawW = thumbSize;
+          let drawH = thumbSize;
+          let drawX = thumbX;
+          let drawY = thumbY;
+          try {
+            const props = doc.getImageProperties(base64Img);
+            if (props.width && props.height) {
+              const ratio = props.width / props.height;
+              if (Math.abs(ratio - 1) > 0.05) {
+                if (ratio < 1) {
+                  drawW = thumbSize * ratio;
+                  drawX = thumbX + (thumbSize - drawW) / 2;
+                } else {
+                  drawH = thumbSize / ratio;
+                  drawY = thumbY + (thumbSize - drawH) / 2;
+                }
+              }
+            }
+          } catch {}
+          doc.addImage(base64Img, 'JPEG', drawX, drawY, drawW, drawH);
         } catch {
-          doc.setFillColor(241, 245, 249);
-          doc.setDrawColor(203, 213, 225);
-          doc.roundedRect(thumbX, thumbY, thumbSize, thumbSize, 1.2, 1.2, 'FD');
           doc.setFont('helvetica', 'bold');
           doc.setFontSize(6.5);
           doc.setTextColor(148, 163, 184);
           doc.text(`#${v.script_number || index + 1}`, thumbX + thumbSize / 2, thumbY + 5.0, { align: 'center' });
         }
       } else {
-        doc.setFillColor(241, 245, 249);
-        doc.setDrawColor(203, 213, 225);
-        doc.roundedRect(thumbX, thumbY, thumbSize, thumbSize, 1.2, 1.2, 'FD');
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(6.5);
         doc.setTextColor(148, 163, 184);
@@ -1160,18 +1179,28 @@ export default function BatchflowBatches() {
 
       // Title + Caption Snippet in () brackets
       const captionText = captionsMap?.get(v.id) || v.description;
-      const snippet = getCaptionSnippet(captionText, 5);
-      const baseTitle = v.name || `Video #${v.script_number ?? index + 1}`;
-      const titleWithSnippet = snippet ? `${baseTitle} (${snippet})` : baseTitle;
-      const truncatedTitle = doc.splitTextToSize(titleWithSnippet, 73)[0];
+      const rawSnippet = getCaptionSnippet(captionText, 5);
+      const cleanSnippet = sanitizePdfText(rawSnippet).replace(/^["'“”‘’\s\-_.,]+/, '').trim();
+      const cleanBaseTitle = sanitizePdfText(v.name || `Video #${v.script_number ?? index + 1}`);
+      const titleWithSnippet = cleanSnippet ? `${cleanBaseTitle} (${cleanSnippet})` : cleanBaseTitle;
 
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8);
       doc.setTextColor(15, 23, 42);
-      doc.text(truncatedTitle, margin + 23, curY + 6.8);
+
+      const titleStartX = margin + 21;
+      const maxTitleWidth = 74;
+      let displayTitle = titleWithSnippet;
+      if (doc.getTextWidth(displayTitle) > maxTitleWidth) {
+        while (displayTitle.length > 0 && doc.getTextWidth(displayTitle + '...') > maxTitleWidth) {
+          displayTitle = displayTitle.slice(0, -1).trim();
+        }
+        displayTitle += '...';
+      }
+      doc.text(displayTitle, titleStartX, curY + 6.8);
 
       if (v.video_url) {
-        doc.link(thumbX, thumbY, 74 + thumbSize + 3, thumbSize, { url: v.video_url });
+        doc.link(thumbX, thumbY, maxTitleWidth + thumbSize + 4, thumbSize, { url: v.video_url });
       }
 
       const vExtracted = extractVideoLikes(v);
@@ -2498,24 +2527,6 @@ export default function BatchflowBatches() {
                             return 'Ready for editing';
                           })()}
                         </Typography>
-                        {v.description && (
-                          <Typography
-                            variant="caption"
-                            sx={{
-                              color: 'text.secondary',
-                              fontSize: '0.72rem',
-                              display: '-webkit-box',
-                              WebkitLineClamp: 1,
-                              WebkitBoxOrient: 'vertical',
-                              overflow: 'hidden',
-                              textOverflow: 'ellipsis',
-                              mt: 0.25,
-                            }}
-                            title={v.description}
-                          >
-                            {v.description}
-                          </Typography>
-                        )}
                       </Box>
                     </Box>
 
