@@ -1086,34 +1086,34 @@ export default function BatchflowBatches() {
     let curY = 70;
 
     const drawTableHeader = (yPos: number) => {
-      const hHeight = 9.0;
+      const hHeight = 11.0;
       doc.setFillColor(30, 41, 59); // #1E293B
       doc.rect(margin, yPos, contentWidth, hHeight, 'F');
 
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(8.5);
+      doc.setFontSize(9.5);
       doc.setTextColor(241, 245, 249); // #F1F5F9
-      doc.text('SL NO.', margin + 3.5, yPos + 6.0);
-      doc.text('VIDEO TITLE', margin + 26.5, yPos + 6.0);
-      doc.text('LIKES', margin + 101, yPos + 6.0);
-      doc.text('SCRIPT NO.', margin + 121, yPos + 6.0);
-      doc.text('STATUS', margin + 148.5, yPos + 6.0, { align: 'center' });
-      doc.text('PIPELINE DATE', margin + 163, yPos + 6.0);
+      doc.text('SL NO.', margin + 4.0, yPos + 7.2);
+      doc.text('VIDEO TITLE', margin + 32.5, yPos + 7.2);
+      doc.text('LIKES', margin + 107, yPos + 7.2);
+      doc.text('SCRIPT NO.', margin + 125, yPos + 7.2);
+      doc.text('STATUS', margin + 152.5, yPos + 7.2, { align: 'center' });
+      doc.text('PIPELINE DATE', margin + 169.5, yPos + 7.2);
     };
 
     drawTableHeader(curY);
-    curY += 9.0;
+    curY += 11.0;
 
     // Follows the exact active sort order passed into renderBatchReport
     const bSortedVideos = [...videos];
 
     bSortedVideos.forEach((v, index) => {
-      const rowHeight = 16.0;
+      const rowHeight = 24.0;
       if (curY + rowHeight > pageHeight - 18) {
         doc.addPage();
         curY = 20;
         drawTableHeader(curY);
-        curY += 9.0;
+        curY += 11.0;
       }
 
       // Alternating row background
@@ -1122,31 +1122,31 @@ export default function BatchflowBatches() {
       } else {
         doc.setFillColor(248, 250, 252); // #F8FAFC
       }
-      doc.setDrawColor(241, 245, 249);
-      doc.setLineWidth(0.25);
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.3);
       doc.rect(margin, curY, contentWidth, rowHeight, 'FD');
 
-      // Left status accent strip (gives the video row a modern, prominent card accent)
+      // Left status accent strip (prominent 2.5mm card accent)
       const statusColor = v.status === 'Posted' ? [16, 185, 129] : v.status === 'Edited' ? [59, 130, 246] : [245, 158, 11];
       doc.setFillColor(statusColor[0], statusColor[1], statusColor[2]);
-      doc.rect(margin, curY, 1.2, rowHeight, 'F');
+      doc.rect(margin, curY, 2.5, rowHeight, 'F');
 
-      // Col 1: SL NO.
+      // Col 1: SL NO. (Large & bold)
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9);
+      doc.setFontSize(11.5);
       doc.setTextColor(100, 116, 139);
-      doc.text(String(index + 1), margin + 3.5, curY + 9.8);
+      doc.text(String(index + 1), margin + 4.0, curY + 14.8);
 
-      // Col 2: Thumbnail & Video Title (Expanded 12mm x 12mm thumbnail for mobile clarity)
+      // Col 2: Thumbnail & Video Title (Substantial 18mm x 18mm thumbnail for mobile clarity)
       const thumbX = margin + 11;
-      const thumbSize = 12.0;
-      const thumbY = curY + 2.0;
+      const thumbSize = 18.0;
+      const thumbY = curY + 3.0;
       const base64Img = thumbsBase64Map?.get(v.id);
 
       doc.setFillColor(241, 245, 249);
       doc.setDrawColor(226, 232, 240);
-      doc.setLineWidth(0.25);
-      doc.roundedRect(thumbX, thumbY, thumbSize, thumbSize, 1.8, 1.8, 'FD');
+      doc.setLineWidth(0.3);
+      doc.roundedRect(thumbX, thumbY, thumbSize, thumbSize, 2.2, 2.2, 'FD');
 
       if (base64Img) {
         try {
@@ -1172,18 +1172,18 @@ export default function BatchflowBatches() {
           doc.addImage(base64Img, 'JPEG', drawX, drawY, drawW, drawH);
         } catch {
           doc.setFont('helvetica', 'bold');
-          doc.setFontSize(8.5);
+          doc.setFontSize(11);
           doc.setTextColor(148, 163, 184);
-          doc.text(`#${v.script_number || index + 1}`, thumbX + thumbSize / 2, thumbY + 7.2, { align: 'center' });
+          doc.text(`#${v.script_number || index + 1}`, thumbX + thumbSize / 2, thumbY + 10.8, { align: 'center' });
         }
       } else {
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(8.5);
+        doc.setFontSize(11);
         doc.setTextColor(148, 163, 184);
-        doc.text(`#${v.script_number || index + 1}`, thumbX + thumbSize / 2, thumbY + 7.2, { align: 'center' });
+        doc.text(`#${v.script_number || index + 1}`, thumbX + thumbSize / 2, thumbY + 10.8, { align: 'center' });
       }
 
-      // Title + Caption Snippet in () brackets (Increased to 9.5pt bold)
+      // Title + Caption Snippet in () brackets (Enlarged to 12pt bold)
       const captionText = captionsMap?.get(v.id) || v.description;
       const rawSnippet = getCaptionSnippet(captionText, 5);
       const cleanSnippet = sanitizePdfText(rawSnippet).replace(/^["'“”‘’\s\-_.,]+/, '').trim();
@@ -1191,10 +1191,10 @@ export default function BatchflowBatches() {
       const titleWithSnippet = cleanSnippet ? `${cleanBaseTitle} (${cleanSnippet})` : cleanBaseTitle;
 
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9.5);
+      doc.setFontSize(12);
       doc.setTextColor(15, 23, 42);
 
-      const titleStartX = margin + 26.5;
+      const titleStartX = margin + 32.5;
       const maxTitleWidth = 71;
       let displayTitle = titleWithSnippet;
       if (doc.getTextWidth(displayTitle) > maxTitleWidth) {
@@ -1203,7 +1203,7 @@ export default function BatchflowBatches() {
         }
         displayTitle += '...';
       }
-      doc.text(displayTitle, titleStartX, curY + 9.8);
+      doc.text(displayTitle, titleStartX, curY + 14.8);
 
       if (v.video_url) {
         doc.link(thumbX, thumbY, maxTitleWidth + thumbSize + 4, thumbSize, { url: v.video_url });
@@ -1211,73 +1211,73 @@ export default function BatchflowBatches() {
 
       const vExtracted = extractVideoLikes(v);
 
-      // Col 3: Likes (Soft red number only, enlarged to 10.5pt bold)
+      // Col 3: Likes (Enlarged to 13pt bold soft red)
       const vLikes = (likesMap?.get(v.id) && likesMap.get(v.id)?.trim() !== '')
         ? likesMap.get(v.id)!.trim()
         : vExtracted.likes;
       if (vLikes) {
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(10.5);
+        doc.setFontSize(13);
         doc.setTextColor(239, 68, 68); // Soft red (#EF4444)
-        doc.text(vLikes, margin + 101, curY + 9.8);
+        doc.text(vLikes, margin + 107, curY + 14.8);
       } else {
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(10);
+        doc.setFontSize(12);
         doc.setTextColor(148, 163, 184);
-        doc.text('-', margin + 101, curY + 9.8);
+        doc.text('-', margin + 107, curY + 14.8);
       }
 
-      // Col 4: SCRIPT NO. (Enlarged to 9.5pt bold)
+      // Col 4: SCRIPT NO. (Enlarged to 12pt bold)
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9.5);
+      doc.setFontSize(12);
       doc.setTextColor(71, 85, 105);
-      doc.text(v.script_number === 0 ? '-' : String(v.script_number ?? '-'), margin + 121, curY + 9.8);
+      doc.text(v.script_number === 0 ? '-' : String(v.script_number ?? '-'), margin + 125, curY + 14.8);
 
-      // Col 5: Status Pill (Clickable if video_url exists, enlarged to 23mm x 7mm)
-      const pillW = 23;
-      const pillH = 7.0;
-      const pillX = margin + 137;
+      // Col 5: Status Pill (Clickable if video_url exists, enlarged to 28mm x 9mm)
+      const pillW = 28;
+      const pillH = 9.0;
+      const pillX = margin + 138.5;
       const pillY = curY + (rowHeight - pillH) / 2;
 
       if (v.status === 'Posted') {
         doc.setFillColor(209, 250, 229);
         doc.setDrawColor(167, 243, 208);
-        doc.roundedRect(pillX, pillY, pillW, pillH, 1.8, 1.8, 'FD');
+        doc.roundedRect(pillX, pillY, pillW, pillH, 2.2, 2.2, 'FD');
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(8);
+        doc.setFontSize(9.5);
         doc.setTextColor(4, 120, 87);
-        doc.text('POSTED', pillX + pillW / 2, pillY + 4.8, { align: 'center' });
+        doc.text('POSTED', pillX + pillW / 2, pillY + 6.1, { align: 'center' });
         if (v.video_url) {
           doc.link(pillX, pillY, pillW, pillH, { url: v.video_url });
         }
       } else if (v.status === 'Edited') {
         doc.setFillColor(219, 234, 254);
         doc.setDrawColor(191, 219, 254);
-        doc.roundedRect(pillX, pillY, pillW, pillH, 1.8, 1.8, 'FD');
+        doc.roundedRect(pillX, pillY, pillW, pillH, 2.2, 2.2, 'FD');
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(8);
+        doc.setFontSize(9.5);
         doc.setTextColor(29, 78, 216);
-        doc.text('EDITED', pillX + pillW / 2, pillY + 4.8, { align: 'center' });
+        doc.text('EDITED', pillX + pillW / 2, pillY + 6.1, { align: 'center' });
       } else {
         doc.setFillColor(254, 243, 199);
         doc.setDrawColor(253, 230, 138);
-        doc.roundedRect(pillX, pillY, pillW, pillH, 1.8, 1.8, 'FD');
+        doc.roundedRect(pillX, pillY, pillW, pillH, 2.2, 2.2, 'FD');
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(8);
+        doc.setFontSize(9.5);
         doc.setTextColor(180, 83, 9);
-        doc.text('PENDING', pillX + pillW / 2, pillY + 4.8, { align: 'center' });
+        doc.text('PENDING', pillX + pillW / 2, pillY + 6.1, { align: 'center' });
       }
 
-      // Col 6: Date / Details (PRIORITIZE URL DATE!, enlarged to 8.5pt)
+      // Col 6: Date / Details (PRIORITIZE URL DATE!, enlarged to 10.5pt)
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(8.5);
+      doc.setFontSize(10.5);
       doc.setTextColor(100, 116, 139);
       const urlDate = datesMap?.get(v.id) || extractDateFromVideoUrl(v.video_url);
       const effectiveDate = urlDate || (v.status === 'Posted' && v.posted_date ? v.posted_date.slice(0, 10) : null);
       const dateText = effectiveDate ? new Date(effectiveDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) :
                        v.status === 'Edited' && v.edited_date ? new Date(v.edited_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) :
                        batch.shoot_date ? `Shoot: ${batch.shoot_date}` : '-';
-      doc.text(dateText, margin + 163, curY + 9.8);
+      doc.text(dateText, margin + 169.5, curY + 14.8);
 
       curY += rowHeight;
     });
@@ -3621,21 +3621,21 @@ script 2
               <Box
                 sx={{
                   display: 'grid',
-                  gridTemplateColumns: '60px 1fr 110px 100px 110px 130px',
+                  gridTemplateColumns: '65px 1fr 120px 110px 130px 140px',
                   bgcolor: '#1E293B',
                   color: '#F1F5F9',
                   borderRadius: 1,
-                  px: 2.5,
-                  py: 1.5,
+                  px: 3,
+                  py: 2,
                   alignItems: 'center',
                 }}
               >
-                <Typography sx={{ fontSize: '12px', fontWeight: 800, letterSpacing: '0.04em' }}>SL NO.</Typography>
-                <Typography sx={{ fontSize: '12px', fontWeight: 800, letterSpacing: '0.04em' }}>VIDEO TITLE</Typography>
-                <Typography sx={{ fontSize: '12px', fontWeight: 800, letterSpacing: '0.04em' }}>LIKES</Typography>
-                <Typography sx={{ fontSize: '12px', fontWeight: 800, letterSpacing: '0.04em' }}>SCRIPT NO.</Typography>
-                <Typography sx={{ fontSize: '12px', fontWeight: 800, letterSpacing: '0.04em', textAlign: 'center' }}>STATUS</Typography>
-                <Typography sx={{ fontSize: '12px', fontWeight: 800, letterSpacing: '0.04em' }}>PIPELINE DATE</Typography>
+                <Typography sx={{ fontSize: '13.5px', fontWeight: 800, letterSpacing: '0.04em' }}>SL NO.</Typography>
+                <Typography sx={{ fontSize: '13.5px', fontWeight: 800, letterSpacing: '0.04em' }}>VIDEO TITLE</Typography>
+                <Typography sx={{ fontSize: '13.5px', fontWeight: 800, letterSpacing: '0.04em' }}>LIKES</Typography>
+                <Typography sx={{ fontSize: '13.5px', fontWeight: 800, letterSpacing: '0.04em' }}>SCRIPT NO.</Typography>
+                <Typography sx={{ fontSize: '13.5px', fontWeight: 800, letterSpacing: '0.04em', textAlign: 'center' }}>STATUS</Typography>
+                <Typography sx={{ fontSize: '13.5px', fontWeight: 800, letterSpacing: '0.04em' }}>PIPELINE DATE</Typography>
               </Box>
 
               {/* Video Rows: Rendered in active sort order! */}
@@ -3660,31 +3660,31 @@ script 2
                     key={v.id}
                     sx={{
                       display: 'grid',
-                      gridTemplateColumns: '60px 1fr 110px 100px 110px 130px',
+                      gridTemplateColumns: '65px 1fr 120px 110px 130px 140px',
                       bgcolor: index % 2 === 0 ? '#FFFFFF' : '#F8FAFC',
                       borderBottom: '1px solid #F1F5F9',
-                      borderLeft: `4px solid ${statusColor}`,
-                      px: 2,
-                      py: 2,
+                      borderLeft: `5px solid ${statusColor}`,
+                      px: 2.5,
+                      py: 2.75,
                       alignItems: 'center',
                     }}
                   >
                     {/* Col 1: SL NO. */}
-                    <Typography sx={{ fontSize: '13.5px', fontWeight: 800, color: '#64748B' }}>
+                    <Typography sx={{ fontSize: '15px', fontWeight: 800, color: '#64748B' }}>
                       {index + 1}
                     </Typography>
 
                     {/* Col 2: Thumbnail & Video Title + Caption Snippet in () */}
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.75, minWidth: 0, pr: 2 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 2, minWidth: 0, pr: 2 }}>
                       {thumbUrl ? (
                         <Box
                           component="img"
                           src={thumbUrl}
                           alt="thumb"
                           sx={{
-                            width: 48,
-                            height: 48,
-                            borderRadius: '8px',
+                            width: 64,
+                            height: 64,
+                            borderRadius: '10px',
                             objectFit: 'cover',
                             border: '1px solid #E2E8F0',
                             flexShrink: 0,
@@ -3693,9 +3693,9 @@ script 2
                       ) : (
                         <Box
                           sx={{
-                            width: 48,
-                            height: 48,
-                            borderRadius: '8px',
+                            width: 64,
+                            height: 64,
+                            borderRadius: '10px',
                             bgcolor: '#F1F5F9',
                             border: '1px solid #CBD5E1',
                             display: 'flex',
@@ -3703,17 +3703,17 @@ script 2
                             justifyContent: 'center',
                             color: '#94A3B8',
                             fontWeight: 800,
-                            fontSize: '13px',
+                            fontSize: '15px',
                             flexShrink: 0,
                           }}
                         >
                           #{v.script_number ?? index + 1}
                         </Box>
                       )}
-                      <Typography sx={{ fontSize: '14.5px', fontWeight: 700, color: '#0F172A', lineHeight: 1.3 }}>
+                      <Typography sx={{ fontSize: '16.5px', fontWeight: 700, color: '#0F172A', lineHeight: 1.3 }}>
                         {v.name || `Video #${v.script_number ?? index + 1}`}
                         {snippet && (
-                          <Typography component="span" sx={{ fontSize: '13px', fontWeight: 500, color: '#64748B', ml: 0.75, fontStyle: 'italic' }}>
+                          <Typography component="span" sx={{ fontSize: '14.5px', fontWeight: 500, color: '#64748B', ml: 0.75, fontStyle: 'italic' }}>
                             ({snippet})
                           </Typography>
                         )}
@@ -3721,12 +3721,12 @@ script 2
                     </Box>
 
                     {/* Col 3: Likes in Soft Red */}
-                    <Typography sx={{ fontSize: '14.5px', fontWeight: 800, color: '#EF4444' }}>
+                    <Typography sx={{ fontSize: '16.5px', fontWeight: 800, color: '#EF4444' }}>
                       {vLikes || '-'}
                     </Typography>
 
                     {/* Col 4: SCRIPT NO. */}
-                    <Typography sx={{ fontSize: '13.5px', fontWeight: 800, color: '#475569' }}>
+                    <Typography sx={{ fontSize: '15px', fontWeight: 800, color: '#475569' }}>
                       {v.script_number === 0 ? '-' : String(v.script_number ?? '-')}
                     </Typography>
 
@@ -3734,10 +3734,10 @@ script 2
                     <Box sx={{ display: 'flex', justifyContent: 'center' }}>
                       <Box
                         sx={{
-                          px: 2,
-                          py: 0.6,
-                          borderRadius: '6px',
-                          fontSize: '12px',
+                          px: 2.5,
+                          py: 0.8,
+                          borderRadius: '8px',
+                          fontSize: '13.5px',
                           fontWeight: 800,
                           textTransform: 'uppercase',
                           letterSpacing: '0.04em',
@@ -3752,7 +3752,7 @@ script 2
                     </Box>
 
                     {/* Col 6: Pipeline Date */}
-                    <Typography sx={{ fontSize: '13px', color: '#64748B' }}>
+                    <Typography sx={{ fontSize: '14px', color: '#64748B' }}>
                       {dateText}
                     </Typography>
                   </Box>
