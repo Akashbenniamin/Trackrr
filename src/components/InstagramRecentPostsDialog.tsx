@@ -7,6 +7,7 @@ import {
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
+import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import AccessTimeRoundedIcon from '@mui/icons-material/AccessTimeRounded';
@@ -16,6 +17,8 @@ import InstagramIcon from '@mui/icons-material/Instagram';
 import PlayCircleOutlineRoundedIcon from '@mui/icons-material/PlayCircleOutlineRounded';
 import AddLinkRoundedIcon from '@mui/icons-material/AddLinkRounded';
 import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
+import KeyboardArrowDownRoundedIcon from '@mui/icons-material/KeyboardArrowDownRounded';
+import KeyboardArrowUpRoundedIcon from '@mui/icons-material/KeyboardArrowUpRounded';
 import { useApp } from '../contexts/AppContext';
 import {
   cleanInstagramHandle,
@@ -65,6 +68,9 @@ export default function InstagramRecentPostsDialog({
   const [linkingPost, setLinkingPost] = useState<InstagramRecentPost | null>(null);
   const [isLinking, setIsLinking] = useState(false);
   const [linkSuccessToast, setLinkSuccessToast] = useState<string | null>(null);
+
+  // View mode: Show Last 3 vs All Videos
+  const [showAllVideos, setShowAllVideos] = useState(false);
 
   // Quick link extractor bar
   const [quickUrl, setQuickUrl] = useState('');
@@ -140,7 +146,7 @@ export default function InstagramRecentPostsDialog({
     );
 
     if (changed) {
-      setPosts(sortByDateDesc(updated).slice(0, 3));
+      setPosts(sortByDateDesc(updated));
     }
   };
 
@@ -153,12 +159,41 @@ export default function InstagramRecentPostsDialog({
     setLoading(true);
     setErrorMessage(null);
 
-    // Initial check from localStorage cache (sorted latest first)
+    // Initial check from localStorage cache & workspace posted videos
     const stored = getStoredRecentPosts(cleanHandle);
-    if (stored.length > 0 && !forceRefresh) {
-      const sortedStored = sortByDateDesc(stored).slice(0, 3);
-      setPosts(sortedStored);
-      enrichMissingThumbnails(sortedStored);
+    const initialMap = new Map<string, InstagramRecentPost>();
+    const addInitial = (item: InstagramRecentPost) => {
+      if (!item.permalink) return;
+      const clean = cleanVideoUrl(item.permalink);
+      const shortcode = extractInstagramShortcode(item.permalink);
+      const key = shortcode ? `sc_${shortcode.toLowerCase()}` : `url_${clean}`;
+      if (!initialMap.has(key)) initialMap.set(key, { ...item });
+    };
+
+    (existingVideos || [])
+      .filter(v => v.status === 'Posted' && v.video_url && v.video_url.includes('instagram.com'))
+      .forEach(v => {
+        const clean = cleanVideoUrl(v.video_url!);
+        const cachedThumb = clean ? (localStorage.getItem(`trackrr_thumb_${clean}`) || localStorage.getItem(`trackrr_thumb_${v.video_url}`)) : null;
+        const urlDate = extractDateFromVideoUrl(v.video_url!);
+        const effectiveDate = v.posted_date ? v.posted_date.slice(0, 10) : (urlDate || undefined);
+        addInitial({
+          id: v.id,
+          permalink: v.video_url!,
+          thumbnailUrl: cachedThumb || undefined,
+          postedDate: effectiveDate,
+          postedDateTime: v.posted_date || (urlDate ? `${urlDate}T12:00:00.000Z` : undefined),
+          caption: v.name,
+          likesCount: v.likes ? String(v.likes) : null,
+        });
+      });
+    stored.forEach(addInitial);
+
+    const initialList = Array.from(initialMap.values());
+    if (initialList.length > 0 && !forceRefresh) {
+      const sortedInitial = sortByDateDesc(initialList);
+      setPosts(sortedInitial);
+      enrichMissingThumbnails(sortedInitial);
     }
 
     try {
@@ -169,48 +204,69 @@ export default function InstagramRecentPostsDialog({
         igUserId: settings.meta_ig_user_id,
       });
 
-      let candidatePosts: InstagramRecentPost[] = [];
+      // Build workspace posted videos list
+      const workspacePosted: InstagramRecentPost[] = (existingVideos || [])
+        .filter(v => v.status === 'Posted' && v.video_url && v.video_url.includes('instagram.com'))
+        .map(v => {
+          const clean = cleanVideoUrl(v.video_url!);
+          const cachedThumb = clean ? (localStorage.getItem(`trackrr_thumb_${clean}`) || localStorage.getItem(`trackrr_thumb_${v.video_url}`)) : null;
+          const urlDate = extractDateFromVideoUrl(v.video_url!);
+          const effectiveDate = v.posted_date ? v.posted_date.slice(0, 10) : (urlDate || undefined);
+          return {
+            id: v.id,
+            permalink: v.video_url!,
+            thumbnailUrl: cachedThumb || undefined,
+            postedDate: effectiveDate,
+            postedDateTime: v.posted_date || (urlDate ? `${urlDate}T12:00:00.000Z` : undefined),
+            caption: v.name,
+            likesCount: v.likes ? String(v.likes) : null,
+          };
+        });
 
-      if (res.posts && res.posts.length > 0) {
-        candidatePosts = res.posts;
-        setErrorMessage(null);
-      } else {
-        // Fallback to workspace posted videos
-        let fallbackPosts: InstagramRecentPost[] = stored;
-        if (fallbackPosts.length === 0 && existingVideos && existingVideos.length > 0) {
-          const workspacePosted = existingVideos
-            .filter(v => v.status === 'Posted' && v.video_url && v.video_url.includes('instagram.com'))
-            .map(v => {
-              const clean = cleanVideoUrl(v.video_url!);
-              const cachedThumb = clean ? (localStorage.getItem(`trackrr_thumb_${clean}`) || localStorage.getItem(`trackrr_thumb_${v.video_url}`)) : null;
-              const urlDate = extractDateFromVideoUrl(v.video_url!);
-              const effectiveDate = v.posted_date ? v.posted_date.slice(0, 10) : (urlDate || undefined);
-              return {
-                id: v.id,
-                permalink: v.video_url!,
-                thumbnailUrl: cachedThumb || undefined,
-                postedDate: effectiveDate,
-                postedDateTime: v.posted_date || (urlDate ? `${urlDate}T12:00:00.000Z` : undefined),
-                caption: v.name,
-                likesCount: v.likes ? String(v.likes) : null,
-              };
-            });
-          if (workspacePosted.length > 0) {
-            fallbackPosts = workspacePosted;
-          }
-        }
+      // Combine all sources: API posts, stored posts, and workspace posted videos
+      const mergedMap = new Map<string, InstagramRecentPost>();
 
-        if (fallbackPosts.length > 0) {
-          candidatePosts = fallbackPosts;
-          setErrorMessage(res.error || null);
+      const addOrMerge = (item: InstagramRecentPost) => {
+        if (!item.permalink) return;
+        const clean = cleanVideoUrl(item.permalink);
+        const shortcode = extractInstagramShortcode(item.permalink);
+        const key = shortcode ? `sc_${shortcode.toLowerCase()}` : `url_${clean}`;
+
+        const existing = mergedMap.get(key);
+        if (!existing) {
+          mergedMap.set(key, { ...item });
         } else {
-          setPosts([]);
-          setErrorMessage(res.error || 'No recent videos found. Use the Live Reels button below to view all reels.');
-          return;
+          // Merge best available data
+          mergedMap.set(key, {
+            ...existing,
+            ...item,
+            thumbnailUrl: item.thumbnailUrl || existing.thumbnailUrl,
+            likesCount: item.likesCount || existing.likesCount,
+            commentsCount: item.commentsCount || existing.commentsCount,
+            postedDate: item.postedDate || existing.postedDate,
+            postedDateTime: item.postedDateTime || existing.postedDateTime,
+            caption: item.caption || existing.caption,
+          });
         }
+      };
+
+      // 1. Workspace posted videos (high priority for accurate title & link)
+      workspacePosted.forEach(addOrMerge);
+      // 2. Stored cache (Quick extractions)
+      stored.forEach(addOrMerge);
+      // 3. Official API posts
+      (res.posts || []).forEach(addOrMerge);
+
+      const allMerged = Array.from(mergedMap.values());
+
+      if (allMerged.length === 0) {
+        setPosts([]);
+        setErrorMessage(res.error || 'No posted videos found for this client. Use Quick Reel Extractor below or Live Reels to add.');
+        return;
       }
 
-      const sorted = sortByDateDesc(candidatePosts).slice(0, 3);
+      setErrorMessage(null);
+      const sorted = sortByDateDesc(allMerged);
       setPosts(sorted);
       enrichMissingThumbnails(sorted);
     } catch (err: any) {
@@ -281,7 +337,7 @@ export default function InstagramRecentPostsDialog({
 
       const updated = addRecentPostForHandle(cleanHandle, newPost);
       if (updated) {
-        const sorted = sortByDateDesc(updated).slice(0, 3);
+        const sorted = sortByDateDesc(updated);
         setPosts(sorted);
         enrichMissingThumbnails(sorted);
       }
@@ -302,6 +358,29 @@ export default function InstagramRecentPostsDialog({
 
   const clientBatches = batchflowBatches.filter(b => b.client_id === resolvedClientId);
   const clientBatchMap = new Map(clientBatches.map(b => [b.id, b]));
+
+  // Helper to find if a post is already linked to a workspace video for this client
+  const getMatchingLinkedVideo = (post: InstagramRecentPost): BatchflowVideo | undefined => {
+    if (!post.permalink) return undefined;
+    const postClean = cleanVideoUrl(post.permalink);
+    const postShortcode = extractInstagramShortcode(post.permalink);
+
+    return batchflowVideos.find(v => {
+      // Check if video belongs to this client's batches
+      if (resolvedClientId) {
+        const batch = clientBatchMap.get(v.batch_id);
+        if (!batch || batch.client_id !== resolvedClientId) return false;
+      }
+      if (!v.video_url) return false;
+      const vClean = cleanVideoUrl(v.video_url);
+      if (vClean && postClean && vClean === postClean) return true;
+      if (postShortcode) {
+        const vShortcode = extractInstagramShortcode(v.video_url);
+        if (vShortcode && vShortcode.toLowerCase() === postShortcode.toLowerCase()) return true;
+      }
+      return false;
+    });
+  };
 
   const candidateVideos = batchflowVideos
     .filter(v => clientBatchMap.has(v.batch_id) && (v.status === 'Pending' || v.status === 'Edited'))
@@ -477,17 +556,36 @@ export default function InstagramRecentPostsDialog({
           </Button>
         </Box>
 
-        {/* Header row: Last 3 Videos title & refresh */}
+        {/* Header row: Title, count, view toggle & refresh */}
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
             <Typography variant="subtitle2" sx={{ fontWeight: 800, fontSize: '0.88rem', letterSpacing: '0.02em', textTransform: 'uppercase', color: 'text.secondary' }}>
-              Last 3 Posted Videos
+              {showAllVideos ? `All Posted Videos (${posts.length})` : (posts.length > 3 ? 'Last 3 Posted Videos' : 'Posted Videos')}
             </Typography>
             <Chip
               label={`${posts.length} Available`}
               size="small"
               sx={{ height: 18, fontSize: '0.65rem', fontWeight: 700, bgcolor: 'rgba(255,255,255,0.06)' }}
             />
+            {posts.length > 3 && (
+              <Button
+                size="small"
+                onClick={() => setShowAllVideos(!showAllVideos)}
+                endIcon={showAllVideos ? <KeyboardArrowUpRoundedIcon sx={{ fontSize: 14 }} /> : <KeyboardArrowDownRoundedIcon sx={{ fontSize: 14 }} />}
+                sx={{
+                  textTransform: 'none',
+                  fontSize: '0.72rem',
+                  fontWeight: 700,
+                  color: '#38BDF8',
+                  p: 0,
+                  minWidth: 0,
+                  ml: 0.5,
+                  '&:hover': { bgcolor: 'transparent', textDecoration: 'underline' },
+                }}
+              >
+                {showAllVideos ? 'Show Top 3' : `View All (${posts.length})`}
+              </Button>
+            )}
           </Box>
 
           <Tooltip title="Refresh recent posts">
@@ -509,251 +607,351 @@ export default function InstagramRecentPostsDialog({
           </Box>
         )}
 
-        {/* Video Cards (The Last 3 Posts) */}
+        {/* Video Cards */}
         {posts.length > 0 ? (
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5, mb: 2 }}>
-            {posts.map((post, idx) => (
-              <Card
-                key={post.id || post.permalink || idx}
-                sx={{
-                  display: 'flex',
-                  gap: 1.5,
-                  p: 1.25,
-                  bgcolor: 'rgba(255, 255, 255, 0.025)',
-                  border: '1px solid rgba(255, 255, 255, 0.08)',
-                  borderRadius: 1.5,
-                  position: 'relative',
-                  overflow: 'hidden',
-                  transition: 'border-color 0.15s ease, background 0.15s ease',
-                  '&:hover': {
-                    borderColor: 'rgba(225, 48, 108, 0.4)',
-                    bgcolor: 'rgba(255, 255, 255, 0.04)',
-                  },
-                }}
-              >
-                {/* Thumbnail / Media Container */}
-                <Box
-                  onClick={() => window.open(post.permalink, '_blank')}
+            {(showAllVideos ? posts : posts.slice(0, 3)).map((post, idx) => {
+              const linkedVideo = getMatchingLinkedVideo(post);
+              const linkedBatch = linkedVideo ? clientBatchMap.get(linkedVideo.batch_id) : undefined;
+
+              return (
+                <Card
+                  key={post.id || post.permalink || idx}
                   sx={{
-                    width: 76,
-                    height: 104,
-                    flexShrink: 0,
-                    borderRadius: 1,
-                    bgcolor: 'rgba(0, 0, 0, 0.4)',
-                    overflow: 'hidden',
-                    position: 'relative',
-                    cursor: 'pointer',
                     display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'center',
+                    gap: 1.5,
+                    p: 1.25,
+                    bgcolor: 'rgba(255, 255, 255, 0.025)',
                     border: '1px solid rgba(255, 255, 255, 0.08)',
+                    borderRadius: 1.5,
+                    position: 'relative',
+                    overflow: 'hidden',
+                    transition: 'border-color 0.15s ease, background 0.15s ease',
+                    '&:hover': {
+                      borderColor: linkedVideo ? 'rgba(16, 185, 129, 0.4)' : 'rgba(225, 48, 108, 0.4)',
+                      bgcolor: 'rgba(255, 255, 255, 0.04)',
+                    },
                   }}
                 >
-                  {post.thumbnailUrl ? (
-                    <Box
-                      component="img"
-                      src={post.thumbnailUrl}
-                      referrerPolicy="no-referrer"
-                      alt="Thumbnail"
-                      sx={{
-                        width: '100%',
-                        height: '100%',
-                        objectFit: 'cover',
-                        transition: 'transform 0.2s ease',
-                        '&:hover': { transform: 'scale(1.05)' },
-                      }}
-                      onError={(e: any) => {
-                        const currentSrc: string = e.currentTarget.src || '';
-                        if (post.thumbnailUrl && !currentSrc.includes('images.weserv.nl') && !currentSrc.startsWith('data:')) {
-                          e.currentTarget.src = `https://images.weserv.nl/?url=${encodeURIComponent(post.thumbnailUrl)}&w=160&h=220&fit=cover&output=jpg`;
-                        } else {
-                          e.currentTarget.style.display = 'none';
-                        }
-                      }}
-                    />
-                  ) : null}
-
-                  {/* Play icon overlay */}
+                  {/* Thumbnail / Media Container */}
                   <Box
+                    onClick={() => window.open(post.permalink, '_blank')}
                     sx={{
-                      position: 'absolute',
-                      inset: 0,
+                      width: 76,
+                      height: 104,
+                      flexShrink: 0,
+                      borderRadius: 1,
+                      bgcolor: 'rgba(0, 0, 0, 0.4)',
+                      overflow: 'hidden',
+                      position: 'relative',
+                      cursor: 'pointer',
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      bgcolor: post.thumbnailUrl ? 'rgba(0, 0, 0, 0.25)' : 'rgba(0, 0, 0, 0.4)',
-                      transition: 'background 0.2s ease',
-                      '&:hover': { bgcolor: 'rgba(0, 0, 0, 0.08)' },
+                      border: '1px solid rgba(255, 255, 255, 0.08)',
                     }}
                   >
-                    <PlayCircleOutlineRoundedIcon sx={{ fontSize: 26, color: '#fff', opacity: 0.9, filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.6))' }} />
-                  </Box>
+                    {post.thumbnailUrl ? (
+                      <Box
+                        component="img"
+                        src={post.thumbnailUrl}
+                        referrerPolicy="no-referrer"
+                        alt="Thumbnail"
+                        sx={{
+                          width: '100%',
+                          height: '100%',
+                          objectFit: 'cover',
+                          transition: 'transform 0.2s ease',
+                          '&:hover': { transform: 'scale(1.05)' },
+                        }}
+                        onError={(e: any) => {
+                          const currentSrc: string = e.currentTarget.src || '';
+                          if (post.thumbnailUrl && !currentSrc.includes('images.weserv.nl') && !currentSrc.startsWith('data:')) {
+                            e.currentTarget.src = `https://images.weserv.nl/?url=${encodeURIComponent(post.thumbnailUrl)}&w=160&h=220&fit=cover&output=jpg`;
+                          } else {
+                            e.currentTarget.style.display = 'none';
+                          }
+                        }}
+                      />
+                    ) : null}
 
-                  {/* Index badge */}
-                  <Box
-                    sx={{
-                      position: 'absolute',
-                      top: 4,
-                      left: 4,
-                      bgcolor: 'rgba(0, 0, 0, 0.75)',
-                      px: 0.6,
-                      py: 0.1,
-                      borderRadius: 0.5,
-                      fontSize: '0.62rem',
-                      fontWeight: 800,
-                      color: '#fff',
-                    }}
-                  >
-                    #{idx + 1}
-                  </Box>
-                </Box>
-
-                {/* Content details */}
-                <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
-                  <Box>
-                    {/* Date and stats header */}
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 0.5 }}>
-                      {post.postedDate && (
-                        <Chip
-                          icon={<AccessTimeRoundedIcon sx={{ fontSize: 13, color: '#10B981' }} />}
-                          label={post.postedDate}
-                          size="small"
-                          sx={{
-                            height: 20,
-                            fontSize: '0.68rem',
-                            fontWeight: 700,
-                            bgcolor: 'rgba(16, 185, 129, 0.12)',
-                            color: '#34D399',
-                            border: '1px solid rgba(16, 185, 129, 0.25)',
-                          }}
-                        />
-                      )}
-
-                      {post.likesCount && (
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, color: '#F43F5E', fontSize: '0.72rem', fontWeight: 700 }}>
-                          <FavoriteRoundedIcon sx={{ fontSize: 13 }} />
-                          {post.likesCount}
-                        </Box>
-                      )}
-
-                      {post.commentsCount && (
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, color: '#60A5FA', fontSize: '0.72rem', fontWeight: 700 }}>
-                          <ChatBubbleOutlineRoundedIcon sx={{ fontSize: 13 }} />
-                          {post.commentsCount}
-                        </Box>
-                      )}
+                    {/* Play icon overlay */}
+                    <Box
+                      sx={{
+                        position: 'absolute',
+                        inset: 0,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'center',
+                        bgcolor: post.thumbnailUrl ? 'rgba(0, 0, 0, 0.25)' : 'rgba(0, 0, 0, 0.4)',
+                        transition: 'background 0.2s ease',
+                        '&:hover': { bgcolor: 'rgba(0, 0, 0, 0.08)' },
+                      }}
+                    >
+                      <PlayCircleOutlineRoundedIcon sx={{ fontSize: 26, color: '#fff', opacity: 0.9, filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.6))' }} />
                     </Box>
 
-                    {/* Caption snippet */}
-                    <Typography
-                      variant="body2"
+                    {/* Index badge */}
+                    <Box
                       sx={{
-                        fontSize: '0.76rem',
-                        color: post.caption ? 'text.secondary' : 'text.disabled',
-                        fontStyle: post.caption ? 'normal' : 'italic',
-                        lineHeight: 1.35,
-                        display: '-webkit-box',
-                        WebkitLineClamp: 2,
-                        WebkitBoxOrient: 'vertical',
-                        overflow: 'hidden',
-                        mb: 1,
+                        position: 'absolute',
+                        top: 4,
+                        left: 4,
+                        bgcolor: 'rgba(0, 0, 0, 0.75)',
+                        px: 0.6,
+                        py: 0.1,
+                        borderRadius: 0.5,
+                        fontSize: '0.62rem',
+                        fontWeight: 800,
+                        color: '#fff',
                       }}
                     >
-                      {post.caption || 'No caption available for this reel.'}
-                    </Typography>
+                      #{idx + 1}
+                    </Box>
                   </Box>
 
-                  {/* Actions row */}
-                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
-                    <Button
-                      size="small"
-                      variant="outlined"
-                      onClick={() => handleCopyUrl(post.permalink, idx)}
-                      startIcon={
-                        copiedIndex === idx ? (
-                          <CheckRoundedIcon sx={{ fontSize: 14, color: '#34D399' }} />
+                  {/* Content details */}
+                  <Box sx={{ flex: 1, minWidth: 0, display: 'flex', flexDirection: 'column', justifyContent: 'space-between' }}>
+                    <Box>
+                      {/* Date and stats header */}
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap', mb: 0.5 }}>
+                        {post.postedDate && (
+                          <Chip
+                            icon={<AccessTimeRoundedIcon sx={{ fontSize: 13, color: '#10B981' }} />}
+                            label={post.postedDate}
+                            size="small"
+                            sx={{
+                              height: 20,
+                              fontSize: '0.68rem',
+                              fontWeight: 700,
+                              bgcolor: 'rgba(16, 185, 129, 0.12)',
+                              color: '#34D399',
+                              border: '1px solid rgba(16, 185, 129, 0.25)',
+                            }}
+                          />
+                        )}
+
+                        {/* Linked vs Not Linked Status Pill */}
+                        {linkedVideo ? (
+                          <Tooltip title={`Linked to ${linkedBatch?.name || 'Batch'} • Script #${linkedVideo.script_number}: ${linkedVideo.name}`}>
+                            <Chip
+                              icon={<CheckCircleRoundedIcon sx={{ fontSize: 13, color: '#10B981 !important' }} />}
+                              label={`Linked: #${linkedVideo.script_number} ${linkedVideo.name}`}
+                              size="small"
+                              sx={{
+                                height: 20,
+                                fontSize: '0.66rem',
+                                fontWeight: 800,
+                                bgcolor: 'rgba(16, 185, 129, 0.14)',
+                                color: '#34D399',
+                                border: '1px solid rgba(16, 185, 129, 0.35)',
+                                maxWidth: 190,
+                                '& .MuiChip-label': {
+                                  overflow: 'hidden',
+                                  textOverflow: 'ellipsis',
+                                  whiteSpace: 'nowrap',
+                                },
+                              }}
+                            />
+                          </Tooltip>
                         ) : (
-                          <ContentCopyRoundedIcon sx={{ fontSize: 14 }} />
-                        )
-                      }
-                      sx={{
-                        textTransform: 'none',
-                        fontSize: '0.72rem',
-                        height: 26,
-                        px: 1,
-                        borderRadius: 1,
-                        borderColor: copiedIndex === idx ? '#34D399' : 'rgba(255,255,255,0.15)',
-                        color: copiedIndex === idx ? '#34D399' : 'text.primary',
-                      }}
-                    >
-                      {copiedIndex === idx ? 'Copied!' : 'Copy Link'}
-                    </Button>
+                          <Chip
+                            label="Not Linked"
+                            size="small"
+                            sx={{
+                              height: 20,
+                              fontSize: '0.64rem',
+                              fontWeight: 700,
+                              bgcolor: 'rgba(239, 68, 68, 0.08)',
+                              color: '#F87171',
+                              border: '1px solid rgba(239, 68, 68, 0.2)',
+                            }}
+                          />
+                        )}
 
-                    <Button
-                      size="small"
-                      variant="text"
-                      onClick={() => window.open(post.permalink, '_blank')}
-                      startIcon={<OpenInNewRoundedIcon sx={{ fontSize: 13 }} />}
-                      sx={{
-                        textTransform: 'none',
-                        fontSize: '0.72rem',
-                        height: 26,
-                        px: 1,
-                        color: 'text.secondary',
-                        '&:hover': { color: 'primary.light' },
-                      }}
-                    >
-                      Open
-                    </Button>
+                        {post.likesCount && (
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, color: '#F43F5E', fontSize: '0.72rem', fontWeight: 700 }}>
+                            <FavoriteRoundedIcon sx={{ fontSize: 13 }} />
+                            {post.likesCount}
+                          </Box>
+                        )}
 
-                    <Button
-                      size="small"
-                      variant="contained"
-                      onClick={() => setLinkingPost(post)}
-                      startIcon={<AddLinkRoundedIcon sx={{ fontSize: 14 }} />}
-                      sx={{
-                        textTransform: 'none',
-                        fontSize: '0.72rem',
-                        height: 26,
-                        px: 1.25,
-                        borderRadius: 1,
-                        background: 'linear-gradient(135deg, #10B981, #059669)',
-                        color: '#fff',
-                        fontWeight: 700,
-                        boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)',
-                        '&:hover': {
-                          background: 'linear-gradient(135deg, #059669, #047857)',
-                        },
-                      }}
-                    >
-                      Link to Video
-                    </Button>
+                        {post.commentsCount && (
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, color: '#60A5FA', fontSize: '0.72rem', fontWeight: 700 }}>
+                            <ChatBubbleOutlineRoundedIcon sx={{ fontSize: 13 }} />
+                            {post.commentsCount}
+                          </Box>
+                        )}
+                      </Box>
 
-                    {onSelectVideoUrl && (
+                      {/* Caption snippet */}
+                      <Typography
+                        variant="body2"
+                        sx={{
+                          fontSize: '0.76rem',
+                          color: post.caption ? 'text.secondary' : 'text.disabled',
+                          fontStyle: post.caption ? 'normal' : 'italic',
+                          lineHeight: 1.35,
+                          display: '-webkit-box',
+                          WebkitLineClamp: 2,
+                          WebkitBoxOrient: 'vertical',
+                          overflow: 'hidden',
+                          mb: 1,
+                        }}
+                      >
+                        {post.caption || 'No caption available for this reel.'}
+                      </Typography>
+                    </Box>
+
+                    {/* Actions row */}
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
                       <Button
                         size="small"
-                        variant="contained"
-                        onClick={() => {
-                          onSelectVideoUrl(post.permalink, post.postedDate);
-                          onClose();
-                        }}
+                        variant="outlined"
+                        onClick={() => handleCopyUrl(post.permalink, idx)}
+                        startIcon={
+                          copiedIndex === idx ? (
+                            <CheckRoundedIcon sx={{ fontSize: 14, color: '#34D399' }} />
+                          ) : (
+                            <ContentCopyRoundedIcon sx={{ fontSize: 14 }} />
+                          )
+                        }
                         sx={{
                           textTransform: 'none',
                           fontSize: '0.72rem',
                           height: 26,
-                          px: 1.25,
+                          px: 1,
                           borderRadius: 1,
-                          bgcolor: 'primary.main',
-                          fontWeight: 700,
+                          borderColor: copiedIndex === idx ? '#34D399' : 'rgba(255,255,255,0.15)',
+                          color: copiedIndex === idx ? '#34D399' : 'text.primary',
                         }}
                       >
-                        Use as Video Link
+                        {copiedIndex === idx ? 'Copied!' : 'Copy Link'}
                       </Button>
-                    )}
+
+                      <Button
+                        size="small"
+                        variant="text"
+                        onClick={() => window.open(post.permalink, '_blank')}
+                        startIcon={<OpenInNewRoundedIcon sx={{ fontSize: 13 }} />}
+                        sx={{
+                          textTransform: 'none',
+                          fontSize: '0.72rem',
+                          height: 26,
+                          px: 1,
+                          color: 'text.secondary',
+                          '&:hover': { color: 'primary.light' },
+                        }}
+                      >
+                        Open
+                      </Button>
+
+                      {linkedVideo ? (
+                        <Tooltip title={`Currently linked to "${linkedVideo.name}". Click to change or relink.`}>
+                          <Button
+                            size="small"
+                            variant="outlined"
+                            onClick={() => setLinkingPost(post)}
+                            startIcon={<CheckRoundedIcon sx={{ fontSize: 14 }} />}
+                            sx={{
+                              textTransform: 'none',
+                              fontSize: '0.72rem',
+                              height: 26,
+                              px: 1.25,
+                              borderRadius: 1,
+                              borderColor: 'rgba(16, 185, 129, 0.5)',
+                              color: '#34D399',
+                              bgcolor: 'rgba(16, 185, 129, 0.08)',
+                              fontWeight: 700,
+                              '&:hover': {
+                                bgcolor: 'rgba(16, 185, 129, 0.18)',
+                                borderColor: '#10B981',
+                              },
+                            }}
+                          >
+                            Linked ✓
+                          </Button>
+                        </Tooltip>
+                      ) : (
+                        <Button
+                          size="small"
+                          variant="contained"
+                          onClick={() => setLinkingPost(post)}
+                          startIcon={<AddLinkRoundedIcon sx={{ fontSize: 14 }} />}
+                          sx={{
+                            textTransform: 'none',
+                            fontSize: '0.72rem',
+                            height: 26,
+                            px: 1.25,
+                            borderRadius: 1,
+                            background: 'linear-gradient(135deg, #10B981, #059669)',
+                            color: '#fff',
+                            fontWeight: 700,
+                            boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)',
+                            '&:hover': {
+                              background: 'linear-gradient(135deg, #059669, #047857)',
+                            },
+                          }}
+                        >
+                          Link to Video
+                        </Button>
+                      )}
+
+                      {onSelectVideoUrl && (
+                        <Button
+                          size="small"
+                          variant="contained"
+                          onClick={() => {
+                            onSelectVideoUrl(post.permalink, post.postedDate);
+                            onClose();
+                          }}
+                          sx={{
+                            textTransform: 'none',
+                            fontSize: '0.72rem',
+                            height: 26,
+                            px: 1.25,
+                            borderRadius: 1,
+                            bgcolor: 'primary.main',
+                            fontWeight: 700,
+                          }}
+                        >
+                          Use as Video Link
+                        </Button>
+                      )}
+                    </Box>
                   </Box>
-                </Box>
-              </Card>
-            ))}
+                </Card>
+              );
+            })}
+
+            {/* View More / View Less Button */}
+            {posts.length > 3 && (
+              <Box sx={{ display: 'flex', justifyContent: 'center', mt: 0.5, mb: 1 }}>
+                <Button
+                  size="small"
+                  variant="outlined"
+                  onClick={() => setShowAllVideos(!showAllVideos)}
+                  startIcon={showAllVideos ? <KeyboardArrowUpRoundedIcon /> : <KeyboardArrowDownRoundedIcon />}
+                  sx={{
+                    textTransform: 'none',
+                    fontSize: '0.75rem',
+                    fontWeight: 700,
+                    color: '#38BDF8',
+                    borderColor: 'rgba(56, 189, 248, 0.3)',
+                    bgcolor: 'rgba(56, 189, 248, 0.04)',
+                    borderRadius: 1.5,
+                    py: 0.5,
+                    px: 2,
+                    '&:hover': {
+                      bgcolor: 'rgba(56, 189, 248, 0.1)',
+                      borderColor: 'rgba(56, 189, 248, 0.5)',
+                    },
+                  }}
+                >
+                  {showAllVideos ? 'Show Only Last 3 Videos' : `View All ${posts.length} Posted Videos (+${posts.length - 3} more)`}
+                </Button>
+              </Box>
+            )}
           </Box>
         ) : !loading ? (
           <Box
@@ -1056,6 +1254,30 @@ export default function InstagramRecentPostsDialog({
             </Box>
           </Card>
         )}
+
+        {/* Currently Linked Alert */}
+        {linkingPost && (() => {
+          const curr = getMatchingLinkedVideo(linkingPost);
+          const currBatch = curr ? clientBatchMap.get(curr.batch_id) : undefined;
+          if (!curr) return null;
+          return (
+            <Alert
+              severity="success"
+              icon={<CheckCircleRoundedIcon sx={{ fontSize: 18 }} />}
+              sx={{
+                mb: 2,
+                bgcolor: 'rgba(16, 185, 129, 0.1)',
+                color: '#E2E8F0',
+                border: '1px solid rgba(16, 185, 129, 0.3)',
+                fontSize: '0.76rem',
+                py: 0.5,
+                '& .MuiAlert-icon': { color: '#34D399' },
+              }}
+            >
+              This reel is already linked to <strong>{currBatch?.name}</strong> • <strong>Script #{curr.script_number} ({curr.name})</strong>. You can select another video below if you want to relink it.
+            </Alert>
+          );
+        })()}
 
         {/* Heading */}
         <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
