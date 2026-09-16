@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import {
   Dialog, DialogTitle, DialogContent, DialogActions, Button, Typography,
   Box, IconButton, Tooltip, Chip, CircularProgress, TextField,
-  Card,
+  Card, Snackbar, Alert,
 } from '@mui/material';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
@@ -25,6 +25,9 @@ import {
   addRecentPostForHandle,
   fetchVideoMetadata,
   cleanVideoUrl,
+  extractDateFromVideoUrl,
+  extractInstagramShortcode,
+  extractDateFromInstagramShortcode,
   type InstagramRecentPost,
 } from '../lib/videoMetadata';
 import type { BatchflowVideo } from '../types';
@@ -35,6 +38,7 @@ interface InstagramRecentPostsDialogProps {
   handle: string;
   clientName?: string;
   clientColor?: string;
+  clientId?: string;
   onSelectVideoUrl?: (url: string, date?: string) => void;
   existingVideos?: BatchflowVideo[];
 }
@@ -44,10 +48,11 @@ export default function InstagramRecentPostsDialog({
   onClose,
   handle,
   clientName,
+  clientId,
   onSelectVideoUrl,
   existingVideos,
 }: InstagramRecentPostsDialogProps) {
-  const { settings } = useApp();
+  const { settings, batchflowBatches, batchflowVideos, batchflowClients, updateBatchflowVideoStatus } = useApp();
   const cleanHandle = cleanInstagramHandle(handle || '');
 
   const [posts, setPosts] = useState<InstagramRecentPost[]>([]);
@@ -56,10 +61,88 @@ export default function InstagramRecentPostsDialog({
   const [copiedIndex, setCopiedIndex] = useState<number | null>(null);
   const [handleCopied, setHandleCopied] = useState(false);
 
+  // Link to Video states
+  const [linkingPost, setLinkingPost] = useState<InstagramRecentPost | null>(null);
+  const [isLinking, setIsLinking] = useState(false);
+  const [linkSuccessToast, setLinkSuccessToast] = useState<string | null>(null);
+
   // Quick link extractor bar
   const [quickUrl, setQuickUrl] = useState('');
   const [quickLoading, setQuickLoading] = useState(false);
   const [quickError, setQuickError] = useState<string | null>(null);
+
+  // Sort from latest to oldest
+  const sortByDateDesc = (items: InstagramRecentPost[]): InstagramRecentPost[] => {
+    return [...items].sort((a, b) => {
+      const getTimestamp = (p: InstagramRecentPost): number => {
+        if (p.postedDateTime) {
+          const t = new Date(p.postedDateTime).getTime();
+          if (!isNaN(t) && t > 0) return t;
+        }
+        if (p.permalink) {
+          const sc = extractInstagramShortcode(p.permalink);
+          if (sc) {
+            const d = extractDateFromInstagramShortcode(sc);
+            if (d) return d.getTime();
+          }
+        }
+        if (p.postedDate) {
+          const t = new Date(p.postedDate).getTime();
+          if (!isNaN(t) && t > 0) return t;
+        }
+        return 0;
+      };
+
+      const tA = getTimestamp(a);
+      const tB = getTimestamp(b);
+      if (tA && tB && tA !== tB) return tB - tA; // descending (latest first)
+      if (tB) return 1;
+      if (tA) return -1;
+      return 0;
+    });
+  };
+
+  const enrichMissingThumbnails = async (items: InstagramRecentPost[]) => {
+    let changed = false;
+    const updated = [...items];
+
+    await Promise.all(
+      updated.map(async (p, i) => {
+        if (!p.thumbnailUrl && p.permalink) {
+          const clean = cleanVideoUrl(p.permalink);
+          const cached = clean ? (localStorage.getItem(`trackrr_thumb_${clean}`) || localStorage.getItem(`trackrr_thumb_${p.permalink}`)) : null;
+          if (cached) {
+            updated[i] = { ...p, thumbnailUrl: cached };
+            changed = true;
+          } else {
+            try {
+              const meta = await fetchVideoMetadata(clean, {
+                metaAppId: settings.meta_app_id,
+                metaClientToken: settings.meta_client_token,
+                metaUserToken: settings.meta_user_token,
+                metaIgUserId: settings.meta_ig_user_id,
+                clientHandle: cleanHandle,
+              });
+              if (meta && meta.thumbnailUrl) {
+                updated[i] = {
+                  ...p,
+                  thumbnailUrl: meta.thumbnailUrl,
+                  likesCount: meta.likesCount || p.likesCount,
+                };
+                changed = true;
+                try { localStorage.setItem(`trackrr_thumb_${clean}`, meta.thumbnailUrl); } catch {}
+                try { localStorage.setItem(`trackrr_thumb_${p.permalink}`, meta.thumbnailUrl); } catch {}
+              }
+            } catch {}
+          }
+        }
+      })
+    );
+
+    if (changed) {
+      setPosts(sortByDateDesc(updated).slice(0, 3));
+    }
+  };
 
   const loadPosts = async (forceRefresh = false) => {
     if (!cleanHandle) {
@@ -70,10 +153,12 @@ export default function InstagramRecentPostsDialog({
     setLoading(true);
     setErrorMessage(null);
 
-    // Initial check from localStorage cache
+    // Initial check from localStorage cache (sorted latest first)
     const stored = getStoredRecentPosts(cleanHandle);
     if (stored.length > 0 && !forceRefresh) {
-      setPosts(stored.slice(0, 3));
+      const sortedStored = sortByDateDesc(stored).slice(0, 3);
+      setPosts(sortedStored);
+      enrichMissingThumbnails(sortedStored);
     }
 
     try {
@@ -84,35 +169,50 @@ export default function InstagramRecentPostsDialog({
         igUserId: settings.meta_ig_user_id,
       });
 
+      let candidatePosts: InstagramRecentPost[] = [];
+
       if (res.posts && res.posts.length > 0) {
-        setPosts(res.posts.slice(0, 3));
+        candidatePosts = res.posts;
         setErrorMessage(null);
       } else {
-        // If API returned nothing or error, see if we have videos already in the workspace
+        // Fallback to workspace posted videos
         let fallbackPosts: InstagramRecentPost[] = stored;
         if (fallbackPosts.length === 0 && existingVideos && existingVideos.length > 0) {
           const workspacePosted = existingVideos
             .filter(v => v.status === 'Posted' && v.video_url && v.video_url.includes('instagram.com'))
-            .map(v => ({
-              id: v.id,
-              permalink: v.video_url!,
-              postedDate: v.posted_date ? v.posted_date.slice(0, 10) : undefined,
-              postedDateTime: v.posted_date || undefined,
-              caption: v.name,
-            }));
+            .map(v => {
+              const clean = cleanVideoUrl(v.video_url!);
+              const cachedThumb = clean ? (localStorage.getItem(`trackrr_thumb_${clean}`) || localStorage.getItem(`trackrr_thumb_${v.video_url}`)) : null;
+              const urlDate = extractDateFromVideoUrl(v.video_url!);
+              const effectiveDate = v.posted_date ? v.posted_date.slice(0, 10) : (urlDate || undefined);
+              return {
+                id: v.id,
+                permalink: v.video_url!,
+                thumbnailUrl: cachedThumb || undefined,
+                postedDate: effectiveDate,
+                postedDateTime: v.posted_date || (urlDate ? `${urlDate}T12:00:00.000Z` : undefined),
+                caption: v.name,
+                likesCount: v.likes ? String(v.likes) : null,
+              };
+            });
           if (workspacePosted.length > 0) {
             fallbackPosts = workspacePosted;
           }
         }
 
         if (fallbackPosts.length > 0) {
-          setPosts(fallbackPosts.slice(0, 3));
+          candidatePosts = fallbackPosts;
           setErrorMessage(res.error || null);
         } else {
           setPosts([]);
           setErrorMessage(res.error || 'No recent videos found. Use the Live Reels button below to view all reels.');
+          return;
         }
       }
+
+      const sorted = sortByDateDesc(candidatePosts).slice(0, 3);
+      setPosts(sorted);
+      enrichMissingThumbnails(sorted);
     } catch (err: any) {
       setErrorMessage(err?.message || 'Error checking recent posts.');
     } finally {
@@ -154,6 +254,9 @@ export default function InstagramRecentPostsDialog({
       const meta = await fetchVideoMetadata(clean, {
         metaAppId: settings.meta_app_id,
         metaClientToken: settings.meta_client_token,
+        metaUserToken: settings.meta_user_token,
+        metaIgUserId: settings.meta_ig_user_id,
+        clientHandle: cleanHandle,
       });
 
       if (meta.error && !meta.title && !meta.thumbnailUrl && !meta.caption) {
@@ -171,9 +274,16 @@ export default function InstagramRecentPostsDialog({
         commentsCount: meta.commentsCount,
       };
 
+      if (meta.thumbnailUrl) {
+        try { localStorage.setItem(`trackrr_thumb_${clean}`, meta.thumbnailUrl); } catch {}
+        try { localStorage.setItem(`trackrr_thumb_${newPost.permalink}`, meta.thumbnailUrl); } catch {}
+      }
+
       const updated = addRecentPostForHandle(cleanHandle, newPost);
       if (updated) {
-        setPosts(updated.slice(0, 3));
+        const sorted = sortByDateDesc(updated).slice(0, 3);
+        setPosts(sorted);
+        enrichMissingThumbnails(sorted);
       }
       setQuickUrl('');
     } catch (err: any) {
@@ -183,8 +293,66 @@ export default function InstagramRecentPostsDialog({
     }
   };
 
+  // Candidate videos for linking (Pending or Edited from this client's batches)
+  const resolvedClientId =
+    clientId ||
+    batchflowClients.find(
+      c => cleanInstagramHandle(c.instagram_id || '') === cleanHandle
+    )?.id;
+
+  const clientBatches = batchflowBatches.filter(b => b.client_id === resolvedClientId);
+  const clientBatchMap = new Map(clientBatches.map(b => [b.id, b]));
+
+  const candidateVideos = batchflowVideos
+    .filter(v => clientBatchMap.has(v.batch_id) && (v.status === 'Pending' || v.status === 'Edited'))
+    .sort((a, b) => {
+      const batchA = clientBatchMap.get(a.batch_id)?.name || '';
+      const batchB = clientBatchMap.get(b.batch_id)?.name || '';
+      const cmp = batchA.localeCompare(batchB);
+      if (cmp !== 0) return cmp;
+      return (a.script_number || 0) - (b.script_number || 0);
+    });
+
+  const handleConfirmLink = async (targetVideo: BatchflowVideo) => {
+    if (!linkingPost) return;
+    setIsLinking(true);
+    try {
+      const reelDate =
+        linkingPost.postedDateTime ||
+        linkingPost.postedDate ||
+        (linkingPost.permalink ? extractDateFromVideoUrl(linkingPost.permalink) : null);
+      const clean = cleanVideoUrl(linkingPost.permalink);
+
+      if (linkingPost.thumbnailUrl && clean) {
+        try { localStorage.setItem(`trackrr_thumb_${clean}`, linkingPost.thumbnailUrl); } catch {}
+        try { localStorage.setItem(`trackrr_thumb_${linkingPost.permalink}`, linkingPost.thumbnailUrl); } catch {}
+      }
+      if (linkingPost.caption && clean) {
+        try { localStorage.setItem(`trackrr_caption_${clean}`, linkingPost.caption); } catch {}
+      }
+
+      await updateBatchflowVideoStatus(
+        targetVideo.id,
+        'Posted',
+        linkingPost.permalink,
+        reelDate,
+        null,
+        linkingPost.likesCount || null
+      );
+
+      setLinkSuccessToast(`Linked reel to "${targetVideo.name}" and marked as Posted!`);
+      setLinkingPost(null);
+      loadPosts(true);
+    } catch (err: any) {
+      console.error('Error linking reel to video:', err);
+    } finally {
+      setIsLinking(false);
+    }
+  };
+
   return (
-    <Dialog
+    <>
+      <Dialog
       open={open}
       onClose={onClose}
       maxWidth="sm"
@@ -385,6 +553,7 @@ export default function InstagramRecentPostsDialog({
                     <Box
                       component="img"
                       src={post.thumbnailUrl}
+                      referrerPolicy="no-referrer"
                       alt="Thumbnail"
                       sx={{
                         width: '100%',
@@ -394,7 +563,12 @@ export default function InstagramRecentPostsDialog({
                         '&:hover': { transform: 'scale(1.05)' },
                       }}
                       onError={(e: any) => {
-                        e.currentTarget.style.display = 'none';
+                        const currentSrc: string = e.currentTarget.src || '';
+                        if (post.thumbnailUrl && !currentSrc.includes('images.weserv.nl') && !currentSrc.startsWith('data:')) {
+                          e.currentTarget.src = `https://images.weserv.nl/?url=${encodeURIComponent(post.thumbnailUrl)}&w=160&h=220&fit=cover&output=jpg`;
+                        } else {
+                          e.currentTarget.style.display = 'none';
+                        }
                       }}
                     />
                   ) : null}
@@ -407,12 +581,12 @@ export default function InstagramRecentPostsDialog({
                       display: 'flex',
                       alignItems: 'center',
                       justifyContent: 'center',
-                      bgcolor: 'rgba(0, 0, 0, 0.25)',
+                      bgcolor: post.thumbnailUrl ? 'rgba(0, 0, 0, 0.25)' : 'rgba(0, 0, 0, 0.4)',
                       transition: 'background 0.2s ease',
-                      '&:hover': { bgcolor: 'rgba(0, 0, 0, 0.05)' },
+                      '&:hover': { bgcolor: 'rgba(0, 0, 0, 0.08)' },
                     }}
                   >
-                    <PlayCircleOutlineRoundedIcon sx={{ fontSize: 26, color: '#fff', opacity: 0.9 }} />
+                    <PlayCircleOutlineRoundedIcon sx={{ fontSize: 26, color: '#fff', opacity: 0.9, filter: 'drop-shadow(0 2px 4px rgba(0,0,0,0.6))' }} />
                   </Box>
 
                   {/* Index badge */}
@@ -421,7 +595,7 @@ export default function InstagramRecentPostsDialog({
                       position: 'absolute',
                       top: 4,
                       left: 4,
-                      bgcolor: 'rgba(0, 0, 0, 0.7)',
+                      bgcolor: 'rgba(0, 0, 0, 0.75)',
                       px: 0.6,
                       py: 0.1,
                       borderRadius: 0.5,
@@ -530,6 +704,29 @@ export default function InstagramRecentPostsDialog({
                       }}
                     >
                       Open
+                    </Button>
+
+                    <Button
+                      size="small"
+                      variant="contained"
+                      onClick={() => setLinkingPost(post)}
+                      startIcon={<AddLinkRoundedIcon sx={{ fontSize: 14 }} />}
+                      sx={{
+                        textTransform: 'none',
+                        fontSize: '0.72rem',
+                        height: 26,
+                        px: 1.25,
+                        borderRadius: 1,
+                        background: 'linear-gradient(135deg, #10B981, #059669)',
+                        color: '#fff',
+                        fontWeight: 700,
+                        boxShadow: '0 2px 8px rgba(16, 185, 129, 0.3)',
+                        '&:hover': {
+                          background: 'linear-gradient(135deg, #059669, #047857)',
+                        },
+                      }}
+                    >
+                      Link to Video
                     </Button>
 
                     {onSelectVideoUrl && (
@@ -715,5 +912,308 @@ export default function InstagramRecentPostsDialog({
         </Button>
       </DialogActions>
     </Dialog>
+
+    {/* Link Reel to Video Modal */}
+    <Dialog
+      open={Boolean(linkingPost)}
+      onClose={() => !isLinking && setLinkingPost(null)}
+      maxWidth="sm"
+      fullWidth
+      PaperProps={{
+        sx: {
+          bgcolor: '#0F172A',
+          backgroundImage: 'none',
+          borderRadius: 2,
+          border: '1px solid rgba(255, 255, 255, 0.1)',
+          overflow: 'hidden',
+          boxShadow: '0 25px 50px -12px rgba(0, 0, 0, 0.75)',
+        },
+      }}
+    >
+      <Box
+        sx={{
+          height: 4,
+          width: '100%',
+          background: 'linear-gradient(90deg, #10B981, #059669, #047857)',
+        }}
+      />
+
+      <DialogTitle sx={{ p: 2.5, pb: 1.5 }}>
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5 }}>
+            <Box
+              sx={{
+                width: 38,
+                height: 38,
+                borderRadius: '50%',
+                bgcolor: 'rgba(16, 185, 129, 0.15)',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                color: '#10B981',
+              }}
+            >
+              <AddLinkRoundedIcon sx={{ fontSize: 22 }} />
+            </Box>
+            <Box>
+              <Typography variant="h6" sx={{ fontWeight: 800, fontSize: '1.05rem', lineHeight: 1.2 }}>
+                Link Reel to Video
+              </Typography>
+              <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                Select a Pending or Edited video for {clientName || `@${cleanHandle}`}
+              </Typography>
+            </Box>
+          </Box>
+          <IconButton size="small" onClick={() => setLinkingPost(null)} disabled={isLinking} sx={{ color: 'text.secondary' }}>
+            <CloseRoundedIcon sx={{ fontSize: 20 }} />
+          </IconButton>
+        </Box>
+      </DialogTitle>
+
+      <DialogContent sx={{ p: 2.5, pt: 0.5 }}>
+        {/* Selected Reel Info Banner */}
+        {linkingPost && (
+          <Card
+            sx={{
+              display: 'flex',
+              gap: 1.5,
+              p: 1.25,
+              mb: 2.5,
+              bgcolor: 'rgba(16, 185, 129, 0.05)',
+              border: '1px solid rgba(16, 185, 129, 0.25)',
+              borderRadius: 1.5,
+            }}
+          >
+            {/* Thumbnail */}
+            <Box
+              sx={{
+                width: 52,
+                height: 72,
+                flexShrink: 0,
+                borderRadius: 1,
+                bgcolor: 'rgba(0, 0, 0, 0.5)',
+                overflow: 'hidden',
+                position: 'relative',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+              }}
+            >
+              {linkingPost.thumbnailUrl ? (
+                <Box
+                  component="img"
+                  src={linkingPost.thumbnailUrl}
+                  referrerPolicy="no-referrer"
+                  alt="Reel thumbnail"
+                  sx={{ width: '100%', height: '100%', objectFit: 'cover' }}
+                  onError={(e: any) => {
+                    const currentSrc: string = e.currentTarget.src || '';
+                    if (linkingPost.thumbnailUrl && !currentSrc.includes('images.weserv.nl') && !currentSrc.startsWith('data:')) {
+                      e.currentTarget.src = `https://images.weserv.nl/?url=${encodeURIComponent(linkingPost.thumbnailUrl)}&w=120&h=160&fit=cover&output=jpg`;
+                    } else {
+                      e.currentTarget.style.display = 'none';
+                    }
+                  }}
+                />
+              ) : (
+                <PlayCircleOutlineRoundedIcon sx={{ fontSize: 24, color: '#fff', opacity: 0.7 }} />
+              )}
+            </Box>
+
+            <Box sx={{ minWidth: 0, flex: 1, display: 'flex', flexDirection: 'column', justifyContent: 'center' }}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 0.5, flexWrap: 'wrap' }}>
+                <Typography variant="caption" sx={{ fontWeight: 800, color: '#34D399', textTransform: 'uppercase', letterSpacing: '0.04em' }}>
+                  Reel to be linked
+                </Typography>
+                {linkingPost.postedDate && (
+                  <Chip
+                    icon={<AccessTimeRoundedIcon sx={{ fontSize: 12, color: '#10B981' }} />}
+                    label={linkingPost.postedDate}
+                    size="small"
+                    sx={{ height: 18, fontSize: '0.65rem', fontWeight: 700, bgcolor: 'rgba(16, 185, 129, 0.12)', color: '#34D399' }}
+                  />
+                )}
+                {linkingPost.likesCount && (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.3, color: '#F43F5E', fontSize: '0.7rem', fontWeight: 700 }}>
+                    <FavoriteRoundedIcon sx={{ fontSize: 12 }} />
+                    {linkingPost.likesCount}
+                  </Box>
+                )}
+              </Box>
+              <Typography
+                variant="body2"
+                sx={{
+                  fontSize: '0.75rem',
+                  color: 'text.secondary',
+                  display: '-webkit-box',
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: 'vertical',
+                  overflow: 'hidden',
+                }}
+              >
+                {linkingPost.caption || linkingPost.permalink}
+              </Typography>
+            </Box>
+          </Card>
+        )}
+
+        {/* Heading */}
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
+          <Typography variant="subtitle2" sx={{ fontWeight: 700, fontSize: '0.85rem' }}>
+            Pending & Edited Videos ({candidateVideos.length})
+          </Typography>
+          <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.72rem' }}>
+            Click to link & mark as Posted
+          </Typography>
+        </Box>
+
+        {/* Videos List */}
+        {candidateVideos.length === 0 ? (
+          <Box
+            sx={{
+              p: 3,
+              textAlign: 'center',
+              borderRadius: 1.5,
+              bgcolor: 'rgba(255, 255, 255, 0.02)',
+              border: '1px dashed rgba(255, 255, 255, 0.12)',
+            }}
+          >
+            <Typography variant="body2" sx={{ fontWeight: 600, color: 'text.secondary', mb: 0.5 }}>
+              No pending or edited videos found
+            </Typography>
+            <Typography variant="caption" sx={{ color: 'text.disabled', display: 'block' }}>
+              All videos in batches for this client are already posted, or no batches exist yet.
+            </Typography>
+          </Box>
+        ) : (
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, maxHeight: 320, overflowY: 'auto', pr: 0.5 }}>
+            {candidateVideos.map(video => {
+              const batch = clientBatchMap.get(video.batch_id);
+              const isPending = video.status === 'Pending';
+
+              return (
+                <Box
+                  key={video.id}
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    justifyContent: 'space-between',
+                    p: 1.25,
+                    borderRadius: 1.25,
+                    bgcolor: 'rgba(255, 255, 255, 0.025)',
+                    border: '1px solid rgba(255, 255, 255, 0.07)',
+                    gap: 1.5,
+                    transition: 'all 0.15s ease',
+                    '&:hover': {
+                      bgcolor: 'rgba(255, 255, 255, 0.05)',
+                      borderColor: 'rgba(16, 185, 129, 0.4)',
+                    },
+                  }}
+                >
+                  <Box sx={{ minWidth: 0, flex: 1 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.4, flexWrap: 'wrap' }}>
+                      {batch?.name && (
+                        <Chip
+                          label={batch.name}
+                          size="small"
+                          sx={{
+                            height: 18,
+                            fontSize: '0.65rem',
+                            fontWeight: 700,
+                            bgcolor: 'rgba(255, 255, 255, 0.06)',
+                            color: 'text.secondary',
+                          }}
+                        />
+                      )}
+                      <Chip
+                        label={`Script #${video.script_number}`}
+                        size="small"
+                        sx={{
+                          height: 18,
+                          fontSize: '0.65rem',
+                          fontWeight: 700,
+                          bgcolor: 'rgba(255, 255, 255, 0.04)',
+                          color: 'text.secondary',
+                        }}
+                      />
+                      <Chip
+                        label={video.status}
+                        size="small"
+                        sx={{
+                          height: 18,
+                          fontSize: '0.65rem',
+                          fontWeight: 800,
+                          bgcolor: isPending ? 'rgba(245, 158, 11, 0.15)' : 'rgba(59, 130, 246, 0.15)',
+                          color: isPending ? '#FBBF24' : '#60A5FA',
+                          border: `1px solid ${isPending ? 'rgba(245, 158, 11, 0.3)' : 'rgba(59, 130, 246, 0.3)'}`,
+                        }}
+                      />
+                    </Box>
+                    <Typography variant="body2" sx={{ fontWeight: 700, fontSize: '0.82rem', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
+                      {video.name}
+                    </Typography>
+                  </Box>
+
+                  <Button
+                    size="small"
+                    variant="contained"
+                    disabled={isLinking}
+                    onClick={() => handleConfirmLink(video)}
+                    startIcon={isLinking ? <CircularProgress size={13} color="inherit" /> : <CheckRoundedIcon sx={{ fontSize: 14 }} />}
+                    sx={{
+                      textTransform: 'none',
+                      fontSize: '0.74rem',
+                      fontWeight: 700,
+                      height: 28,
+                      px: 1.5,
+                      borderRadius: 1,
+                      background: 'linear-gradient(135deg, #10B981, #059669)',
+                      color: '#fff',
+                      whiteSpace: 'nowrap',
+                      boxShadow: '0 2px 8px rgba(16, 185, 129, 0.25)',
+                      '&:hover': {
+                        background: 'linear-gradient(135deg, #059669, #047857)',
+                      },
+                    }}
+                  >
+                    Link & Post
+                  </Button>
+                </Box>
+              );
+            })}
+          </Box>
+        )}
+      </DialogContent>
+
+      <DialogActions sx={{ p: 2, pt: 1, borderTop: '1px solid rgba(255,255,255,0.06)' }}>
+        <Button
+          onClick={() => setLinkingPost(null)}
+          size="small"
+          variant="outlined"
+          disabled={isLinking}
+          sx={{ borderRadius: 1, textTransform: 'none', fontSize: '0.75rem', px: 2 }}
+        >
+          Cancel
+        </Button>
+      </DialogActions>
+    </Dialog>
+
+    {/* Success Toast */}
+    <Snackbar
+      open={Boolean(linkSuccessToast)}
+      autoHideDuration={4000}
+      onClose={() => setLinkSuccessToast(null)}
+      anchorOrigin={{ vertical: 'bottom', horizontal: 'center' }}
+    >
+      <Alert
+        severity="success"
+        onClose={() => setLinkSuccessToast(null)}
+        variant="filled"
+        sx={{ bgcolor: '#059669', color: '#fff', fontWeight: 600 }}
+      >
+        {linkSuccessToast}
+      </Alert>
+    </Snackbar>
+    </>
   );
 }

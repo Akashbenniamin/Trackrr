@@ -346,6 +346,7 @@ export default function BatchflowClients() {
           handle={selectedIgClient.instagram_id}
           clientName={selectedIgClient.name}
           clientColor={selectedIgClient.color}
+          clientId={selectedIgClient.id}
           existingVideos={batchflowVideos.filter(v => {
             const b = batchflowBatches.find(batch => batch.id === v.batch_id);
             return b && b.client_id === selectedIgClient.id;

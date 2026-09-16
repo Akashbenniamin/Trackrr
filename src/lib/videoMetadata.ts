@@ -423,6 +423,7 @@ export async function queryMetaBusinessDiscovery(
   postedDate: string | null;
   postedDateTime: string | null;
   caption: string | null;
+  thumbnailUrl?: string | null;
   matched: boolean;
   metaApiError?: string;
 } | null> {
@@ -459,7 +460,7 @@ export async function queryMetaBusinessDiscovery(
   }
 
   try {
-    const bdFields = `business_discovery.username(${cleanH}){id,name,username,media.limit(50){id,shortcode,permalink,timestamp,media_type,like_count,comments_count,view_count,caption}}`;
+    const bdFields = `business_discovery.username(${cleanH}){id,name,username,media.limit(50){id,shortcode,permalink,timestamp,media_type,like_count,comments_count,view_count,caption,media_url,thumbnail_url}}`;
     const bdUrl = `https://graph.facebook.com/v19.0/${activeIgId}?fields=${encodeURIComponent(bdFields)}&access_token=${encodeURIComponent(userToken)}`;
     const bdResp = await fetch(bdUrl);
 
@@ -468,17 +469,25 @@ export async function queryMetaBusinessDiscovery(
       const mediaList = bdData?.business_discovery?.media?.data || [];
       if (mediaList.length > 0) {
         // Cache recent posts for this handle
-        const cachePosts: InstagramRecentPost[] = mediaList.map((m: any) => ({
-          id: m.id,
-          permalink: m.permalink || (m.shortcode ? `https://www.instagram.com/reel/${m.shortcode}/` : ''),
-          postedDate: m.timestamp ? m.timestamp.split('T')[0] : undefined,
-          postedDateTime: m.timestamp || undefined,
-          caption: m.caption || undefined,
-          likesCount: m.like_count !== undefined ? formatMetricCount(m.like_count) : null,
-          commentsCount: m.comments_count !== undefined ? String(m.comments_count) : null,
-          viewsCount: m.view_count !== undefined && m.view_count !== null ? formatMetricCount(m.view_count) : null,
-          mediaType: m.media_type,
-        }));
+        const cachePosts: InstagramRecentPost[] = mediaList.map((m: any) => {
+          const thumb = m.thumbnail_url || m.media_url || undefined;
+          const perm = m.permalink || (m.shortcode ? `https://www.instagram.com/reel/${m.shortcode}/` : '');
+          if (thumb && perm) {
+            try { localStorage.setItem(`trackrr_thumb_${cleanVideoUrl(perm)}`, thumb); } catch {}
+          }
+          return {
+            id: m.id,
+            permalink: perm,
+            thumbnailUrl: thumb,
+            postedDate: m.timestamp ? m.timestamp.split('T')[0] : undefined,
+            postedDateTime: m.timestamp || undefined,
+            caption: m.caption || undefined,
+            likesCount: m.like_count !== undefined ? formatMetricCount(m.like_count) : null,
+            commentsCount: m.comments_count !== undefined ? String(m.comments_count) : null,
+            viewsCount: m.view_count !== undefined && m.view_count !== null ? formatMetricCount(m.view_count) : null,
+            mediaType: m.media_type,
+          };
+        });
         saveRecentPostsForHandle(cleanH, cachePosts);
 
         // Find matching reel by shortcode or permalink
@@ -489,6 +498,10 @@ export async function queryMetaBusinessDiscovery(
         );
 
         if (match) {
+          const matchThumb = match.thumbnail_url || match.media_url || null;
+          if (matchThumb) {
+            try { localStorage.setItem(`trackrr_thumb_${cleanUrl}`, matchThumb); } catch {}
+          }
           return {
             matched: true,
             viewsCount: match.view_count !== undefined && match.view_count !== null ? formatMetricCount(match.view_count) : null,
@@ -497,6 +510,7 @@ export async function queryMetaBusinessDiscovery(
             postedDate: match.timestamp ? match.timestamp.split('T')[0] : null,
             postedDateTime: match.timestamp || null,
             caption: match.caption || null,
+            thumbnailUrl: matchThumb,
           };
         }
       }
@@ -590,7 +604,7 @@ export async function fetchVideoMetadata(
       // ignore
     }
 
-    const applyBdResult = (res: { viewsCount: string | null; likesCount: string | null; commentsCount: string | null; postedDate: string | null; postedDateTime: string | null; caption: string | null }) => {
+    const applyBdResult = (res: { viewsCount: string | null; likesCount: string | null; commentsCount: string | null; postedDate: string | null; postedDateTime: string | null; caption: string | null; thumbnailUrl?: string | null }) => {
       usedOfficialMetaApi = true;
       if (res.viewsCount) viewsCount = res.viewsCount;
       if (!likesCount && res.likesCount) likesCount = res.likesCount;
@@ -600,6 +614,7 @@ export async function fetchVideoMetadata(
         postedDateTime = res.postedDateTime;
       }
       if (!caption && res.caption) caption = res.caption;
+      if (!thumbnailUrl && res.thumbnailUrl) thumbnailUrl = res.thumbnailUrl;
     };
 
     // A. Meta Official oEmbed API (uses App ID | Client Token from Meta Dev Account)
