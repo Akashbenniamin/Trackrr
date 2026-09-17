@@ -147,6 +147,13 @@ export default function ClientsView() {
               });
             }
 
+            const fullSchedule = client.payment_type === 'monthly'
+              ? getClientMonthlyRetainerSchedule(client, tasks, salaryRates, 0)
+              : [];
+            const activeRetainer = fullSchedule.length > 0
+              ? (monthFilter ? (fullSchedule.find(s => s.monthStr === monthFilter) || fullSchedule[fullSchedule.length - 1]) : fullSchedule[fullSchedule.length - 1])
+              : null;
+
             return (
               <Card
                 key={client.id}
@@ -223,28 +230,25 @@ export default function ClientsView() {
                         ))}
                       </Box>
 
-                      {/* Monthly Retainer Schedule Overview */}
-                      {client.payment_type === 'monthly' && (
-                        <Box sx={{ mt: 1.25, pt: 1, borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+                      {/* Monthly Retainer: show only the active one on outer card */}
+                      {client.payment_type === 'monthly' && activeRetainer && (
+                        <Box sx={{ mt: 1, pt: 0.75, borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
                             <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase' }}>
                               Retainer:
                             </Typography>
-                            {getClientMonthlyRetainerSchedule(client, tasks, salaryRates, 0).map(s => (
-                              <Chip
-                                key={s.monthStr}
-                                size="small"
-                                label={`${s.label}: ${cur(s.amount)}`}
-                                sx={{
-                                  height: 20,
-                                  fontSize: '0.66rem',
-                                  fontWeight: 700,
-                                  bgcolor: 'rgba(129,140,248,0.12)',
-                                  color: 'primary.light',
-                                  border: '1px solid rgba(129,140,248,0.25)',
-                                }}
-                              />
-                            ))}
+                            <Chip
+                              size="small"
+                              label={`${activeRetainer.label}: ${cur(activeRetainer.amount)}`}
+                              sx={{
+                                height: 20,
+                                fontSize: '0.66rem',
+                                fontWeight: 700,
+                                bgcolor: 'rgba(129,140,248,0.12)',
+                                color: 'primary.light',
+                                border: '1px solid rgba(129,140,248,0.25)',
+                              }}
+                            />
                           </Box>
                           {canEdit && (
                             <Button
@@ -266,8 +270,8 @@ export default function ClientsView() {
                   </Box>
                 </Box>
 
-                {/* Expand/collapse tasks */}
-                {clientTasks.length > 0 && (
+                {/* Expand/collapse section */}
+                {(clientTasks.length > 0 || client.payment_type === 'monthly') && (
                   <>
                     <Divider sx={{ borderColor: 'rgba(255,255,255,0.05)' }} />
                     <Box
@@ -275,29 +279,87 @@ export default function ClientsView() {
                       onClick={() => setExpandedId(isExpanded ? null : client.id)}
                     >
                       <Typography variant="caption" sx={{ flex: 1, color: 'text.secondary', fontWeight: 600 }}>
-                        {clientTasks.length} task{clientTasks.length !== 1 ? 's' : ''}
+                        {client.payment_type === 'monthly'
+                          ? `${clientTasks.length} task${clientTasks.length !== 1 ? 's' : ''} • Full Retainer Schedule`
+                          : `${clientTasks.length} task${clientTasks.length !== 1 ? 's' : ''}`}
                       </Typography>
                       {isExpanded ? <ExpandLessRoundedIcon sx={{ fontSize: 18, color: 'text.secondary' }} /> : <ExpandMoreRoundedIcon sx={{ fontSize: 18, color: 'text.secondary' }} />}
                     </Box>
                     <Collapse in={isExpanded}>
-                      <Box sx={{ px: 1.5, pb: 1 }}>
-                        {clientTasks.slice(0, 5).map(t => (
-                          <Box key={t.id} sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5, borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                              <Typography variant="caption" sx={{ fontSize: '0.78rem', fontWeight: 600 }}>{t.title || 'Untitled'}</Typography>
-                            </Box>
-                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
-                              <VideoLibraryRoundedIcon sx={{ fontSize: 12, color: 'text.disabled' }} />
-                              <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.72rem' }}>{t.videos ?? 0}</Typography>
-                              <Typography variant="caption" sx={{ color: '#818CF8', fontWeight: 700, fontSize: '0.72rem', ml: 0.5 }}>
-                                {cur(calcTaskRevenueFull(t, client, salaryRates, tasks))}
+                      <Box sx={{ px: 1.5, pb: 1.25 }}>
+                        {/* Complete Retainer Schedule inside expanded card */}
+                        {client.payment_type === 'monthly' && fullSchedule.length > 0 && (
+                          <Box sx={{ mb: 1.5, p: 1.25, borderRadius: 1, bgcolor: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+                              <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700, fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5 }}>
+                                Complete Retainer Schedule ({fullSchedule.length} Months)
                               </Typography>
+                              {canEdit && (
+                                <Button
+                                  size="small"
+                                  variant="text"
+                                  onClick={e => {
+                                    e.stopPropagation();
+                                    setSelectedClient(client);
+                                    setDialogOpen(true);
+                                  }}
+                                  sx={{ textTransform: 'none', fontSize: '0.68rem', py: 0.2, px: 0.75, color: 'primary.light', minWidth: 'auto' }}
+                                >
+                                  Edit Rates
+                                </Button>
+                              )}
+                            </Box>
+                            <Box sx={{ display: 'flex', gap: 0.75, flexWrap: 'wrap' }}>
+                              {fullSchedule.map(s => {
+                                const isCurrent = s.monthStr === activeRetainer?.monthStr;
+                                return (
+                                  <Chip
+                                    key={s.monthStr}
+                                    size="small"
+                                    label={`${s.label}: ${cur(s.amount)}`}
+                                    sx={{
+                                      height: 22,
+                                      fontSize: '0.68rem',
+                                      fontWeight: 700,
+                                      bgcolor: isCurrent ? 'rgba(129,140,248,0.22)' : 'rgba(255,255,255,0.04)',
+                                      color: isCurrent ? 'primary.light' : 'text.secondary',
+                                      border: isCurrent ? '1px solid rgba(129,140,248,0.45)' : '1px solid rgba(255,255,255,0.08)',
+                                    }}
+                                  />
+                                );
+                              })}
                             </Box>
                           </Box>
-                        ))}
-                        {clientTasks.length > 5 && (
-                          <Typography variant="caption" sx={{ color: 'text.disabled', display: 'block', textAlign: 'center', mt: 0.5 }}>
-                            +{clientTasks.length - 5} more
+                        )}
+
+                        {/* Tasks list */}
+                        {clientTasks.length > 0 ? (
+                          <>
+                            {clientTasks.slice(0, 5).map(t => (
+                              <Box key={t.id} sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5, borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
+                                  <Typography variant="caption" sx={{ fontSize: '0.78rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                    {t.title || 'Untitled'}
+                                  </Typography>
+                                </Box>
+                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
+                                  <VideoLibraryRoundedIcon sx={{ fontSize: 12, color: 'text.disabled' }} />
+                                  <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.72rem' }}>{t.videos ?? 0}</Typography>
+                                  <Typography variant="caption" sx={{ color: '#818CF8', fontWeight: 700, fontSize: '0.72rem', ml: 0.5 }}>
+                                    {cur(calcTaskRevenueFull(t, client, salaryRates, tasks))}
+                                  </Typography>
+                                </Box>
+                              </Box>
+                            ))}
+                            {clientTasks.length > 5 && (
+                              <Typography variant="caption" sx={{ color: 'text.disabled', display: 'block', textAlign: 'center', mt: 0.5 }}>
+                                +{clientTasks.length - 5} more
+                              </Typography>
+                            )}
+                          </>
+                        ) : (
+                          <Typography variant="caption" sx={{ color: 'text.disabled', display: 'block', py: 0.5 }}>
+                            No tasks recorded for this period.
                           </Typography>
                         )}
                       </Box>

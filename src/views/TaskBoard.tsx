@@ -276,7 +276,7 @@ function TaskListRow({ task, onEdit, onDelete }: {
       title={canEdit ? 'Double-click to edit task' : undefined}
       sx={{
         mb: 1,
-        p: 1.5,
+        p: { xs: 1.25, sm: 1.5 },
         borderRadius: 1,
         border: '1px solid rgba(255,255,255,0.06)',
         borderLeft: `4px solid ${client?.color || '#818CF8'}`,
@@ -284,46 +284,96 @@ function TaskListRow({ task, onEdit, onDelete }: {
         display: 'flex',
         alignItems: 'center',
         justifyContent: 'space-between',
-        gap: 1.5,
+        gap: { xs: 1, sm: 1.5 },
         cursor: canEdit ? 'pointer' : 'default',
         '&:hover': { bgcolor: 'rgba(255,255,255,0.04)' },
       }}
     >
-      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: 2 }}>
+      <Box sx={{ flex: 1, minWidth: 0, display: 'flex', alignItems: 'center', gap: { xs: 1, sm: 1.5 } }}>
         <Box sx={{ minWidth: 0, flex: 1 }}>
-          <Typography variant="body2" sx={{ fontWeight: 700, fontSize: '0.9rem', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+          <Typography
+            variant="body2"
+            sx={{
+              fontWeight: 700,
+              fontSize: { xs: '0.84rem', sm: '0.9rem' },
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap',
+            }}
+          >
             {task.title || 'Untitled'}
           </Typography>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mt: 0.25 }}>
+          <Box
+            sx={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 0.75,
+              mt: 0.25,
+              minWidth: 0,
+              overflow: 'hidden',
+              whiteSpace: 'nowrap',
+            }}
+          >
             {client && (
-              <Typography variant="caption" sx={{ color: client.color, fontWeight: 700, fontSize: '0.72rem' }}>
+              <Typography
+                variant="caption"
+                sx={{
+                  color: client.color,
+                  fontWeight: 700,
+                  fontSize: '0.72rem',
+                  flexShrink: 0,
+                  maxWidth: { xs: '100px', sm: '150px' },
+                  overflow: 'hidden',
+                  textOverflow: 'ellipsis',
+                  whiteSpace: 'nowrap',
+                }}
+              >
                 {client.name}
               </Typography>
             )}
-            <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.7rem' }}>
+            <Typography
+              variant="caption"
+              sx={{
+                color: 'text.secondary',
+                fontSize: '0.7rem',
+                flexShrink: 0,
+                whiteSpace: 'nowrap',
+              }}
+            >
               • {formatDate(dateStr)}
             </Typography>
           </Box>
         </Box>
 
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: 'text.secondary' }}>
+        {/* Video counter: hidden on mobile per user request */}
+        <Box sx={{ display: { xs: 'none', sm: 'flex' }, alignItems: 'center', gap: 0.5, color: 'text.secondary', flexShrink: 0 }}>
           <VideoLibraryRoundedIcon sx={{ fontSize: 13 }} />
           <Typography variant="caption" sx={{ fontWeight: 600, fontSize: '0.75rem' }}>{task.videos ?? 1}</Typography>
         </Box>
 
         {rev > 0 && (
-          <Typography variant="body2" sx={{ fontWeight: 800, color: 'primary.light', minWidth: 80, textAlign: 'right', fontSize: '0.88rem' }}>
+          <Typography
+            variant="body2"
+            sx={{
+              fontWeight: 800,
+              color: 'primary.light',
+              textAlign: 'right',
+              fontSize: { xs: '0.84rem', sm: '0.88rem' },
+              flexShrink: 0,
+              whiteSpace: 'nowrap',
+            }}
+          >
             {cur(rev)}
           </Typography>
         )}
       </Box>
 
       {canEdit && (
-        <Box sx={{ display: 'flex', gap: 0.5 }}>
-          <IconButton size="small" onClick={() => onEdit(task)}>
+        <Box sx={{ display: 'flex', gap: 0.25, flexShrink: 0 }}>
+          <IconButton size="small" onClick={() => onEdit(task)} sx={{ p: { xs: 0.5, sm: 0.75 } }}>
             <EditRoundedIcon sx={{ fontSize: 14 }} />
           </IconButton>
-          <IconButton size="small" onClick={() => onDelete(task.id)} sx={{ color: '#F87171' }}>
+          <IconButton size="small" onClick={() => onDelete(task.id)} sx={{ color: '#F87171', p: { xs: 0.5, sm: 0.75 } }}>
             <DeleteOutlineRoundedIcon sx={{ fontSize: 14 }} />
           </IconButton>
         </Box>
