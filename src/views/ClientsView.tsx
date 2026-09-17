@@ -11,12 +11,12 @@ import ExpandLessRoundedIcon from '@mui/icons-material/ExpandLessRounded';
 import VideoLibraryRoundedIcon from '@mui/icons-material/VideoLibraryRounded';
 import { useApp } from '../contexts/AppContext';
 import { usePersistedState } from '../lib/usePersistedState';
-import { calcTaskRevenueFull, calcClientPaid, calcMonthlyRevenue, formatCurrency, getClientMonthlyRetainerSchedule } from '../types';
+import { calcTaskRevenueFull, calcClientPaid, calcMonthlyRevenue, formatCurrency, getClientMonthlyRetainerSchedule, getItemAmountForMonth } from '../types';
 import ClientDialog from '../components/ClientDialog';
 import type { Client } from '../types';
 
 export default function ClientsView() {
-  const { clients, tasks, payments, salaryRates, settings, deleteClient, canEdit } = useApp();
+  const { clients, tasks, payments, discounts, salaryRates, settings, deleteClient, canEdit } = useApp();
   const [selectedClient, setSelectedClient] = useState<Client | null>(null);
   const [dialogOpen, setDialogOpen] = useState(false);
   const [expandedId, setExpandedId] = usePersistedState<string | null>('clients_expandedId', null);
@@ -30,8 +30,12 @@ export default function ClientsView() {
       const d = t.completed_date ?? t.received_date;
       if (d) months.add(d.slice(0, 7));
     });
+    payments.forEach(p => {
+      (p.payment_for_months || []).forEach(m => months.add(m));
+      if (p.date) months.add(p.date.slice(0, 7));
+    });
     return Array.from(months).sort().reverse();
-  }, [tasks]);
+  }, [tasks, payments]);
 
   const getClientStats = (clientId: string) => {
     let clientTasks = tasks.filter(t => t.client_id === clientId);
@@ -55,10 +59,18 @@ export default function ClientsView() {
       });
     }
 
+    const clientPayments = payments.filter(p => p.client_id === clientId);
+    const clientDiscounts = discounts.filter(d => d.client_id === clientId);
+
     const paid = monthFilter
-      ? payments.filter(p => p.client_id === clientId && p.date.slice(0, 7) === monthFilter).reduce((s, p) => s + p.amount, 0)
+      ? clientPayments.reduce((s, p) => s + getItemAmountForMonth(p, monthFilter), 0)
       : calcClientPaid(payments, clientId);
-    const balance = earned - paid;
+
+    const disc = monthFilter
+      ? clientDiscounts.reduce((s, d) => s + getItemAmountForMonth(d, monthFilter), 0)
+      : clientDiscounts.reduce((s, d) => s + (d.amount ?? 0), 0);
+
+    const balance = earned - paid - disc;
     const totalVideos = clientTasks.reduce((s, t) => s + (t.videos ?? 0), 0);
 
     // Videos per day for this client

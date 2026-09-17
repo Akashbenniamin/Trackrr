@@ -9,7 +9,7 @@ import {
 import { format, subMonths, startOfMonth, endOfMonth } from 'date-fns';
 import { useApp } from '../contexts/AppContext';
 import { usePersistedState } from '../lib/usePersistedState';
-import { calcTaskRevenue, calcMonthlyRevenue, formatCurrency } from '../types';
+import { calcTaskRevenue, calcMonthlyRevenue, formatCurrency, getItemAmountForMonth } from '../types';
 
 const CHART_COLORS = ['#818CF8', '#34D399', '#FBBF24', '#F87171', '#A78BFA', '#60A5FA', '#FB7185', '#4ADE80'];
 
@@ -31,8 +31,18 @@ export default function AnalyticsView() {
   const availableMonths = useMemo(() => {
     const months = new Set<string>();
     tasks.forEach(t => { const d = t.completed_date ?? t.received_date; if (d) months.add(d.slice(0, 7)); });
+    payments.forEach(p => {
+      (p.payment_for_months || []).forEach(m => months.add(m));
+      if (p.date) months.add(p.date.slice(0, 7));
+    });
     return Array.from(months).sort().reverse();
-  }, [tasks]);
+  }, [tasks, payments]);
+
+  const targetMonth = useMemo(() => {
+    if (scope === 'all') return null;
+    if (scope === 'this_month') return format(new Date(), 'yyyy-MM');
+    return scope;
+  }, [scope]);
 
   const scopeBounds = useMemo(() => {
     const now = new Date();
@@ -50,7 +60,10 @@ export default function AnalyticsView() {
   };
 
   const scopedTasks = useMemo(() => tasks.filter(t => inScope(t.completed_date ?? t.received_date)), [tasks, scopeBounds, scope]);
-  const scopedPayments = useMemo(() => scope === 'all' ? payments : payments.filter(p => p.date >= scopeBounds.start! && p.date <= scopeBounds.end!), [payments, scopeBounds, scope]);
+  const scopedPayments = useMemo(() => {
+    if (!targetMonth) return payments;
+    return payments.filter(p => getItemAmountForMonth(p, targetMonth) > 0);
+  }, [payments, targetMonth]);
 
   // Monthly revenue (last 6 months) — always full timeline regardless of scope
   const monthlyRevenue = useMemo(() => {
@@ -58,6 +71,7 @@ export default function AnalyticsView() {
       const date = subMonths(new Date(), 5 - i);
       const start = startOfMonth(date).toISOString();
       const end = endOfMonth(date).toISOString();
+      const mStr = format(date, 'yyyy-MM');
       const monthTasks = tasks.filter(t => {
         const d = t.completed_date ?? t.received_date;
         return d && d >= start && d <= end;
@@ -72,7 +86,7 @@ export default function AnalyticsView() {
         if (dates.length > 0) rev += calcMonthlyRevenue(c.id, salaryRates, dates, c);
       });
       const videos = monthTasks.reduce((s, t) => s + (t.videos ?? 0), 0);
-      const paid = payments.filter(p => p.date >= start && p.date <= end).reduce((s, p) => s + p.amount, 0);
+      const paid = payments.reduce((s, p) => s + getItemAmountForMonth(p, mStr), 0);
       return { month: format(date, 'MMM'), rev, videos, paid };
     });
   }, [tasks, clients, payments, salaryRates]);
@@ -102,7 +116,9 @@ export default function AnalyticsView() {
   }, [scopedTasks, clients]);
 
   const totalEarned = revenueByClient.reduce((s, c) => s + c.value, 0);
-  const totalPaid = scopedPayments.reduce((s, p) => s + p.amount, 0);
+  const totalPaid = targetMonth
+    ? payments.reduce((s, p) => s + getItemAmountForMonth(p, targetMonth), 0)
+    : scopedPayments.reduce((s, p) => s + p.amount, 0);
   const outstanding = Math.max(0, totalEarned - totalPaid);
 
   const paymentByMethod = useMemo(() => {

@@ -301,7 +301,29 @@ export function calcClientPaid(payments: Payment[], clientId: string): number {
 }
 
 export function formatCurrency(amount: number, currency: 'USD' | 'INR'): string {
-  return currency === 'INR' ? `₹${amount.toFixed(0)}` : `$${amount.toFixed(0)}`;
+  const isNeg = amount < -0.0001;
+  const sign = isNeg ? '-' : '';
+  const abs = Math.abs(amount).toFixed(0);
+  return currency === 'INR' ? `${sign}₹${abs}` : `${sign}$${abs}`;
+}
+
+/**
+ * Calculates the amount of a payment or discount allocated to a specific target month (YYYY-MM).
+ * - If payment_for_months is set and non-empty, checks if targetMonth is included and divides
+ *   the amount evenly across all designated months.
+ * - Otherwise falls back to the calendar month of item.date (YYYY-MM).
+ */
+export function getItemAmountForMonth(
+  item: { amount: number; date: string; payment_for_months?: string[] },
+  targetMonth: string,
+): number {
+  if (item.payment_for_months && item.payment_for_months.length > 0) {
+    if (item.payment_for_months.includes(targetMonth)) {
+      return item.amount / item.payment_for_months.length;
+    }
+    return 0;
+  }
+  return item.date.slice(0, 7) === targetMonth ? item.amount : 0;
 }
 
 export function formatDate(ts: string | null | undefined): string {
