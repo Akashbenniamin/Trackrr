@@ -69,7 +69,7 @@ export default function AnalyticsView() {
       });
       clients.filter(c => c.payment_type === 'monthly').forEach(c => {
         const dates = monthTasks.filter(t => t.client_id === c.id).map(t => (t.completed_date ?? t.received_date)!);
-        if (dates.length > 0) rev += calcMonthlyRevenue(c.id, salaryRates, dates);
+        if (dates.length > 0) rev += calcMonthlyRevenue(c.id, salaryRates, dates, c);
       });
       const videos = monthTasks.reduce((s, t) => s + (t.videos ?? 0), 0);
       const paid = payments.filter(p => p.date >= start && p.date <= end).reduce((s, p) => s + p.amount, 0);
@@ -84,7 +84,7 @@ export default function AnalyticsView() {
       let rev = 0;
       if (client.payment_type === 'monthly') {
         const dates = clientTasks.map(t => t.completed_date ?? t.received_date).filter(Boolean) as string[];
-        rev = calcMonthlyRevenue(client.id, salaryRates, dates);
+        rev = calcMonthlyRevenue(client.id, salaryRates, dates, client);
       } else {
         clientTasks.forEach(t => { rev += calcTaskRevenue(t, client); });
       }

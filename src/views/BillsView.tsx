@@ -168,7 +168,7 @@ export default function BillsView() {
       totals.paymentForLabel ? `*Payment For: ${totals.paymentForLabel}*` : '',
       totals.discountInPeriod > 0 ? `*Discount: -${cur(totals.discountInPeriod)}*` : '',
       includePaid && totals.oldBalance !== 0 ? `*Old Balance: ${totals.oldBalance > 0 ? '' : '-'}${cur(Math.abs(totals.oldBalance))}*` : '',
-      includePaid ? `*${totals.balanceLabel}: ${totals.isOverpaid ? '-' : ''}${cur(Math.abs(totals.rawBalance))}*` : '',
+      includePaid ? `*${totals.balanceLabel}: ${cur(Math.abs(totals.rawBalance))}*` : '',
     ].filter(Boolean).join('\n');
 
     navigator.clipboard.writeText(lines).then(() => setSnackMsg('Copied! Paste it in WhatsApp'));
@@ -256,7 +256,7 @@ export default function BillsView() {
         </div>` : ''}
         <div class="total-row total-final">
           <span>${balanceLabel}</span>
-          <span class="${isOverpaid ? 'balance-overpaid' : balance > 0 ? 'balance-due' : 'balance-clear'}">${isOverpaid ? '-' : ''}${cur(Math.abs(balance))}</span>
+          <span class="${isOverpaid ? 'balance-overpaid' : balance > 0 ? 'balance-due' : 'balance-clear'}">${cur(Math.abs(balance))}</span>
         </div>` : ''}
       </div>`;
 
@@ -647,7 +647,7 @@ export default function BillsView() {
                     <Box sx={{ display: 'flex', justifyContent: 'space-between' }}>
                       <Typography variant="body1" sx={{ fontWeight: 700 }}>{totals.balanceLabel}</Typography>
                       <Typography variant="body1" sx={{ fontWeight: 800, color: totals.isOverpaid ? '#EF4444' : totals.rawBalance > 0 ? '#F87171' : '#34D399' }}>
-                        {totals.isOverpaid ? '-' : ''}{cur(Math.abs(totals.rawBalance))}
+                        {cur(Math.abs(totals.rawBalance))}
                       </Typography>
                     </Box>
                   </>

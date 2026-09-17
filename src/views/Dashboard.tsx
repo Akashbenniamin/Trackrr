@@ -104,7 +104,7 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (v: ViewName) =
     });
     clients.filter(c => c.payment_type === 'monthly').forEach(c => {
       const dates = scopedTasks.filter(t => t.client_id === c.id && (t.completed_date ?? t.received_date)).map(t => (t.completed_date ?? t.received_date)!);
-      earned += calcMonthlyRevenue(c.id, salaryRates, dates);
+      earned += calcMonthlyRevenue(c.id, salaryRates, dates, c);
     });
 
     const scopedPayments = scope === 'total' ? payments : payments.filter(p => p.date >= scopeBounds.start! && p.date <= scopeBounds.end!);
@@ -157,7 +157,7 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (v: ViewName) =
         dayTasks.forEach(t => { const c = clients.find(c => c.id === t.client_id); if (!c || c.payment_type !== 'monthly') rev += calcTaskRevenue(t, c); });
         clients.filter(c => c.payment_type === 'monthly').forEach(c => {
           const dates = dayTasks.filter(t => t.client_id === c.id && (t.completed_date ?? t.received_date)).map(t => (t.completed_date ?? t.received_date)!);
-          if (dates.length > 0) rev += calcMonthlyRevenue(c.id, salaryRates, dates);
+          if (dates.length > 0) rev += calcMonthlyRevenue(c.id, salaryRates, dates, c);
         });
         const dayPayments = payments.filter(p => p.date >= ds && p.date <= de).reduce((s, p) => s + p.amount, 0);
         const videos = dayTasks.reduce((s, t) => s + (t.videos ?? 0), 0);
@@ -178,7 +178,7 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (v: ViewName) =
       monthTasks.forEach(t => { const c = clients.find(c => c.id === t.client_id); if (!c || c.payment_type !== 'monthly') rev += calcTaskRevenue(t, c); });
       clients.filter(c => c.payment_type === 'monthly').forEach(c => {
         const dates = monthTasks.filter(t => t.client_id === c.id && (t.completed_date ?? t.received_date)).map(t => (t.completed_date ?? t.received_date)!);
-        if (dates.length > 0) rev += calcMonthlyRevenue(c.id, salaryRates, dates);
+        if (dates.length > 0) rev += calcMonthlyRevenue(c.id, salaryRates, dates, c);
       });
       const monthPayments = payments.filter(p => p.date >= start && p.date <= end).reduce((s, p) => s + p.amount, 0);
       const videos = monthTasks.reduce((s, t) => s + (t.videos ?? 0), 0);

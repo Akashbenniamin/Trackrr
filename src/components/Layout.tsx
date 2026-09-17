@@ -298,7 +298,7 @@ export default function Layout({ children }: LayoutProps) {
           overflow: isBatchflow && currentView === 'batches' ? { xs: 'auto', md: 'hidden' } : 'auto',
           pb: isMobile ? '70px' : (isBatchflow && currentView === 'batches' ? 1.5 : 2),
           px: { xs: 1.5, sm: 2, md: 3 },
-          pt: isBatchflow && currentView === 'batches' ? 1.5 : 2,
+          pt: (currentView === 'tasks' || (isBatchflow && currentView === 'batches')) ? 0 : 2,
           display: 'flex',
           flexDirection: 'column',
         }}

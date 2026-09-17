@@ -12,6 +12,7 @@ import CalendarMonthRoundedIcon from '@mui/icons-material/CalendarMonthRounded';
 import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
 import { useApp } from '../contexts/AppContext';
 import type { Task } from '../types';
+import { toDateInputValue } from '../types';
 
 const Transition = React.forwardRef(function Transition(
   props: TransitionProps & { children: React.ReactElement },
@@ -28,7 +29,11 @@ interface TaskDialogProps {
 }
 
 const empty = (): Partial<Task> => {
-  const now = new Date().toISOString();
+  const d = new Date();
+  const y = d.getFullYear();
+  const m = String(d.getMonth() + 1).padStart(2, '0');
+  const day = String(d.getDate()).padStart(2, '0');
+  const localNoonIso = new Date(`${y}-${m}-${day}T12:00:00`).toISOString();
   return {
     title: '',
     description: '',
@@ -37,8 +42,8 @@ const empty = (): Partial<Task> => {
     price: 0,
     pricing_type: 'total',
     client_id: null,
-    received_date: now,
-    completed_date: now,
+    received_date: localNoonIso,
+    completed_date: localNoonIso,
     tags: [],
   };
 };
@@ -267,8 +272,9 @@ export default function TaskDialog({ open, task, onClose, onSave }: TaskDialogPr
             type="date"
             size="small"
             fullWidth
-            value={form.completed_date ? new Date(form.completed_date).toISOString().slice(0, 10) : form.received_date ? new Date(form.received_date).toISOString().slice(0, 10) : ''}
+            value={toDateInputValue(form.completed_date || form.received_date)}
             onChange={e => {
+              if (!e.target.value) return;
               const iso = new Date(e.target.value + 'T12:00:00').toISOString();
               set('completed_date', iso);
               set('received_date', iso);

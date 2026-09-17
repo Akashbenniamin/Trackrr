@@ -11,7 +11,7 @@ import ExpandLessRoundedIcon from '@mui/icons-material/ExpandLessRounded';
 import VideoLibraryRoundedIcon from '@mui/icons-material/VideoLibraryRounded';
 import { useApp } from '../contexts/AppContext';
 import { usePersistedState } from '../lib/usePersistedState';
-import { calcTaskRevenueFull, calcClientPaid, calcMonthlyRevenue, formatCurrency } from '../types';
+import { calcTaskRevenueFull, calcClientPaid, calcMonthlyRevenue, formatCurrency, getClientMonthlyRetainerSchedule } from '../types';
 import ClientDialog from '../components/ClientDialog';
 import type { Client } from '../types';
 
@@ -48,7 +48,7 @@ export default function ClientsView() {
       const dates = clientTasks
         .map(t => t.completed_date ?? t.received_date)
         .filter(Boolean) as string[];
-      earned = calcMonthlyRevenue(clientId, salaryRates, dates);
+      earned = calcMonthlyRevenue(clientId, salaryRates, dates, client);
     } else {
       clientTasks.forEach(t => {
         earned += calcTaskRevenueFull(t, client, salaryRates, tasks);
@@ -210,6 +210,46 @@ export default function ClientsView() {
                           </Box>
                         ))}
                       </Box>
+
+                      {/* Monthly Retainer Schedule Overview */}
+                      {client.payment_type === 'monthly' && (
+                        <Box sx={{ mt: 1.25, pt: 1, borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
+                            <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase' }}>
+                              Retainer:
+                            </Typography>
+                            {getClientMonthlyRetainerSchedule(client, tasks, salaryRates, 0).map(s => (
+                              <Chip
+                                key={s.monthStr}
+                                size="small"
+                                label={`${s.label}: ${cur(s.amount)}`}
+                                sx={{
+                                  height: 20,
+                                  fontSize: '0.66rem',
+                                  fontWeight: 700,
+                                  bgcolor: 'rgba(129,140,248,0.12)',
+                                  color: 'primary.light',
+                                  border: '1px solid rgba(129,140,248,0.25)',
+                                }}
+                              />
+                            ))}
+                          </Box>
+                          {canEdit && (
+                            <Button
+                              size="small"
+                              variant="text"
+                              onClick={e => {
+                                e.stopPropagation();
+                                setSelectedClient(client);
+                                setDialogOpen(true);
+                              }}
+                              sx={{ textTransform: 'none', fontSize: '0.68rem', py: 0.2, px: 0.75, color: 'primary.light', minWidth: 'auto' }}
+                            >
+                              Edit Rates
+                            </Button>
+                          )}
+                        </Box>
+                      )}
                     </Box>
                   </Box>
                 </Box>

@@ -2,16 +2,12 @@ import React, { useState, useEffect } from 'react';
 import {
   Dialog, DialogTitle, DialogContent, DialogActions, Button, TextField,
   Select, MenuItem, FormControl, InputLabel, Box, InputAdornment,
-  Slide, Typography, IconButton, Chip,
+  Slide, Typography,
 } from '@mui/material';
 import type { TransitionProps } from '@mui/material/transitions';
-import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
-import EditRoundedIcon from '@mui/icons-material/EditRounded';
-import CheckRoundedIcon from '@mui/icons-material/CheckRounded';
-import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import { useApp } from '../contexts/AppContext';
-import type { Client, SalaryRate } from '../types';
-import { CLIENT_COLORS, getSalaryForMonth, formatCurrency, formatDate } from '../types';
+import type { Client, MonthlyRetainerScheduleItem } from '../types';
+import { CLIENT_COLORS, getClientMonthlyRetainerSchedule } from '../types';
 import ClientColorPicker from './ClientColorPicker';
 
 const Transition = React.forwardRef(function Transition(
@@ -39,75 +35,93 @@ const empty = (): Partial<Client> => ({
 });
 
 export default function ClientDialog({ open, client, onClose }: ClientDialogProps) {
-  const { addClient, updateClient, addSalaryRate, updateSalaryRate, deleteSalaryRate, salaryRates, settings } = useApp();
+  const { addClient, updateClient, setClientMonthlyRate, salaryRates, tasks, settings } = useApp();
   const [form, setForm] = useState<Partial<Client>>(empty());
   const [saving, setSaving] = useState(false);
-  const [newSalary, setNewSalary] = useState('');
-  const [newSalaryDate, setNewSalaryDate] = useState(new Date().toISOString().slice(0, 10));
-  const [editingRateId, setEditingRateId] = useState<string | null>(null);
-  const [editAmount, setEditAmount] = useState('');
-  const [editDate, setEditDate] = useState('');
+  const [monthlyRates, setMonthlyRates] = useState<Record<string, number>>({});
+  const [extraMonths, setExtraMonths] = useState(0);
 
   useEffect(() => {
-    if (client) setForm({ ...client });
-    else setForm(empty());
-    setNewSalary('');
-    setNewSalaryDate(new Date().toISOString().slice(0, 10));
-    setEditingRateId(null);
-  }, [client, open]);
+    if (client) {
+      setForm({ ...client });
+      const sched = getClientMonthlyRetainerSchedule(client, tasks, salaryRates, 0);
+      const map: Record<string, number> = {};
+      sched.forEach(item => {
+        map[item.monthStr] = item.amount;
+      });
+      setMonthlyRates(map);
+    } else {
+      setForm(empty());
+      const now = new Date();
+      const curMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      setMonthlyRates({ [curMonthStr]: 0 });
+    }
+    setExtraMonths(0);
+  }, [client, open, salaryRates, tasks]);
 
   const cs = settings.currency === 'INR' ? '₹' : '$';
   const set = <K extends keyof Client>(k: K, v: Client[K]) => setForm(p => ({ ...p, [k]: v }));
 
-  const clientRates = client
-    ? salaryRates.filter(r => r.client_id === client.id).sort((a, b) => a.effective_from.localeCompare(b.effective_from))
-    : [];
+  const schedule: MonthlyRetainerScheduleItem[] = React.useMemo(() => {
+    if (client) {
+      return getClientMonthlyRetainerSchedule(client, tasks, salaryRates, extraMonths);
+    }
+    const now = new Date();
+    const items: MonthlyRetainerScheduleItem[] = [];
+    for (let i = 0; i <= extraMonths; i++) {
+      const d = new Date(now.getFullYear(), now.getMonth() + i, 1);
+      const ym = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
+      const mName = d.toLocaleDateString('en-US', { month: 'short', year: 'numeric' });
+      items.push({
+        monthIndex: i + 1,
+        monthStr: ym,
+        label: `Month ${i + 1} (${mName})`,
+        monthName: mName,
+        amount: monthlyRates[ym] ?? (form.monthly_salary || 0),
+        isExistingRate: false,
+      });
+    }
+    return items;
+  }, [client, tasks, salaryRates, extraMonths, form.monthly_salary, monthlyRates]);
 
-  const currentSalary = clientRates.length > 0 ? clientRates[clientRates.length - 1].amount : (client?.monthly_salary ?? 0);
-  const activeSalaryNow = client ? getSalaryForMonth(salaryRates, client.id, new Date()) : 0;
+  const handleRateChange = (monthStr: string, val: number) => {
+    setMonthlyRates(prev => ({ ...prev, [monthStr]: val }));
+    set('monthly_salary', val);
+  };
 
   const handleSave = async () => {
     if (!form.name?.trim()) return;
     setSaving(true);
     try {
+      const latestSalary = schedule.length > 0
+        ? (monthlyRates[schedule[schedule.length - 1].monthStr] ?? form.monthly_salary ?? 0)
+        : (form.monthly_salary ?? 0);
+
+      const clientData: Partial<Client> = {
+        ...form,
+        monthly_salary: form.payment_type === 'monthly' ? latestSalary : 0,
+      };
+
+      let savedClientId = client?.id;
       if (client?.id) {
-        await updateClient(client.id, form);
-        if (form.payment_type === 'monthly' && newSalary && parseFloat(newSalary) > 0) {
-          await addSalaryRate({
-            client_id: client.id,
-            amount: parseFloat(newSalary),
-            effective_from: newSalaryDate,
-          });
-        }
+        await updateClient(client.id, clientData);
       } else {
-        const newClient = await addClient(form);
-        if (newClient && form.payment_type === 'monthly' && form.monthly_salary) {
-          await addSalaryRate({
-            client_id: newClient.id,
-            amount: form.monthly_salary,
-            effective_from: newSalaryDate,
-          });
+        const created = await addClient(clientData);
+        savedClientId = created?.id;
+      }
+
+      if (savedClientId && form.payment_type === 'monthly') {
+        for (const item of schedule) {
+          const amt = monthlyRates[item.monthStr] !== undefined ? monthlyRates[item.monthStr] : item.amount;
+          if (amt > 0) {
+            await setClientMonthlyRate(savedClientId, item.monthStr, amt);
+          }
         }
       }
       onClose();
     } finally {
       setSaving(false);
     }
-  };
-
-  const startEditRate = (rate: SalaryRate) => {
-    setEditingRateId(rate.id);
-    setEditAmount(String(rate.amount));
-    setEditDate(rate.effective_from.slice(0, 10));
-  };
-
-  const saveEditRate = async () => {
-    if (!editingRateId || !editAmount || parseFloat(editAmount) <= 0) return;
-    await updateSalaryRate(editingRateId, {
-      amount: parseFloat(editAmount),
-      effective_from: editDate,
-    });
-    setEditingRateId(null);
   };
 
   return (
@@ -191,97 +205,71 @@ export default function ClientDialog({ open, client, onClose }: ClientDialogProp
         </Box>
 
         {form.payment_type === 'monthly' && (
-          <>
-            {/* New rate entry */}
-            <Box sx={{ p: 1.5, borderRadius: 2, bgcolor: 'rgba(129,140,248,0.08)', border: '1px solid rgba(129,140,248,0.2)' }}>
-              <Typography variant="caption" sx={{ fontWeight: 700, color: 'primary.light', display: 'block', mb: 1 }}>
-                {client ? 'Add New Rate' : 'Set Monthly Rate'}
-              </Typography>
-              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-                <Box sx={{ flex: '1 1 calc(50% - 4px)', minWidth: 0 }}>
-                  <TextField
-                    label="Amount"
-                    type="number"
-                    size="small"
-                    fullWidth
-                    placeholder={client ? `Current: ${cs}${currentSalary}` : '0'}
-                    value={client ? newSalary : (form.monthly_salary ?? 0)}
-                    onChange={e => {
-                      if (client) setNewSalary(e.target.value);
-                      else set('monthly_salary', parseFloat(e.target.value) || 0);
-                    }}
-                    InputProps={{ startAdornment: <InputAdornment position="start">{cs}</InputAdornment> }}
-                  />
-                </Box>
-                <Box sx={{ flex: '1 1 calc(50% - 4px)', minWidth: 0 }}>
-                  <TextField
-                    label="Effective From"
-                    type="date"
-                    size="small"
-                    fullWidth
-                    value={newSalaryDate}
-                    onChange={e => setNewSalaryDate(e.target.value)}
-                    helperText={client ? 'Pick when this rate starts' : ''}
-                  />
-                </Box>
-              </Box>
-              {client && currentSalary > 0 && (
-                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.75, fontSize: '0.7rem' }}>
-                  Active rate: {cs}{activeSalaryNow} · Last set: {cs}{currentSalary}
+          <Box sx={{ p: 1.5, borderRadius: 2, bgcolor: 'rgba(129,140,248,0.06)', border: '1px solid rgba(129,140,248,0.2)' }}>
+            <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1.25 }}>
+              <Box>
+                <Typography variant="caption" sx={{ fontWeight: 800, color: 'primary.light', display: 'block', textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: '0.72rem' }}>
+                  Monthly Retainer Pricing
                 </Typography>
-              )}
+                <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.68rem' }}>
+                  Month 1 begins from the oldest task's month ({schedule[0]?.monthName ?? 'start'})
+                </Typography>
+              </Box>
+              <Button
+                size="small"
+                variant="outlined"
+                onClick={() => setExtraMonths(p => p + 1)}
+                sx={{ textTransform: 'none', fontSize: '0.7rem', py: 0.25, px: 1, height: 26, borderRadius: 1 }}
+              >
+                + Add Next Month
+              </Button>
             </Box>
 
-            {/* Salary rate history */}
-            {client && clientRates.length > 0 && (
-              <Box>
-                <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 0.75 }}>
-                  Rate History
-                </Typography>
-                {clientRates.map((rate, i) => {
-                  const isLatest = i === clientRates.length - 1;
-                  const isEditing = editingRateId === rate.id;
-                  return (
-                    <Box key={rate.id} sx={{
-                      display: 'flex', alignItems: 'center', gap: 1, mb: 0.5, p: 0.75, borderRadius: 1.5,
-                      bgcolor: isLatest ? 'rgba(52,211,153,0.08)' : 'rgba(255,255,255,0.03)',
-                      border: `1px solid ${isLatest ? 'rgba(52,211,153,0.2)' : 'rgba(255,255,255,0.06)'}`,
-                    }}>
-                      {isEditing ? (
-                        <>
-                          <TextField size="small" type="number" value={editAmount} onChange={e => setEditAmount(e.target.value)}
-                            sx={{ width: 90, '& input': { fontSize: '0.78rem', py: 0.5 } }}
-                            InputProps={{ startAdornment: <InputAdornment position="start">{cs}</InputAdornment> }} />
-                          <TextField size="small" type="date" value={editDate} onChange={e => setEditDate(e.target.value)}
-                            sx={{ flex: 1, '& input': { fontSize: '0.78rem', py: 0.5 } }} />
-                          <IconButton size="small" onClick={saveEditRate} sx={{ color: '#34D399' }}><CheckRoundedIcon fontSize="small" /></IconButton>
-                          <IconButton size="small" onClick={() => setEditingRateId(null)} sx={{ color: 'text.disabled' }}><CloseRoundedIcon fontSize="small" /></IconButton>
-                        </>
-                      ) : (
-                        <>
-                          <Box sx={{ flex: 1, display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                            <Typography variant="body2" sx={{ fontWeight: 700, fontSize: '0.85rem' }}>
-                              {formatCurrency(rate.amount, settings.currency)}
-                            </Typography>
-                            <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.72rem' }}>
-                              from {formatDate(rate.effective_from)}
-                            </Typography>
-                            {isLatest && <Chip label="current" size="small" sx={{ height: 16, fontSize: '0.6rem', bgcolor: 'rgba(52,211,153,0.15)', color: '#34D399' }} />}
-                          </Box>
-                          <IconButton size="small" onClick={() => startEditRate(rate)} sx={{ color: 'text.disabled', '&:hover': { color: '#818CF8' } }}>
-                            <EditRoundedIcon sx={{ fontSize: 16 }} />
-                          </IconButton>
-                          <IconButton size="small" onClick={() => deleteSalaryRate(rate.id)} sx={{ color: 'text.disabled', '&:hover': { color: '#F87171' } }}>
-                            <DeleteOutlineRoundedIcon sx={{ fontSize: 16 }} />
-                          </IconButton>
-                        </>
-                      )}
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, maxHeight: 220, overflowY: 'auto', pr: 0.5 }}>
+              {schedule.map(item => {
+                const currentVal = monthlyRates[item.monthStr] !== undefined ? monthlyRates[item.monthStr] : item.amount;
+                return (
+                  <Box
+                    key={item.monthStr}
+                    sx={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 1.5,
+                      p: 1,
+                      borderRadius: 1.5,
+                      bgcolor: 'background.paper',
+                      border: '1px solid rgba(255,255,255,0.06)',
+                    }}
+                  >
+                    <Box sx={{ minWidth: 140 }}>
+                      <Typography variant="body2" sx={{ fontWeight: 700, fontSize: '0.82rem' }}>
+                        Month {item.monthIndex}
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.7rem' }}>
+                        {item.monthName}
+                      </Typography>
                     </Box>
-                  );
-                })}
-              </Box>
-            )}
-          </>
+
+                    <TextField
+                      size="small"
+                      type="number"
+                      placeholder="0"
+                      value={currentVal || ''}
+                      onChange={e => handleRateChange(item.monthStr, parseFloat(e.target.value) || 0)}
+                      InputProps={{
+                        startAdornment: <InputAdornment position="start">{cs}</InputAdornment>,
+                      }}
+                      sx={{
+                        width: 140,
+                        '& .MuiInputBase-root': { height: 34, fontSize: '0.82rem', fontWeight: 700 },
+                      }}
+                    />
+                  </Box>
+                );
+              })}
+            </Box>
+          </Box>
         )}
 
         {/* Color picker */}

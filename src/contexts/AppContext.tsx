@@ -47,6 +47,7 @@ interface AppContextType {
   addSalaryRate: (data: Partial<SalaryRate>) => Promise<void>;
   updateSalaryRate: (id: string, data: Partial<SalaryRate>) => Promise<void>;
   deleteSalaryRate: (id: string) => Promise<void>;
+  setClientMonthlyRate: (clientId: string, monthStr: string, amount: number) => Promise<void>;
   addDiscount: (data: Partial<Discount>) => Promise<void>;
   updateDiscount: (id: string, data: Partial<Discount>) => Promise<void>;
   deleteDiscount: (id: string) => Promise<void>;
@@ -940,6 +941,31 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     setSalaryRates(prev => prev.filter(r => r.id !== id));
   }, [assertCanEdit, isCloudActive]);
 
+  const setClientMonthlyRate = useCallback(async (clientId: string, monthStr: string, amount: number) => {
+    assertCanEdit();
+    if (!activeWorkspace) return;
+    const effectiveFrom = `${monthStr}-01`;
+    const existing = salaryRates.find(r => r.client_id === clientId && r.effective_from.slice(0, 7) === monthStr);
+    if (existing) {
+      await updateSalaryRate(existing.id, { amount });
+    } else {
+      await addSalaryRate({
+        client_id: clientId,
+        amount,
+        effective_from: effectiveFrom,
+      });
+    }
+
+    // Also update client.monthly_salary to the latest or current month's rate
+    const client = clients.find(c => c.id === clientId);
+    if (client) {
+      const nowMonth = new Date().toISOString().slice(0, 7);
+      if (monthStr >= nowMonth || (client.monthly_salary ?? 0) <= 0) {
+        await updateClient(clientId, { monthly_salary: amount });
+      }
+    }
+  }, [assertCanEdit, activeWorkspace, salaryRates, updateSalaryRate, addSalaryRate, clients, updateClient]);
+
   // Discount Mutations
   const addDiscount = useCallback(async (data: Partial<Discount>) => {
     assertCanEdit();
@@ -1721,6 +1747,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         addSalaryRate,
         updateSalaryRate,
         deleteSalaryRate,
+        setClientMonthlyRate,
         addDiscount,
         updateDiscount,
         deleteDiscount,
