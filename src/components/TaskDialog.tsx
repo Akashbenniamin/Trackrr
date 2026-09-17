@@ -4,7 +4,6 @@ import {
   Select, MenuItem, Box, Chip, InputAdornment, Slide, IconButton, Typography,
 } from '@mui/material';
 import type { TransitionProps } from '@mui/material/transitions';
-import VideoLibraryRoundedIcon from '@mui/icons-material/VideoLibraryRounded';
 import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import AddTaskRoundedIcon from '@mui/icons-material/AddTaskRounded';
 import EditNoteRoundedIcon from '@mui/icons-material/EditNoteRounded';
@@ -61,7 +60,7 @@ export default function TaskDialog({ open, task, onClose, onSave }: TaskDialogPr
   const client = clients.find(c => c.id === form.client_id);
   const isMonthly = client?.payment_type === 'monthly';
   const cs = settings.currency === 'INR' ? '₹' : '$';
-  const revenue = isMonthly ? 0 : (form.pricing_type === 'per_video' ? (form.videos ?? 0) * (form.price ?? 0) : (form.price ?? 0));
+  const revenue = isMonthly ? 0 : (form.price ?? 0);
 
   const set = <K extends keyof Task>(k: K, v: Task[K]) => setForm(p => ({ ...p, [k]: v }));
 
@@ -70,9 +69,9 @@ export default function TaskDialog({ open, task, onClose, onSave }: TaskDialogPr
     setSaving(true);
     try {
       if (task?.id) {
-        await updateTask(task.id, { ...form, updated_at: new Date().toISOString() });
+        await updateTask(task.id, { ...form, videos: 1, updated_at: new Date().toISOString() });
       } else {
-        await addTask(form);
+        await addTask({ ...form, videos: 1 });
       }
       onSave();
     } finally {
@@ -133,21 +132,18 @@ export default function TaskDialog({ open, task, onClose, onSave }: TaskDialogPr
         </Box>
       </DialogTitle>
 
-      {/* Content Form */}
-      <DialogContent sx={{ overflowY: 'auto', flex: 1, display: 'flex', flexDirection: 'column', gap: 2, px: 2.5, py: 1 }}>
-        {/* Task Title */}
+      <DialogContent sx={{ display: 'flex', flexDirection: 'column', gap: 2, pt: 1 }}>
+        {/* Title */}
         <Box>
-          <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: '0.72rem', display: 'flex', alignItems: 'center', gap: 0.5, mb: 0.75 }}>
-            Task Title <Box component="span" sx={{ color: 'error.main' }}>*</Box>
+          <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', textTransform: 'uppercase', letterSpacing: '0.05em', fontSize: '0.72rem', display: 'block', mb: 0.75 }}>
+            Task Title *
           </Typography>
           <TextField
-            placeholder="e.g. Reel #12, Wedding Teaser, Highlight Cut..."
-            fullWidth
-            size="small"
             autoFocus
+            fullWidth
+            placeholder="e.g. Finance Reel #12, Client Promo..."
             value={form.title ?? ''}
             onChange={e => set('title', e.target.value)}
-            sx={{ '& .MuiOutlinedInput-root': { bgcolor: 'rgba(255,255,255,0.03)' } }}
           />
         </Box>
 
@@ -159,32 +155,17 @@ export default function TaskDialog({ open, task, onClose, onSave }: TaskDialogPr
           <Select
             value={form.client_id ?? ''}
             onChange={e => set('client_id', e.target.value || null)}
-            displayEmpty
             fullWidth
-            size="small"
-            renderValue={sel => {
-              const c = clients.find(cl => cl.id === sel);
-              return c ? (
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                  <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: c.color }} />
-                  <Typography variant="body2" sx={{ fontWeight: 700 }}>{c.name}</Typography>
-                </Box>
-              ) : (
-                <Typography variant="body2" sx={{ color: 'text.disabled' }}>Select a client (optional)...</Typography>
-              );
-            }}
-            sx={{ bgcolor: 'rgba(255,255,255,0.03)' }}
+            displayEmpty
           >
-            <MenuItem value="">
-              <em>No Client (General Task)</em>
-            </MenuItem>
+            <MenuItem value=""><em>— No Client —</em></MenuItem>
             {clients.map(c => (
               <MenuItem key={c.id} value={c.id}>
-                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
-                  <Box sx={{ width: 10, height: 10, borderRadius: '50%', bgcolor: c.color, flexShrink: 0 }} />
-                  <Typography variant="body2" sx={{ fontWeight: 600 }}>{c.name}</Typography>
+                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                  <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: c.color }} />
+                  {c.name}
                   {c.payment_type === 'monthly' && (
-                    <Chip label="Monthly" size="small" sx={{ height: 18, fontSize: '0.65rem', bgcolor: 'rgba(52,211,153,0.15)', color: '#34D399', ml: 'auto' }} />
+                    <Chip label="Monthly" size="small" sx={{ height: 16, fontSize: '0.6rem', ml: 0.5 }} />
                   )}
                 </Box>
               </MenuItem>
@@ -192,75 +173,27 @@ export default function TaskDialog({ open, task, onClose, onSave }: TaskDialogPr
           </Select>
         </Box>
 
-        {/* Pricing & Videos Card */}
+        {/* Pricing Card */}
         <Box sx={{ p: 1.75, borderRadius: 1.5, bgcolor: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}>
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr 1fr', sm: '1fr 1.2fr 1fr' }, gap: 1.5 }}>
-            {/* Videos Count */}
-            <Box>
-              <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', fontSize: '0.7rem', display: 'block', mb: 0.5 }}>
-                Videos Count
-              </Typography>
-              <TextField
-                type="number"
-                size="small"
-                fullWidth
-                value={form.videos ?? 1}
-                onChange={e => set('videos', Math.max(1, parseInt(e.target.value) || 1))}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <VideoLibraryRoundedIcon sx={{ fontSize: 15, color: 'text.secondary' }} />
-                    </InputAdornment>
-                  ),
-                }}
-              />
-            </Box>
-
-            {/* Price */}
-            <Box>
-              <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', fontSize: '0.7rem', display: 'block', mb: 0.5 }}>
-                {form.pricing_type === 'per_video' ? 'Rate per Video' : 'Total Price'}
-              </Typography>
-              <TextField
-                type="number"
-                size="small"
-                fullWidth
-                disabled={isMonthly}
-                value={form.price ?? 0}
-                onChange={e => set('price', parseFloat(e.target.value) || 0)}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      <Typography sx={{ fontWeight: 800, color: 'text.secondary', fontSize: '0.85rem' }}>{cs}</Typography>
-                    </InputAdornment>
-                  ),
-                }}
-              />
-            </Box>
-
-            {/* Pricing Mode */}
-            <Box sx={{ gridColumn: { xs: 'span 2', sm: 'span 1' } }}>
-              <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', fontSize: '0.7rem', display: 'block', mb: 0.5 }}>
-                Pricing Type
-              </Typography>
-              <Select
-                value={form.pricing_type ?? 'total'}
-                onChange={e => set('pricing_type', e.target.value as 'total' | 'per_video')}
-                size="small"
-                fullWidth
-                disabled={isMonthly}
-              >
-                <MenuItem value="total">Total Flat</MenuItem>
-                <MenuItem value="per_video">Per Video</MenuItem>
-              </Select>
-            </Box>
-          </Box>
-
-          {form.pricing_type === 'per_video' && (form.videos ?? 1) > 1 && !isMonthly && (
-            <Typography variant="caption" sx={{ display: 'block', mt: 1, color: 'primary.light', fontWeight: 600 }}>
-              Calculated: {form.videos} videos × {cs}{form.price} = {cs}{revenue.toLocaleString()}
-            </Typography>
-          )}
+          <Typography variant="caption" sx={{ fontWeight: 800, color: 'text.secondary', fontSize: '0.7rem', display: 'block', mb: 0.5 }}>
+            {isMonthly ? 'Monthly Retainer Client (No Per-Task Rate)' : 'Rate / Price'}
+          </Typography>
+          <TextField
+            type="number"
+            size="small"
+            fullWidth
+            disabled={isMonthly}
+            value={form.price ?? 0}
+            onChange={e => set('price', parseFloat(e.target.value) || 0)}
+            InputProps={{
+              startAdornment: (
+                <InputAdornment position="start">
+                  <Typography sx={{ fontWeight: 800, color: 'text.secondary', fontSize: '0.85rem' }}>{cs}</Typography>
+                </InputAdornment>
+              ),
+            }}
+            helperText={isMonthly ? 'Revenue is automatically tracked via client monthly retainer.' : undefined}
+          />
         </Box>
 
         {/* Date */}

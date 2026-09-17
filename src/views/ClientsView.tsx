@@ -8,10 +8,9 @@ import EditRoundedIcon from '@mui/icons-material/EditRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded';
 import ExpandLessRoundedIcon from '@mui/icons-material/ExpandLessRounded';
-import VideoLibraryRoundedIcon from '@mui/icons-material/VideoLibraryRounded';
 import { useApp } from '../contexts/AppContext';
 import { usePersistedState } from '../lib/usePersistedState';
-import { calcTaskRevenueFull, calcClientPaid, calcMonthlyRevenue, formatCurrency, getClientMonthlyRetainerSchedule, getItemAmountForMonth } from '../types';
+import { calcTaskRevenueFull, calcClientPaid, calcMonthlyRevenue, formatCurrency, formatDate, getClientMonthlyRetainerSchedule, getItemAmountForMonth } from '../types';
 import ClientDialog from '../components/ClientDialog';
 import type { Client } from '../types';
 
@@ -71,10 +70,10 @@ export default function ClientsView() {
       : clientDiscounts.reduce((s, d) => s + (d.amount ?? 0), 0);
 
     const balance = earned - paid - disc;
-    const totalVideos = clientTasks.reduce((s, t) => s + (t.videos ?? 0), 0);
+    const taskCount = clientTasks.length;
 
-    // Videos per day for this client
-    let videosPerDay = 0;
+    // Tasks per day for this client
+    let tasksPerDay = 0;
     const taskDates = clientTasks
       .map(t => t.completed_date ?? t.received_date)
       .filter(Boolean) as string[];
@@ -93,10 +92,10 @@ export default function ClientsView() {
         // Completed month: use the full span of tasks
         days = Math.max(1, Math.ceil((new Date(latest).getTime() - new Date(earliest).getTime()) / 86400000) + 1);
       }
-      videosPerDay = totalVideos / days;
+      tasksPerDay = taskCount / days;
     }
 
-    return { earned, paid, balance, totalVideos, videosPerDay, taskCount: clientTasks.length };
+    return { earned, paid, balance, taskCount, tasksPerDay };
   };
 
   return (
@@ -174,100 +173,185 @@ export default function ClientsView() {
                   '&:hover': { transform: 'translateX(2px)' },
                 }}
               >
-                <Box sx={{ p: 1.5 }}>
-                  <Box sx={{ display: 'flex', alignItems: 'flex-start', gap: 1.5 }}>
-                    <Avatar sx={{ bgcolor: client.color, width: 44, height: 44, fontSize: '1.1rem', fontWeight: 700 }}>
-                      {client.name?.[0]?.toUpperCase()}
-                    </Avatar>
-                    <Box sx={{ flex: 1, minWidth: 0 }}>
-                      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start' }}>
-                        <Box>
-                          <Typography variant="h6" sx={{ fontWeight: 700, fontSize: '0.95rem', lineHeight: 1.2 }}>
-                            {client.name}
-                          </Typography>
+                <Box sx={{ p: { xs: 1.5, sm: 2 } }}>
+                  {/* Client Header */}
+                  <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 0 }}>
+                      <Avatar
+                        sx={{
+                          bgcolor: client.color,
+                          width: { xs: 40, sm: 44 },
+                          height: { xs: 40, sm: 44 },
+                          fontSize: '1.1rem',
+                          fontWeight: 800,
+                          borderRadius: '12px',
+                          boxShadow: `0 4px 12px ${client.color}30`,
+                          flexShrink: 0,
+                        }}
+                      >
+                        {client.name?.[0]?.toUpperCase()}
+                      </Avatar>
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography
+                          variant="h6"
+                          sx={{
+                            fontWeight: 800,
+                            fontSize: { xs: '0.98rem', sm: '1.05rem' },
+                            lineHeight: 1.2,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {client.name}
+                        </Typography>
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap', mt: 0.25 }}>
                           {client.company && (
-                            <Typography variant="caption" sx={{ color: 'text.secondary' }}>{client.company}</Typography>
-                          )}
-                        </Box>
-                        <Box sx={{ display: 'flex', gap: 0.5 }}>
-                          <Chip
-                            label={client.payment_type === 'monthly' ? 'Monthly' : 'Per Video'}
-                            size="small"
-                            sx={{ height: 18, fontSize: '0.62rem', bgcolor: 'rgba(129,140,248,0.15)', color: 'primary.light' }}
-                          />
-                          {canEdit && (
                             <>
-                              <IconButton size="small" sx={{ p: 0.4 }} onClick={() => { setSelectedClient(client); setDialogOpen(true); }}>
-                                <EditRoundedIcon sx={{ fontSize: 15 }} />
-                              </IconButton>
-                              <IconButton size="small" sx={{ p: 0.4 }} onClick={() => {
-                                if (window.confirm(`Delete client "${client.name}"?`)) deleteClient(client.id);
-                              }}>
-                                <DeleteOutlineRoundedIcon sx={{ fontSize: 15, color: '#F87171' }} />
-                              </IconButton>
+                              <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 500, fontSize: '0.72rem' }}>
+                                {client.company}
+                              </Typography>
+                              <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.72rem' }}>•</Typography>
                             </>
                           )}
+                          <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, fontSize: '0.72rem' }}>
+                            {stats.taskCount} task{stats.taskCount !== 1 ? 's' : ''}
+                            {stats.tasksPerDay > 0 ? ` (${stats.tasksPerDay.toFixed(1)}/day)` : ''}
+                          </Typography>
                         </Box>
                       </Box>
+                    </Box>
 
-                      {/* Quick stats */}
-                      <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mt: 0.75 }}>
-                        {[
-                          { label: 'Earned', value: cur(stats.earned), color: '#818CF8' },
-                          { label: 'Paid', value: cur(stats.paid), color: '#34D399' },
-                          { label: 'Balance', value: cur(stats.balance), color: stats.balance > 0 ? '#F87171' : '#34D399' },
-                          { label: 'Videos', value: stats.totalVideos, color: '#FBBF24' },
-                          { label: 'Vids/Day', value: stats.videosPerDay.toFixed(1), color: '#A78BFA' },
-                        ].map(s => (
-                          <Box key={s.label} sx={{ flex: '1 1 calc(20% - 8px)', minWidth: 0, textAlign: 'center' }}>
-                            <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.6rem', display: 'block', textTransform: 'uppercase' }}>
-                              {s.label}
-                            </Typography>
-                            <Typography variant="caption" sx={{ fontWeight: 800, color: s.color, fontSize: '0.78rem' }}>
-                              {s.value}
-                            </Typography>
-                          </Box>
-                        ))}
-                      </Box>
-
-                      {/* Monthly Retainer: show only the active one on outer card */}
-                      {client.payment_type === 'monthly' && activeRetainer && (
-                        <Box sx={{ mt: 1, pt: 0.75, borderTop: '1px solid rgba(255,255,255,0.06)', display: 'flex', alignItems: 'center', justifyContent: 'space-between', gap: 1 }}>
-                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75 }}>
-                            <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase' }}>
-                              Retainer:
-                            </Typography>
-                            <Chip
-                              size="small"
-                              label={`${activeRetainer.label}: ${cur(activeRetainer.amount)}`}
-                              sx={{
-                                height: 20,
-                                fontSize: '0.66rem',
-                                fontWeight: 700,
-                                bgcolor: 'rgba(129,140,248,0.12)',
-                                color: 'primary.light',
-                                border: '1px solid rgba(129,140,248,0.25)',
-                              }}
-                            />
-                          </Box>
-                          {canEdit && (
-                            <Button
-                              size="small"
-                              variant="text"
-                              onClick={e => {
-                                e.stopPropagation();
-                                setSelectedClient(client);
-                                setDialogOpen(true);
-                              }}
-                              sx={{ textTransform: 'none', fontSize: '0.68rem', py: 0.2, px: 0.75, color: 'primary.light', minWidth: 'auto' }}
-                            >
-                              Edit Rates
-                            </Button>
-                          )}
-                        </Box>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
+                      <Chip
+                        label={client.payment_type === 'monthly' ? 'Monthly' : 'Per Video'}
+                        size="small"
+                        sx={{
+                          height: 20,
+                          fontSize: '0.65rem',
+                          fontWeight: 700,
+                          bgcolor: client.payment_type === 'monthly' ? 'rgba(52,211,153,0.12)' : 'rgba(129,140,248,0.12)',
+                          color: client.payment_type === 'monthly' ? '#34D399' : 'primary.light',
+                          border: '1px solid',
+                          borderColor: client.payment_type === 'monthly' ? 'rgba(52,211,153,0.25)' : 'rgba(129,140,248,0.25)',
+                        }}
+                      />
+                      {canEdit && (
+                        <>
+                          <IconButton size="small" sx={{ p: 0.5 }} onClick={(e) => { e.stopPropagation(); setSelectedClient(client); setDialogOpen(true); }}>
+                            <EditRoundedIcon sx={{ fontSize: 16 }} />
+                          </IconButton>
+                          <IconButton size="small" sx={{ p: 0.5 }} onClick={(e) => {
+                            e.stopPropagation();
+                            if (window.confirm(`Delete client "${client.name}"?`)) deleteClient(client.id);
+                          }}>
+                            <DeleteOutlineRoundedIcon sx={{ fontSize: 16, color: '#F87171' }} />
+                          </IconButton>
+                        </>
                       )}
                     </Box>
                   </Box>
+
+                  {/* Clean 3-Box Financial Grid */}
+                  <Box
+                    sx={{
+                      display: 'grid',
+                      gridTemplateColumns: 'repeat(3, 1fr)',
+                      gap: { xs: 1, sm: 1.25 },
+                    }}
+                  >
+                    {[
+                      { label: 'Earned', value: cur(stats.earned), color: '#818CF8' },
+                      { label: 'Paid', value: cur(stats.paid), color: '#34D399' },
+                      { label: 'Balance', value: cur(stats.balance), color: stats.balance > 0 ? '#F87171' : '#34D399' },
+                    ].map(s => (
+                      <Box
+                        key={s.label}
+                        sx={{
+                          p: { xs: 1, sm: 1.25 },
+                          borderRadius: 1.5,
+                          textAlign: 'center',
+                          bgcolor: (theme) => theme.palette.mode === 'light' ? 'rgba(0,0,0,0.02)' : 'rgba(255,255,255,0.025)',
+                          border: '1px solid',
+                          borderColor: (theme) => theme.palette.mode === 'light' ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)',
+                        }}
+                      >
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            color: 'text.secondary',
+                            fontSize: { xs: '0.62rem', sm: '0.66rem' },
+                            fontWeight: 700,
+                            display: 'block',
+                            textTransform: 'uppercase',
+                            letterSpacing: 0.6,
+                          }}
+                        >
+                          {s.label}
+                        </Typography>
+                        <Typography
+                          sx={{
+                            fontFamily: '"MADEOkineSans", "Roboto", sans-serif',
+                            fontWeight: 800,
+                            color: s.color,
+                            fontSize: { xs: '0.98rem', sm: '1.18rem' },
+                            lineHeight: 1.2,
+                            mt: 0.3,
+                            overflow: 'hidden',
+                            textOverflow: 'ellipsis',
+                            whiteSpace: 'nowrap',
+                          }}
+                        >
+                          {s.value}
+                        </Typography>
+                      </Box>
+                    ))}
+                  </Box>
+
+                  {/* Monthly Retainer: active retainer line */}
+                  {client.payment_type === 'monthly' && activeRetainer && (
+                    <Box sx={{
+                      mt: 1.25,
+                      pt: 1,
+                      borderTop: '1px solid rgba(255,255,255,0.06)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 1,
+                    }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, minWidth: 0, flexWrap: 'wrap' }}>
+                        <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.65rem', fontWeight: 700, textTransform: 'uppercase' }}>
+                          Retainer:
+                        </Typography>
+                        <Chip
+                          size="small"
+                          label={`${activeRetainer.label}: ${cur(activeRetainer.amount)}`}
+                          sx={{
+                            height: 20,
+                            fontSize: '0.66rem',
+                            fontWeight: 700,
+                            bgcolor: 'rgba(129,140,248,0.12)',
+                            color: 'primary.light',
+                            border: '1px solid rgba(129,140,248,0.25)',
+                          }}
+                        />
+                      </Box>
+                      {canEdit && (
+                        <Button
+                          size="small"
+                          variant="text"
+                          onClick={e => {
+                            e.stopPropagation();
+                            setSelectedClient(client);
+                            setDialogOpen(true);
+                          }}
+                          sx={{ textTransform: 'none', fontSize: '0.68rem', py: 0.2, px: 0.75, color: 'primary.light', minWidth: 'auto', flexShrink: 0 }}
+                        >
+                          Edit Rates
+                        </Button>
+                      )}
+                    </Box>
+                  )}
                 </Box>
 
                 {/* Expand/collapse section */}
@@ -275,21 +359,31 @@ export default function ClientsView() {
                   <>
                     <Divider sx={{ borderColor: 'rgba(255,255,255,0.05)' }} />
                     <Box
-                      sx={{ px: 1.5, py: 0.75, display: 'flex', alignItems: 'center', cursor: 'pointer', '&:hover': { bgcolor: 'rgba(255,255,255,0.03)' } }}
+                      sx={{
+                        px: { xs: 1.5, sm: 2 },
+                        py: 0.85,
+                        display: 'flex',
+                        alignItems: 'center',
+                        justifyContent: 'space-between',
+                        cursor: 'pointer',
+                        bgcolor: 'rgba(255,255,255,0.01)',
+                        '&:hover': { bgcolor: 'rgba(255,255,255,0.03)' },
+                        transition: 'background-color 0.15s ease',
+                      }}
                       onClick={() => setExpandedId(isExpanded ? null : client.id)}
                     >
-                      <Typography variant="caption" sx={{ flex: 1, color: 'text.secondary', fontWeight: 600 }}>
+                      <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, fontSize: '0.74rem' }}>
                         {client.payment_type === 'monthly'
                           ? `${clientTasks.length} task${clientTasks.length !== 1 ? 's' : ''} • Full Retainer Schedule`
-                          : `${clientTasks.length} task${clientTasks.length !== 1 ? 's' : ''}`}
+                          : `${clientTasks.length} task${clientTasks.length !== 1 ? 's' : ''} • Task History`}
                       </Typography>
                       {isExpanded ? <ExpandLessRoundedIcon sx={{ fontSize: 18, color: 'text.secondary' }} /> : <ExpandMoreRoundedIcon sx={{ fontSize: 18, color: 'text.secondary' }} />}
                     </Box>
                     <Collapse in={isExpanded}>
-                      <Box sx={{ px: 1.5, pb: 1.25 }}>
+                      <Box sx={{ px: { xs: 1.5, sm: 2 }, pb: 1.5 }}>
                         {/* Complete Retainer Schedule inside expanded card */}
                         {client.payment_type === 'monthly' && fullSchedule.length > 0 && (
-                          <Box sx={{ mb: 1.5, p: 1.25, borderRadius: 1, bgcolor: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}>
+                          <Box sx={{ mb: 1.5, p: 1.25, borderRadius: 1.5, bgcolor: 'rgba(255,255,255,0.02)', border: '1px solid rgba(255,255,255,0.06)' }}>
                             <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
                               <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 700, fontSize: '0.7rem', textTransform: 'uppercase', letterSpacing: 0.5 }}>
                                 Complete Retainer Schedule ({fullSchedule.length} Months)
@@ -334,29 +428,53 @@ export default function ClientsView() {
 
                         {/* Tasks list */}
                         {clientTasks.length > 0 ? (
-                          <>
-                            {clientTasks.slice(0, 5).map(t => (
-                              <Box key={t.id} sx={{ display: 'flex', justifyContent: 'space-between', py: 0.5, borderBottom: '1px solid rgba(255,255,255,0.04)' }}>
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, minWidth: 0 }}>
-                                  <Typography variant="caption" sx={{ fontSize: '0.78rem', fontWeight: 600, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
-                                    {t.title || 'Untitled'}
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                            {clientTasks.slice(0, 5).map(t => {
+                              const d = t.completed_date ?? t.received_date;
+                              const rev = calcTaskRevenueFull(t, client, salaryRates, tasks);
+                              return (
+                                <Box
+                                  key={t.id}
+                                  sx={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    py: 0.6,
+                                    px: 0.5,
+                                    borderBottom: '1px solid rgba(255,255,255,0.04)',
+                                  }}
+                                >
+                                  <Box sx={{ minWidth: 0, flex: 1, pr: 1 }}>
+                                    <Typography variant="caption" sx={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                      {t.title || 'Untitled'}
+                                    </Typography>
+                                    {d && (
+                                      <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.68rem' }}>
+                                        {formatDate(d)}
+                                      </Typography>
+                                    )}
+                                  </Box>
+                                  <Typography
+                                    variant="caption"
+                                    sx={{
+                                      fontFamily: '"MADEOkineSans", "Roboto", sans-serif',
+                                      fontWeight: 800,
+                                      color: '#818CF8',
+                                      fontSize: '0.82rem',
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    {cur(rev)}
                                   </Typography>
                                 </Box>
-                                <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }}>
-                                  <VideoLibraryRoundedIcon sx={{ fontSize: 12, color: 'text.disabled' }} />
-                                  <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.72rem' }}>{t.videos ?? 0}</Typography>
-                                  <Typography variant="caption" sx={{ color: '#818CF8', fontWeight: 700, fontSize: '0.72rem', ml: 0.5 }}>
-                                    {cur(calcTaskRevenueFull(t, client, salaryRates, tasks))}
-                                  </Typography>
-                                </Box>
-                              </Box>
-                            ))}
+                              );
+                            })}
                             {clientTasks.length > 5 && (
                               <Typography variant="caption" sx={{ color: 'text.disabled', display: 'block', textAlign: 'center', mt: 0.5 }}>
-                                +{clientTasks.length - 5} more
+                                +{clientTasks.length - 5} more tasks
                               </Typography>
                             )}
-                          </>
+                          </Box>
                         ) : (
                           <Typography variant="caption" sx={{ color: 'text.disabled', display: 'block', py: 0.5 }}>
                             No tasks recorded for this period.

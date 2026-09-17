@@ -6,7 +6,6 @@ import {
   ToggleButton, ToggleButtonGroup, Tooltip,
 } from '@mui/material';
 import TrendingUpRoundedIcon from '@mui/icons-material/TrendingUpRounded';
-import VideoLibraryRoundedIcon from '@mui/icons-material/VideoLibraryRounded';
 import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import AttachMoneyRoundedIcon from '@mui/icons-material/AttachMoneyRounded';
 import ArrowForwardRoundedIcon from '@mui/icons-material/ArrowForwardRounded';
@@ -24,21 +23,22 @@ import { usePersistedState } from '../lib/usePersistedState';
 import { calcTaskRevenue, calcMonthlyRevenue, formatCurrency, formatDate } from '../types';
 import type { ViewName } from '../types';
 
-function StatCard({ label, value, icon, color, subLabel, progress, onClick }: {
+function StatCard({ label, value, icon, color, progress, onClick }: {
   label: string; value: string | number; icon: React.ReactNode; color: string;
-  subLabel?: string; progress?: number; onClick?: () => void;
+  progress?: number; onClick?: () => void;
 }) {
   return (
-    <ButtonBase onClick={onClick} sx={{ borderRadius: 2.5, display: 'block', width: '100%', textAlign: 'left' }}>
+    <ButtonBase onClick={onClick} sx={{ borderRadius: 2.5, display: 'block', width: '100%', height: '100%', textAlign: 'left' }}>
       <Card sx={{
         p: 0,
+        height: '100%',
         borderRadius: 2.5,
         position: 'relative',
         overflow: 'hidden',
         transition: 'transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease',
         '&:hover': {
           transform: 'translateY(-2px)',
-          boxShadow: `0 10px 28px ${color}22`,
+          boxShadow: `0 12px 30px ${color}25`,
           borderColor: `${color}40`,
         },
         border: '1px solid',
@@ -46,61 +46,75 @@ function StatCard({ label, value, icon, color, subLabel, progress, onClick }: {
         borderLeft: `4px solid ${color}`,
         background: (theme) =>
           theme.palette.mode === 'light'
-            ? `linear-gradient(135deg, ${color}0D 0%, rgba(255,255,255,0.9) 65%)`
-            : `linear-gradient(135deg, ${color}12 0%, rgba(17,24,39,0.85) 65%)`,
+            ? `linear-gradient(135deg, ${color}0E 0%, rgba(255,255,255,0.92) 70%)`
+            : `linear-gradient(135deg, ${color}15 0%, rgba(17,24,39,0.88) 70%)`,
         cursor: onClick ? 'pointer' : 'default',
       }}>
-        <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-          <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 0.5 }}>
-            <Box sx={{ minWidth: 0, flex: 1, pr: 1 }}>
-              <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 700, fontSize: '0.68rem' }}>
-                {label}
-              </Typography>
-              <Typography
-                sx={{
-                  fontFamily: '"MADEOkineSans", "Roboto", sans-serif',
-                  fontWeight: 800,
-                  fontSize: { xs: '1.7rem', sm: '2.1rem' },
-                  letterSpacing: '-0.02em',
-                  color,
-                  mt: 0.3,
-                  mb: 0.2,
-                  lineHeight: 1.05,
-                }}
-              >
-                {value}
-              </Typography>
-              {subLabel && (
-                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '0.72rem', fontWeight: 500 }}>
-                  {subLabel}
-                </Typography>
-              )}
-            </Box>
-            <Avatar
-              sx={{
-                bgcolor: `${color}18`,
-                color,
-                width: 42,
-                height: 42,
-                border: `1px solid ${color}30`,
-                boxShadow: `0 2px 8px ${color}15`,
-                flexShrink: 0,
-              }}
-            >
-              {icon}
-            </Avatar>
-          </Box>
-          {progress !== undefined && <LinearProgress variant="determinate" value={Math.min(progress, 100)} sx={{ mt: 1.5, borderRadius: 2, '& .MuiLinearProgress-bar': { bgcolor: color } }} />}
+        {/* Thick watermark styled icon in background */}
+        <Box
+          sx={{
+            position: 'absolute',
+            right: { xs: -4, sm: 6 },
+            bottom: { xs: -6, sm: -2 },
+            color,
+            opacity: 0.16,
+            pointerEvents: 'none',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'center',
+            '& svg': {
+              fontSize: { xs: 66, sm: 80 },
+              strokeWidth: 1.5,
+              stroke: 'currentColor',
+            },
+          }}
+        >
+          {icon}
+        </Box>
+
+        <CardContent sx={{ p: { xs: 1.75, sm: 2.25 }, position: 'relative', zIndex: 1, '&:last-child': { pb: { xs: 1.75, sm: 2.25 } } }}>
+          <Typography
+            variant="caption"
+            sx={{
+              color: 'text.secondary',
+              textTransform: 'uppercase',
+              letterSpacing: 1.1,
+              fontWeight: 800,
+              fontSize: { xs: '0.68rem', sm: '0.74rem' },
+              display: 'block',
+            }}
+          >
+            {label}
+          </Typography>
+          <Typography
+            sx={{
+              fontFamily: '"MADEOkineSans", "Roboto", sans-serif',
+              fontWeight: 800,
+              fontSize: { xs: '1.95rem', sm: '2.45rem' },
+              letterSpacing: '-0.025em',
+              color,
+              mt: 0.5,
+              lineHeight: 1,
+            }}
+          >
+            {value}
+          </Typography>
+          {progress !== undefined && (
+            <LinearProgress
+              variant="determinate"
+              value={Math.min(progress, 100)}
+              sx={{ mt: 1.5, borderRadius: 2, height: 5, '& .MuiLinearProgress-bar': { bgcolor: color } }}
+            />
+          )}
         </CardContent>
       </Card>
     </ButtonBase>
   );
 }
 
-type MetricKey = 'revenue' | 'videos' | 'completed' | 'payments';
+type MetricKey = 'revenue' | 'completed' | 'payments';
 const METRIC_OPTIONS: { key: MetricKey; label: string; color: string }[] = [
   { key: 'revenue', label: 'Revenue', color: '#818CF8' },
-  { key: 'videos', label: 'Videos', color: '#FBBF24' },
   { key: 'completed', label: 'Tasks', color: '#34D399' },
   { key: 'payments', label: 'Payments', color: '#60A5FA' },
 ];
@@ -155,10 +169,9 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (v: ViewName) =
 
     const scopedPayments = scope === 'total' ? payments : payments.filter(p => p.date >= scopeBounds.start! && p.date <= scopeBounds.end!);
     const totalPaid = scopedPayments.reduce((sum, p) => sum + p.amount, 0);
-    const totalVideos = scopedTasks.reduce((s, t) => s + (t.videos ?? 0), 0);
 
-    // Videos per day
-    let videosPerDay = 0;
+    // Tasks per day (each task = 1 video)
+    let tasksPerDay = 0;
     if (scope === 'total') {
       const earliest = tasks.reduce<string | null>((min, t) => {
         const d = t.completed_date ?? t.received_date;
@@ -166,21 +179,20 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (v: ViewName) =
       }, null);
       if (earliest) {
         const days = Math.max(1, Math.ceil((Date.now() - new Date(earliest).getTime()) / 86400000));
-        videosPerDay = totalVideos / days;
+        tasksPerDay = scopedTasks.length / days;
       }
     } else {
       const start = scopeBounds.start ? new Date(scopeBounds.start) : startOfMonth(new Date());
       const end = scopeBounds.end ? new Date(scopeBounds.end) : new Date();
       const days = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86400000));
-      videosPerDay = totalVideos / days;
+      tasksPerDay = scopedTasks.length / days;
     }
 
     return {
       taskCount: scopedTasks.length,
-      totalVideos,
       earned, totalPaid,
       paymentCount: scopedPayments.length,
-      videosPerDay,
+      tasksPerDay,
     };
   }, [tasks, clients, payments, salaryRates, scope, scopeBounds]);
 
@@ -206,9 +218,8 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (v: ViewName) =
           if (dates.length > 0) rev += calcMonthlyRevenue(c.id, salaryRates, dates, c);
         });
         const dayPayments = payments.filter(p => p.date >= ds && p.date <= de).reduce((s, p) => s + p.amount, 0);
-        const videos = dayTasks.reduce((s, t) => s + (t.videos ?? 0), 0);
 
-        const v = metric === 'revenue' ? rev : metric === 'videos' ? videos : metric === 'completed' ? dayTasks.length : dayPayments;
+        const v = metric === 'revenue' ? rev : metric === 'completed' ? dayTasks.length : dayPayments;
         return { label: format(date, 'd'), v, date };
       });
     }
@@ -227,15 +238,14 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (v: ViewName) =
         if (dates.length > 0) rev += calcMonthlyRevenue(c.id, salaryRates, dates, c);
       });
       const monthPayments = payments.filter(p => p.date >= start && p.date <= end).reduce((s, p) => s + p.amount, 0);
-      const videos = monthTasks.reduce((s, t) => s + (t.videos ?? 0), 0);
 
-      const v = metric === 'revenue' ? rev : metric === 'videos' ? videos : metric === 'completed' ? monthTasks.length : monthPayments;
+      const v = metric === 'revenue' ? rev : metric === 'completed' ? monthTasks.length : monthPayments;
       return { label: format(date, 'MMM'), v, date };
     });
   }, [tasks, clients, payments, salaryRates, metric, timeRange]);
 
   const recentPayments = useMemo(() => [...payments].slice(0, 4), [payments]);
-  const activeMetric = METRIC_OPTIONS.find(m => m.key === metric)!;
+  const activeMetric = METRIC_OPTIONS.find(m => m.key === metric) || METRIC_OPTIONS[0];
 
   const isCurrency = metric === 'revenue' || metric === 'payments';
 
@@ -244,9 +254,11 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (v: ViewName) =
     return (
       <Box sx={{ bgcolor: '#1E293B', border: '1px solid rgba(255,255,255,0.1)', borderRadius: 1, p: 1.5 }}>
         <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 0.5 }}>{label}</Typography>
-        <Typography variant="caption" sx={{ color: activeMetric.color, fontWeight: 700, display: 'block' }}>
-          {activeMetric.label}: {isCurrency ? cur(payload[0].value) : payload[0].value}
-        </Typography>
+        {payload.map((entry: any) => (
+          <Typography key={entry.dataKey} variant="caption" sx={{ color: entry.color, display: 'block', fontWeight: 700 }}>
+            {entry.name}: {isCurrency ? cur(entry.value) : entry.value}
+          </Typography>
+        ))}
       </Box>
     );
   };
@@ -261,27 +273,19 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (v: ViewName) =
     );
   }
 
-  const chartHeight = 220;
+  const chartHeight = 180;
 
   const renderChart = () => {
-    const commonProps = {
-      data: chartData,
-      margin: { top: 5, right: 10, bottom: 0, left: -20 },
-    };
-
-    const axisProps = {
-      tick: { fill: '#94A3B8', fontSize: 10 },
-      axisLine: false as const,
-      tickLine: false as const,
-    };
+    const commonProps = { data: chartData, margin: { top: 5, right: 10, bottom: 0, left: -20 } };
+    const axisProps = { tick: { fill: '#94A3B8', fontSize: 10 }, axisLine: false, tickLine: false };
 
     if (chartType === 'bar') {
       return (
         <BarChart {...commonProps}>
           <defs>
             <linearGradient id="barGradDash" x1="0" y1="0" x2="0" y2="1">
-              <stop offset="0%" stopColor={activeMetric.color} />
-              <stop offset="100%" stopColor={activeMetric.color} stopOpacity={0.5} />
+              <stop offset="0%" stopColor={activeMetric.color} stopOpacity={1} />
+              <stop offset="100%" stopColor={activeMetric.color} stopOpacity={0.4} />
             </linearGradient>
           </defs>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" />
@@ -338,23 +342,41 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (v: ViewName) =
           </Select>
         </Box>
 
-        {/* Stat cards — 5 cards */}
-        <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mb: 2 }}>
-          <Box sx={{ flex: '1 1 calc(33% - 6px)', minWidth: 0 }}>
-            <StatCard label="Tasks" value={stats.taskCount} icon={<CheckCircleRoundedIcon fontSize="small" />} color="#34D399" subLabel="total jobs" onClick={() => onNavigate?.('tasks')} />
-          </Box>
-          <Box sx={{ flex: '1 1 calc(33% - 6px)', minWidth: 0 }}>
-            <StatCard label="Earned" value={cur(stats.earned)} icon={<TrendingUpRoundedIcon fontSize="small" />} color="#818CF8" subLabel={`${cur(stats.totalPaid)} received`} onClick={() => onNavigate?.('analytics')} />
-          </Box>
-          <Box sx={{ flex: '1 1 calc(33% - 6px)', minWidth: 0 }}>
-            <StatCard label="Videos" value={stats.totalVideos} icon={<VideoLibraryRoundedIcon fontSize="small" />} color="#FBBF24" subLabel="total videos" onClick={() => onNavigate?.('tasks')} />
-          </Box>
-          <Box sx={{ flex: '1 1 calc(33% - 6px)', minWidth: 0 }}>
-            <StatCard label="Received" value={cur(stats.totalPaid)} icon={<AttachMoneyRoundedIcon fontSize="small" />} color="#60A5FA" subLabel={`${stats.paymentCount} payments`} onClick={() => onNavigate?.('bills')} />
-          </Box>
-          <Box sx={{ flex: '1 1 calc(33% - 6px)', minWidth: 0 }}>
-            <StatCard label="Videos / Day" value={stats.videosPerDay.toFixed(1)} icon={<SpeedRoundedIcon fontSize="small" />} color="#A78BFA" subLabel="avg output" onClick={() => onNavigate?.('analytics')} />
-          </Box>
+        {/* Stat cards — 4 cards (Videos card removed, sublabels removed, watermark icons) */}
+        <Box sx={{
+          display: 'grid',
+          gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(4, 1fr)' },
+          gap: 1.5,
+          mb: 2,
+        }}>
+          <StatCard
+            label="Tasks"
+            value={stats.taskCount}
+            icon={<CheckCircleRoundedIcon />}
+            color="#34D399"
+            onClick={() => onNavigate?.('tasks')}
+          />
+          <StatCard
+            label="Earned"
+            value={cur(stats.earned)}
+            icon={<TrendingUpRoundedIcon />}
+            color="#818CF8"
+            onClick={() => onNavigate?.('analytics')}
+          />
+          <StatCard
+            label="Received"
+            value={cur(stats.totalPaid)}
+            icon={<AttachMoneyRoundedIcon />}
+            color="#60A5FA"
+            onClick={() => onNavigate?.('bills')}
+          />
+          <StatCard
+            label="Tasks / Day"
+            value={stats.tasksPerDay.toFixed(1)}
+            icon={<SpeedRoundedIcon />}
+            color="#A78BFA"
+            onClick={() => onNavigate?.('analytics')}
+          />
         </Box>
 
         {/* Multi-view trend chart */}

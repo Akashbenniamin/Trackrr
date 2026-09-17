@@ -213,18 +213,12 @@ export function getClientPrimaryColor(color?: string | null): string {
 
 export function calcTaskRevenue(task: Task, client?: Client | null): number {
   if (client?.payment_type === 'monthly') return 0;
-  return task.pricing_type === 'per_video'
-    ? (task.videos ?? 0) * (task.price ?? 0)
-    : (task.price ?? 0);
+  return task.price ?? 0;
 }
 
 /**
  * Per-task revenue for monthly clients: splits the monthly salary evenly
- * across all videos completed in that task's month. Falls back to 0 for
- * per-video clients (use calcTaskRevenue for those).
- *
- * For monthly clients with at least 1 completed task in a month, each task's
- * per-video share = salaryForMonth / totalVideosInMonth.
+ * across all tasks completed in that task's month (1 task = 1 video).
  */
 export function calcTaskRevenueFull(
   task: Task,
@@ -241,13 +235,11 @@ export function calcTaskRevenueFull(
   const salary = getSalaryForMonth(rates, client.id, new Date(yr, mo - 1, 1), client);
   if (salary <= 0) return 0;
 
-  const totalVideosInMonth = allTasks
-    .filter(t => t.client_id === client.id && (t.completed_date ?? t.received_date)?.slice(0, 7) === monthStr)
-    .reduce((s, t) => s + (t.videos ?? 0), 0);
+  const tasksInMonth = allTasks
+    .filter(t => t.client_id === client.id && (t.completed_date ?? t.received_date)?.slice(0, 7) === monthStr).length;
 
-  if (totalVideosInMonth === 0) return 0;
-  const perVideo = salary / totalVideosInMonth;
-  return perVideo * (task.videos ?? 0);
+  if (tasksInMonth === 0) return 0;
+  return salary / tasksInMonth;
 }
 
 export function getSalaryForMonth(

@@ -216,13 +216,6 @@ function TaskGridCard({ task, onEdit, onDelete }: {
             <Chip size="small" label="No Client" sx={{ height: 22, fontSize: '0.68rem', bgcolor: 'rgba(255,255,255,0.05)' }} />
           )}
 
-          <Chip
-            icon={<VideoLibraryRoundedIcon sx={{ fontSize: '13px !important' }} />}
-            label={`${task.videos ?? 1} video${(task.videos ?? 1) > 1 ? 's' : ''}`}
-            size="small"
-            sx={{ height: 22, fontSize: '0.68rem', fontWeight: 600, bgcolor: 'rgba(255,255,255,0.05)' }}
-          />
-
           {task.status && (
             <Chip
               label={task.status}
@@ -343,12 +336,6 @@ function TaskListRow({ task, onEdit, onDelete }: {
               • {formatDate(dateStr)}
             </Typography>
           </Box>
-        </Box>
-
-        {/* Video counter: hidden on mobile per user request */}
-        <Box sx={{ display: { xs: 'none', sm: 'flex' }, alignItems: 'center', gap: 0.5, color: 'text.secondary', flexShrink: 0 }}>
-          <VideoLibraryRoundedIcon sx={{ fontSize: 13 }} />
-          <Typography variant="caption" sx={{ fontWeight: 600, fontSize: '0.75rem' }}>{task.videos ?? 1}</Typography>
         </Box>
 
         {rev > 0 && (

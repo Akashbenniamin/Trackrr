@@ -127,9 +127,8 @@ export default function AnalyticsView() {
     return Array.from(map.entries()).map(([name, value]) => ({ name, value }));
   }, [scopedPayments]);
 
-  const avgPerVideo = (() => {
-    const totalVideos = scopedTasks.reduce((s, t) => s + (t.videos ?? 0), 0);
-    return totalVideos > 0 ? totalEarned / totalVideos : 0;
+  const avgPerTask = (() => {
+    return scopedTasks.length > 0 ? totalEarned / scopedTasks.length : 0;
   })();
 
   const bestMonth = monthlyRevenue.reduce((best, m) => m.rev > best.rev ? m : best, { month: '—', rev: 0 });
@@ -176,7 +175,7 @@ export default function AnalyticsView() {
             { label: 'Total Earned', value: cur(totalEarned), color: '#818CF8' },
             { label: 'Total Received', value: cur(totalPaid), color: '#34D399' },
             { label: 'Outstanding', value: cur(outstanding), color: '#F87171' },
-            { label: 'Avg per Video', value: cur(avgPerVideo), color: '#FBBF24' },
+            { label: 'Avg per Task', value: cur(avgPerTask), color: '#FBBF24' },
           ].map(s => (
             <Box key={s.label} sx={{ flex: '1 1 calc(50% - 6px)', minWidth: 0 }}>
               <Card sx={{

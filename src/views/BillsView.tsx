@@ -155,12 +155,12 @@ export default function BillsView() {
       `*${title}*`,
       `📅 ${format(new Date(), 'MMMM d, yyyy')}`,
       '',
-      `🎬 Videos: ${totals.totalVideos}   📋 Tasks: ${filteredTasks.length}`,
+      `📋 Tasks: ${filteredTasks.length}`,
       '────────────────',
       ...filteredTasks.map((t, i) => {
         const client = clients.find(c => c.id === t.client_id);
         const rev = calcTaskRevenueFull(t, client, salaryRates, tasks);
-        return `${i + 1}. ${t.title || 'Untitled'} — ${client?.name ?? 'N/A'} — ${t.videos ?? 0} vids — ${cur(rev)}`;
+        return `${i + 1}. ${t.title || 'Untitled'} — ${client?.name ?? 'N/A'} — ${cur(rev)}`;
       }),
       '────────────────',
       `*Total: ${cur(totals.total)}*`,
@@ -213,14 +213,14 @@ export default function BillsView() {
           <td class="col-date">${date}</td>
           <td class="col-title">${escapeHtml(t.title || 'Untitled')}</td>
           <td class="col-client">${escapeHtml(client?.name ?? '—')}</td>
-          <td class="col-vids num">${t.videos ?? 0}</td>
           ${includePrice ? `<td class="col-amount num">${cur(rev)}</td>` : ''}
         </tr>`;
     }).join('');
 
     const summaryCards = [
-      { label: 'Total Videos', value: String(totals.totalVideos) },
       { label: 'Total Tasks', value: String(filteredTasks.length) },
+      { label: 'Total Amount', value: cur(totals.total) },
+      ...(includePaid ? [{ label: 'Total Received', value: cur(totals.paidInPeriod) }] : []),
     ].map(s => `
       <div class="summary-card">
         <div class="summary-value">${s.value}</div>
@@ -453,7 +453,6 @@ export default function BillsView() {
           <th>Date</th>
           <th>Project</th>
           <th>Client</th>
-          <th class="num">Videos</th>
           ${includePrice ? '<th class="num">Amount</th>' : ''}
         </tr>
       </thead>
@@ -554,12 +553,12 @@ export default function BillsView() {
             {/* Summary */}
             <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mb: 2 }}>
               {[
-                { label: 'Total Videos', value: totals.totalVideos, color: '#FBBF24' },
                 { label: 'Total Tasks', value: filteredTasks.length, color: '#818CF8' },
                 { label: 'Total Amount', value: cur(totals.total), color: '#34D399' },
+                ...(includePaid ? [{ label: 'Total Received', value: cur(totals.paidInPeriod), color: '#60A5FA' }] : []),
               ].map(s => (
                 <Box key={s.label} sx={{ flex: '1 1 calc(33% - 8px)', minWidth: 0, textAlign: 'center', p: 1, borderRadius: 2, bgcolor: `${s.color}15` }}>
-                  <Typography variant="h5" sx={{ fontWeight: 800, color: s.color }}>{s.value}</Typography>
+                  <Typography variant="h5" sx={{ fontWeight: 800, color: s.color, fontFamily: '"MADEOkineSans", "Roboto", sans-serif' }}>{s.value}</Typography>
                   <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.66rem', textTransform: 'uppercase' }}>{s.label}</Typography>
                 </Box>
               ))}
@@ -573,7 +572,6 @@ export default function BillsView() {
                     <TableCell sx={{ fontWeight: 700, fontSize: '0.72rem', color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.8 }}>Date</TableCell>
                     <TableCell sx={{ fontWeight: 700, fontSize: '0.72rem', color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.8 }}>Project</TableCell>
                     <TableCell sx={{ fontWeight: 700, fontSize: '0.72rem', color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.8 }}>Client</TableCell>
-                    <TableCell align="right" sx={{ fontWeight: 700, fontSize: '0.72rem', color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.8 }}>Vids</TableCell>
                     {includePrice && <TableCell align="right" sx={{ fontWeight: 700, fontSize: '0.72rem', color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.8 }}>Amount</TableCell>}
                   </TableRow>
                 </TableHead>
@@ -588,7 +586,6 @@ export default function BillsView() {
                         <TableCell sx={{ fontSize: '0.76rem', py: 0.75 }}>
                           {client ? <Chip label={client.name} size="small" sx={{ height: 18, fontSize: '0.62rem', bgcolor: `${client.color}22`, color: client.color, '& .MuiChip-label': { px: 0.75 } }} /> : 'N/A'}
                         </TableCell>
-                        <TableCell align="right" sx={{ fontSize: '0.76rem', py: 0.75 }}>{t.videos ?? 0}</TableCell>
                         {includePrice && <TableCell align="right" sx={{ fontSize: '0.76rem', fontWeight: 700, color: '#818CF8', py: 0.75 }}>{cur(rev)}</TableCell>}
                       </TableRow>
                     );
