@@ -1,11 +1,10 @@
-import React, { useState, useRef, useEffect } from 'react';
+import React, { useState, useRef } from 'react';
 import {
   Box, Card, Typography, Button, Select, MenuItem, Divider, Fade,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField,
   Avatar, IconButton, Alert, List, ListItem,
   ListItemAvatar, ListItemText, Chip, Snackbar, ButtonBase,
 } from '@mui/material';
-import InstagramIcon from '@mui/icons-material/Instagram';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
 import EditRoundedIcon from '@mui/icons-material/EditRounded';
@@ -21,6 +20,7 @@ import Brightness4RoundedIcon from '@mui/icons-material/Brightness4Rounded';
 import LightModeRoundedIcon from '@mui/icons-material/LightModeRounded';
 import WbSunnyRoundedIcon from '@mui/icons-material/WbSunnyRounded';
 import AirRoundedIcon from '@mui/icons-material/AirRounded';
+import AcUnitRoundedIcon from '@mui/icons-material/AcUnitRounded';
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
 import StorageRoundedIcon from '@mui/icons-material/StorageRounded';
 import DataObjectRoundedIcon from '@mui/icons-material/DataObjectRounded';
@@ -187,6 +187,17 @@ const THEMES: { id: ThemeStyle; name: string; tag: string; desc: string; bg: str
     isLight: true,
     icon: <AirRoundedIcon fontSize="small" />,
   },
+  {
+    id: 'frosted-glass',
+    name: 'Frosted Glass',
+    tag: 'Neo-Frost',
+    desc: 'Cool icy-blue frosted glass with translucent surfaces & navy accents',
+    bg: '#D8E5F3',
+    card: 'rgba(255, 255, 255, 0.75)',
+    accent: '#1C293E',
+    isLight: true,
+    icon: <AcUnitRoundedIcon fontSize="small" />,
+  },
 ];
 
 export default function SettingsView() {
@@ -222,28 +233,6 @@ export default function SettingsView() {
 
   const [importing, setImporting] = useState(false);
   const [toastMessage, setToastMessage] = useState<string | null>(null);
-
-  // Meta / Instagram oEmbed API settings
-  const [metaAppId, setMetaAppId] = useState(settings.meta_app_id || '');
-  const [metaClientToken, setMetaClientToken] = useState(settings.meta_client_token || '');
-
-  useEffect(() => {
-    if (settings.meta_app_id !== undefined) setMetaAppId(settings.meta_app_id || '');
-    if (settings.meta_client_token !== undefined) setMetaClientToken(settings.meta_client_token || '');
-  }, [settings.meta_app_id, settings.meta_client_token]);
-
-  const handleSaveMetaCredentials = () => {
-    updateSettings({
-      meta_app_id: metaAppId.trim(),
-      meta_client_token: metaClientToken.trim(),
-    });
-    if (metaAppId.trim() && metaClientToken.trim()) {
-      localStorage.setItem('trackrr_meta_access_token', `${metaAppId.trim()}|${metaClientToken.trim()}`);
-    } else {
-      localStorage.removeItem('trackrr_meta_access_token');
-    }
-    setToastMessage('Meta / Instagram API credentials saved successfully!');
-  };
 
   const isBatchflow = activeWorkspace?.type === 'batchflow';
 
@@ -399,63 +388,91 @@ export default function SettingsView() {
   const renderThemeCard = (th: typeof THEMES[0]) => {
     const isActive = (settings.theme_style || 'default') === th.id;
     return (
-      <Box
+      <ButtonBase
         key={th.id}
         onClick={() => updateSettings({ theme_style: th.id })}
         sx={{
-          p: 2,
-          borderRadius: 2.5,
-          border: '2px solid',
-          borderColor: isActive ? 'primary.main' : (th.isLight ? 'rgba(0,0,0,0.12)' : 'rgba(255,255,255,0.08)'),
-          bgcolor: th.card,
-          color: th.isLight ? '#0F172A' : '#F1F5F9',
-          cursor: 'pointer',
-          transition: 'all 0.2s ease',
-          position: 'relative',
-          overflow: 'hidden',
-          boxShadow: isActive ? `0 0 16px ${th.accent}30` : (th.isLight ? '0 2px 6px rgba(0,0,0,0.06)' : 'none'),
-          '&:hover': {
-            borderColor: isActive ? 'primary.main' : (th.isLight ? 'rgba(0,0,0,0.25)' : 'rgba(255,255,255,0.2)'),
-            transform: 'translateY(-2px)',
-          },
+          width: '100%',
+          display: 'block',
+          textAlign: 'left',
+          borderRadius: 2,
         }}
       >
-        <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', mb: 1 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-            <Box sx={{ color: th.accent }}>{th.icon}</Box>
-            <Typography variant="body1" sx={{ fontWeight: 700, fontSize: '0.92rem', color: th.isLight ? '#0F172A' : '#F1F5F9' }}>
-              {th.name}
-            </Typography>
+        <Box
+          sx={{
+            p: 1.1,
+            px: 1.25,
+            borderRadius: 2,
+            border: '1.5px solid',
+            borderColor: isActive ? 'primary.main' : (th.isLight ? 'rgba(0,0,0,0.1)' : 'rgba(255,255,255,0.08)'),
+            bgcolor: th.card,
+            color: th.isLight ? '#0F172A' : '#F1F5F9',
+            display: 'flex',
+            alignItems: 'center',
+            justifyContent: 'space-between',
+            gap: 1,
+            transition: 'all 0.18s ease',
+            position: 'relative',
+            boxShadow: isActive ? `0 0 12px ${th.accent}30` : (th.isLight ? '0 1px 2px rgba(0,0,0,0.04)' : 'none'),
+            '&:hover': {
+              borderColor: isActive ? 'primary.main' : (th.isLight ? 'rgba(0,0,0,0.22)' : 'rgba(255,255,255,0.22)'),
+              transform: 'translateY(-1px)',
+            },
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.1, minWidth: 0 }}>
+            {/* Color swatch dot pill */}
+            <Box
+              sx={{
+                display: 'flex',
+                alignItems: 'center',
+                gap: 0.35,
+                p: 0.4,
+                borderRadius: 1.5,
+                bgcolor: th.isLight ? 'rgba(0,0,0,0.06)' : 'rgba(0,0,0,0.35)',
+                border: '1px solid',
+                borderColor: th.isLight ? 'rgba(0,0,0,0.08)' : 'rgba(255,255,255,0.1)',
+                flexShrink: 0,
+              }}
+            >
+              <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: th.bg, border: '1px solid rgba(0,0,0,0.12)' }} />
+              <Box sx={{ width: 8, height: 8, borderRadius: '50%', bgcolor: th.accent }} />
+            </Box>
+            <Box sx={{ minWidth: 0 }}>
+              <Typography
+                variant="body2"
+                noWrap
+                sx={{
+                  fontWeight: isActive ? 800 : 600,
+                  fontSize: '0.8rem',
+                  color: th.isLight ? '#0F172A' : '#F1F5F9',
+                  lineHeight: 1.2,
+                }}
+              >
+                {th.name}
+              </Typography>
+              <Typography
+                variant="caption"
+                noWrap
+                sx={{
+                  color: th.isLight ? '#64748B' : '#94A3B8',
+                  fontSize: '0.66rem',
+                  display: 'block',
+                }}
+              >
+                {th.tag}
+              </Typography>
+            </Box>
           </Box>
           {isActive ? (
-            <Chip label="Active" size="small" color="primary" sx={{ height: 20, fontSize: '0.65rem', fontWeight: 700 }} />
+            <CheckCircleRoundedIcon sx={{ color: 'primary.main', fontSize: 17, flexShrink: 0 }} />
           ) : (
-            <Chip
-              label={th.tag}
-              size="small"
-              sx={{
-                height: 20,
-                fontSize: '0.62rem',
-                fontWeight: 600,
-                bgcolor: th.isLight ? 'rgba(0,0,0,0.06)' : 'rgba(255,255,255,0.06)',
-                color: th.isLight ? '#475569' : '#94A3B8',
-              }}
-            />
+            <Box sx={{ color: th.accent, opacity: 0.65, display: 'flex', alignItems: 'center', flexShrink: 0 }}>
+              {th.icon}
+            </Box>
           )}
         </Box>
-        <Typography variant="caption" sx={{ color: th.isLight ? '#64748B' : '#94A3B8', display: 'block', lineHeight: 1.4, mb: 1.5 }}>
-          {th.desc}
-        </Typography>
-
-        {/* Visual Preview Swatches */}
-        <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, bgcolor: th.isLight ? 'rgba(0,0,0,0.06)' : 'rgba(0,0,0,0.3)', px: 1, py: 0.5, borderRadius: 1.5 }}>
-            <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: th.bg, border: '1px solid rgba(0,0,0,0.15)' }} />
-            <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: th.card, border: '1px solid rgba(0,0,0,0.15)' }} />
-            <Box sx={{ width: 12, height: 12, borderRadius: '50%', bgcolor: th.accent }} />
-          </Box>
-        </Box>
-      </Box>
+      </ButtonBase>
     );
   };
 
@@ -512,23 +529,23 @@ export default function SettingsView() {
             <PaletteRoundedIcon sx={{ color: 'primary.main', fontSize: 22 }} />
             <Typography variant="h6" sx={{ fontWeight: 800 }}>Theme & Appearance</Typography>
           </Box>
-          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2.5 }}>
-            Choose from 7 crafted themes (4 Dark, 3 Light) or customize your primary accent color
+          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2 }}>
+            Choose from 8 crafted themes (4 Dark, 4 Light) or customize your primary accent color
           </Typography>
 
           {/* Dark Themes */}
           <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
             🌙 Dark Themes
           </Typography>
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5, mb: 3 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(4, 1fr)' }, gap: 1.25, mb: 2.5 }}>
             {THEMES.filter(t => !t.isLight).map(th => renderThemeCard(th))}
           </Box>
 
           {/* Light Themes */}
           <Typography variant="caption" sx={{ fontWeight: 700, color: 'text.secondary', display: 'block', mb: 1, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-            ☀️ Light Themes (New)
+            ☀️ Light Themes
           </Typography>
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5, mb: 3 }}>
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: 'repeat(2, 1fr)', sm: 'repeat(4, 1fr)' }, gap: 1.25, mb: 2.5 }}>
             {THEMES.filter(t => t.isLight).map(th => renderThemeCard(th))}
           </Box>
 
@@ -709,8 +726,11 @@ export default function SettingsView() {
         </Card>
 
         {/* Data Backup & Restore */}
-        <Card sx={{ p: 2.5 }}>
-          <Typography variant="h6" sx={{ fontWeight: 800, mb: 0.5 }}>Backup & Data Management</Typography>
+        <Card sx={{ p: 2.5, mb: 2.5 }}>
+          <Typography variant="h6" sx={{ fontWeight: 800, mb: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
+            <FileDownloadRoundedIcon sx={{ color: 'primary.main', fontSize: 22 }} />
+            Backup & Data Management
+          </Typography>
           <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2 }}>
             Safely export your data to a JSON file or import a previous backup from Trackrr or BatchFlow.
           </Typography>
@@ -768,9 +788,9 @@ export default function SettingsView() {
         </Card>
 
         {/* Supabase Cloud Database Setup */}
-        <Card sx={{ p: 2.5 }}>
+        <Card sx={{ p: 2.5, mb: 2.5 }}>
           <Typography variant="h6" sx={{ fontWeight: 800, mb: 0.5, display: 'flex', alignItems: 'center', gap: 1 }}>
-            <StorageRoundedIcon sx={{ color: 'primary.main' }} />
+            <StorageRoundedIcon sx={{ color: 'primary.main', fontSize: 22 }} />
             Supabase Cloud Setup for BatchFlow
           </Typography>
           <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2 }}>
@@ -794,94 +814,6 @@ export default function SettingsView() {
           >
             Copy BatchFlow SQL Migration
           </Button>
-        </Card>
-
-        {/* Meta / Instagram oEmbed API Configuration */}
-        <Card sx={{ p: 2.5, mb: 2.5 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-              <InstagramIcon sx={{ color: '#E1306C', fontSize: 24 }} />
-              <Typography variant="h6" sx={{ fontWeight: 800 }}>Meta & Instagram Auto-Fetch</Typography>
-            </Box>
-            <Chip
-              label={metaAppId && metaClientToken ? 'Configured' : 'Optional / Fallback Active'}
-              color={metaAppId && metaClientToken ? 'success' : 'default'}
-              size="small"
-              sx={{ fontWeight: 700, fontSize: '0.7rem' }}
-            />
-          </Box>
-          <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 2.5 }}>
-            Automatically extracts publication dates and post details when pasting Instagram Reel / Post URLs using Meta's official oEmbed API.
-          </Typography>
-
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mb: 2.5 }}>
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 2 }}>
-              <TextField
-                label="Meta App ID"
-                size="small"
-                fullWidth
-                placeholder="e.g. 123456789012345"
-                value={metaAppId}
-                onChange={e => setMetaAppId(e.target.value)}
-                helperText="From developers.facebook.com app dashboard"
-              />
-              <TextField
-                label="Meta Client Token"
-                size="small"
-                fullWidth
-                placeholder="e.g. a1b2c3d4e5f6..."
-                value={metaClientToken}
-                onChange={e => setMetaClientToken(e.target.value)}
-                helperText="Found in App Settings > Advanced > Client Token"
-              />
-            </Box>
-
-            <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center' }}>
-              <Button
-                variant="contained"
-                onClick={handleSaveMetaCredentials}
-                sx={{
-                  bgcolor: '#E1306C',
-                  '&:hover': { bgcolor: '#C13584' },
-                  fontWeight: 700,
-                  textTransform: 'none',
-                  px: 2.5,
-                }}
-              >
-                Save Meta Credentials
-              </Button>
-              {(metaAppId || metaClientToken) && (
-                <Button
-                  variant="outlined"
-                  color="inherit"
-                  onClick={() => {
-                    setMetaAppId('');
-                    setMetaClientToken('');
-                    updateSettings({ meta_app_id: '', meta_client_token: '' });
-                    localStorage.removeItem('trackrr_meta_access_token');
-                    setToastMessage('Meta credentials cleared.');
-                  }}
-                  sx={{ textTransform: 'none', borderColor: 'divider', color: 'text.secondary' }}
-                >
-                  Clear Credentials
-                </Button>
-              )}
-            </Box>
-          </Box>
-
-          {/* Quick Setup Instructions */}
-          <Alert severity="info" sx={{ fontSize: '0.78rem', '& .MuiAlert-message': { width: '100%' } }}>
-            <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.5 }}>
-              How to get Meta oEmbed App Credentials (Free 1-time setup):
-            </Typography>
-            <ol style={{ margin: 0, paddingLeft: 18, lineHeight: 1.6 }}>
-              <li>Visit <a href="https://developers.facebook.com" target="_blank" rel="noopener noreferrer" style={{ color: '#38BDF8', fontWeight: 600 }}>developers.facebook.com</a> and click <strong>Create App</strong> (type: <em>Other</em> &gt; <em>Consumer</em> or <em>Business</em>).</li>
-              <li>Under "Add Products", find <strong>oEmbed</strong> and click <strong>Set Up</strong>.</li>
-              <li>Go to <strong>App settings &gt; Basic</strong> to copy your <strong>App ID</strong>.</li>
-              <li>Click <strong>Advanced</strong> under App Settings to copy your <strong>Client Token</strong>.</li>
-              <li>Paste both fields above and click <strong>Save Meta Credentials</strong>. (These app tokens never expire!)</li>
-            </ol>
-          </Alert>
         </Card>
 
         {/* Workspace Dialog (Create / Edit) */}

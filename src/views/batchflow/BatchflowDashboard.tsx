@@ -16,23 +16,72 @@ function StatCard({ label, value, icon, color, subLabel, progress, onClick }: {
   subLabel?: string; progress?: number; onClick?: () => void;
 }) {
   return (
-    <ButtonBase onClick={onClick} sx={{ borderRadius: 1, display: 'block', width: '100%', height: '100%', textAlign: 'left' }}>
+    <ButtonBase onClick={onClick} sx={{ borderRadius: 2.5, display: 'block', width: '100%', height: '100%', textAlign: 'left' }}>
       <Card sx={{
-        p: 0, height: '100%', display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
-        transition: 'transform 0.2s ease, box-shadow 0.2s ease',
-        '&:hover': { transform: 'translateY(-2px)', boxShadow: `0 8px 32px ${color}22` },
-        borderLeft: `4px solid ${color}`, cursor: onClick ? 'pointer' : 'default',
+        p: 0,
+        height: '100%',
+        display: 'flex',
+        flexDirection: 'column',
+        justifyContent: 'space-between',
+        borderRadius: 2.5,
+        position: 'relative',
+        overflow: 'hidden',
+        transition: 'transform 0.2s ease, box-shadow 0.2s ease, border-color 0.2s ease',
+        '&:hover': {
+          transform: 'translateY(-2px)',
+          boxShadow: `0 10px 28px ${color}22`,
+          borderColor: `${color}40`,
+        },
+        border: '1px solid',
+        borderColor: 'divider',
+        borderLeft: `4px solid ${color}`,
+        background: (theme) =>
+          theme.palette.mode === 'light'
+            ? `linear-gradient(135deg, ${color}0D 0%, rgba(255,255,255,0.9) 65%)`
+            : `linear-gradient(135deg, ${color}12 0%, rgba(17,24,39,0.85) 65%)`,
+        cursor: onClick ? 'pointer' : 'default',
       }}>
         <CardContent sx={{ p: 2, '&:last-child': { pb: 2 } }}>
-          <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 1 }}>
-            <Box>
-              <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 1, fontWeight: 600 }}>{label}</Typography>
-              <Typography variant="h4" sx={{ fontWeight: 800, color, mt: 0.25, lineHeight: 1.1 }}>{value}</Typography>
-              {subLabel && <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.25 }}>{subLabel}</Typography>}
+          <Box sx={{ display: 'flex', alignItems: 'flex-start', justifyContent: 'space-between', mb: 0.5 }}>
+            <Box sx={{ minWidth: 0, flex: 1, pr: 1 }}>
+              <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 700, fontSize: '0.68rem' }}>
+                {label}
+              </Typography>
+              <Typography
+                sx={{
+                  fontFamily: '"MADEOkineSans", "Roboto", sans-serif',
+                  fontWeight: 800,
+                  fontSize: { xs: '1.7rem', sm: '2.1rem' },
+                  letterSpacing: '-0.02em',
+                  color,
+                  mt: 0.3,
+                  mb: 0.2,
+                  lineHeight: 1.05,
+                }}
+              >
+                {value}
+              </Typography>
+              {subLabel && (
+                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '0.72rem', fontWeight: 500 }}>
+                  {subLabel}
+                </Typography>
+              )}
             </Box>
-            <Avatar sx={{ bgcolor: `${color}22`, color, width: 40, height: 40 }}>{icon}</Avatar>
+            <Avatar
+              sx={{
+                bgcolor: `${color}18`,
+                color,
+                width: 42,
+                height: 42,
+                border: `1px solid ${color}30`,
+                boxShadow: `0 2px 8px ${color}15`,
+                flexShrink: 0,
+              }}
+            >
+              {icon}
+            </Avatar>
           </Box>
-          {progress !== undefined && <LinearProgress variant="determinate" value={Math.min(progress, 100)} sx={{ mt: 1.5, '& .MuiLinearProgress-bar': { bgcolor: color } }} />}
+          {progress !== undefined && <LinearProgress variant="determinate" value={Math.min(progress, 100)} sx={{ mt: 1.5, borderRadius: 2, '& .MuiLinearProgress-bar': { bgcolor: color } }} />}
         </CardContent>
       </Card>
     </ButtonBase>

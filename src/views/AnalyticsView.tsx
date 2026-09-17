@@ -179,11 +179,36 @@ export default function AnalyticsView() {
             { label: 'Avg per Video', value: cur(avgPerVideo), color: '#FBBF24' },
           ].map(s => (
             <Box key={s.label} sx={{ flex: '1 1 calc(50% - 6px)', minWidth: 0 }}>
-              <Card sx={{ p: 1.5, borderLeft: `4px solid ${s.color}` }}>
-                <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 600 }}>
+              <Card sx={{
+                p: 2,
+                borderRadius: 2.5,
+                border: '1px solid',
+                borderColor: 'divider',
+                borderLeft: `4px solid ${s.color}`,
+                background: (theme) =>
+                  theme.palette.mode === 'light'
+                    ? `linear-gradient(135deg, ${s.color}0D 0%, rgba(255,255,255,0.9) 65%)`
+                    : `linear-gradient(135deg, ${s.color}12 0%, rgba(17,24,39,0.85) 65%)`,
+                transition: 'transform 0.2s ease, box-shadow 0.2s ease',
+                '&:hover': {
+                  transform: 'translateY(-2px)',
+                  boxShadow: `0 8px 24px ${s.color}20`,
+                },
+              }}>
+                <Typography variant="caption" sx={{ color: 'text.secondary', textTransform: 'uppercase', letterSpacing: 0.8, fontWeight: 700, fontSize: '0.68rem' }}>
                   {s.label}
                 </Typography>
-                <Typography variant="h5" sx={{ fontWeight: 800, color: s.color, mt: 0.25 }}>
+                <Typography
+                  sx={{
+                    fontFamily: '"MADEOkineSans", "Roboto", sans-serif',
+                    fontWeight: 800,
+                    fontSize: { xs: '1.75rem', sm: '2.25rem' },
+                    letterSpacing: '-0.02em',
+                    color: s.color,
+                    mt: 0.35,
+                    lineHeight: 1.05,
+                  }}
+                >
                   {s.value}
                 </Typography>
               </Card>

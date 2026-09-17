@@ -117,6 +117,21 @@ const THEME_CONFIGS: Record<ThemeStyle, ThemePaletteConfig> = {
     textDisabled: '#7DD3FC',
     cardBorder: '1px solid rgba(14, 116, 144, 0.14)',
   },
+  'frosted-glass': {
+    mode: 'light',
+    defaultAccent: '#1C293E',
+    bgDefault: 'linear-gradient(160deg, #EBF3FA 0%, #D8E5F3 45%, #C2D8EC 100%)',
+    bgPaper: 'rgba(255, 255, 255, 0.72)',
+    bgDialog: 'rgba(255, 255, 255, 0.94)',
+    bgDrawer: 'rgba(238, 245, 252, 0.88)',
+    bgAppBar: 'rgba(235, 243, 250, 0.82)',
+    divider: 'rgba(15, 30, 54, 0.08)',
+    textPrimary: '#0F1E36',
+    textSecondary: '#50637F',
+    textDisabled: '#94A3B8',
+    cardBorder: '1px solid rgba(255, 255, 255, 0.85)',
+    backdropBlur: true,
+  },
 };
 
 export function getAppTheme(themeStyle: ThemeStyle = 'default', accentColor = 'auto') {
@@ -154,7 +169,7 @@ export function getAppTheme(themeStyle: ThemeStyle = 'default', accentColor = 'a
       },
       divider: cfg.divider,
     },
-    shape: { borderRadius: themeStyle === 'smooth' ? 10 : 8 },
+    shape: { borderRadius: (themeStyle === 'smooth' || themeStyle === 'frosted-glass') ? 12 : 8 },
     typography: {
       fontFamily: '"Roboto", "Helvetica", "Arial", sans-serif',
       h1: { fontSize: '2rem', fontWeight: 700, letterSpacing: '-0.02em' },
@@ -171,6 +186,8 @@ export function getAppTheme(themeStyle: ThemeStyle = 'default', accentColor = 'a
         styleOverrides: {
           body: {
             background: cfg.bgDefault,
+            backgroundAttachment: 'fixed',
+            minHeight: '100vh',
             color: cfg.textPrimary,
             overscrollBehavior: 'none',
             WebkitTapHighlightColor: 'transparent',
@@ -189,9 +206,12 @@ export function getAppTheme(themeStyle: ThemeStyle = 'default', accentColor = 'a
             backgroundImage: 'none',
             backgroundColor: cfg.bgPaper,
             border: cfg.cardBorder,
-            borderRadius: themeStyle === 'smooth' ? 10 : 8,
-            backdropFilter: cfg.backdropBlur ? 'blur(16px)' : 'none',
-            boxShadow: isLight ? '0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.06)' : 'none',
+            borderRadius: (themeStyle === 'smooth' || themeStyle === 'frosted-glass') ? 14 : 8,
+            backdropFilter: cfg.backdropBlur ? 'blur(20px)' : 'none',
+            WebkitBackdropFilter: cfg.backdropBlur ? 'blur(20px)' : 'none',
+            boxShadow: themeStyle === 'frosted-glass'
+              ? '0 8px 32px 0 rgba(31, 56, 92, 0.08), 0 1px 2px 0 rgba(255, 255, 255, 0.8) inset'
+              : (isLight ? '0 1px 3px rgba(0,0,0,0.05), 0 1px 2px rgba(0,0,0,0.06)' : 'none'),
           },
         },
       },
@@ -201,21 +221,34 @@ export function getAppTheme(themeStyle: ThemeStyle = 'default', accentColor = 'a
             backgroundImage: 'none',
             backgroundColor: cfg.bgPaper,
             color: cfg.textPrimary,
-            borderRadius: themeStyle === 'smooth' ? 10 : 8,
+            borderRadius: (themeStyle === 'smooth' || themeStyle === 'frosted-glass') ? 14 : 8,
+            ...(themeStyle === 'frosted-glass' ? {
+              backdropFilter: 'blur(20px)',
+              WebkitBackdropFilter: 'blur(20px)',
+            } : {}),
           },
         },
       },
       MuiButton: {
         styleOverrides: {
-          root: { textTransform: 'none', fontWeight: 600, borderRadius: themeStyle === 'smooth' ? 9 : 8 },
+          root: {
+            textTransform: 'none',
+            fontWeight: 600,
+            borderRadius: themeStyle === 'frosted-glass' ? 24 : (themeStyle === 'smooth' ? 9 : 8),
+          },
           contained: {
-            boxShadow: `0 4px 14px ${accentColor}35`,
-            '&:hover': { boxShadow: `0 6px 20px ${accentColor}50` },
+            boxShadow: `0 4px 14px ${resolvedAccent}35`,
+            '&:hover': { boxShadow: `0 6px 20px ${resolvedAccent}50` },
           },
         },
       },
       MuiChip: {
-        styleOverrides: { root: { borderRadius: 6, fontWeight: 500 } },
+        styleOverrides: {
+          root: {
+            borderRadius: themeStyle === 'frosted-glass' ? 16 : 6,
+            fontWeight: 500,
+          },
+        },
       },
       MuiTextField: {
         defaultProps: { variant: 'outlined', size: 'small' },
