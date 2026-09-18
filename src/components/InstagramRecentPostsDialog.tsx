@@ -31,6 +31,9 @@ import {
   extractDateFromVideoUrl,
   extractInstagramShortcode,
   extractDateFromInstagramShortcode,
+  saveCachedVideoMeta,
+  fetchImageBase64,
+  formatMetricCount,
   type InstagramRecentPost,
 } from '../lib/videoMetadata';
 import type { BatchflowVideo } from '../types';
@@ -55,7 +58,7 @@ export default function InstagramRecentPostsDialog({
   onSelectVideoUrl,
   existingVideos,
 }: InstagramRecentPostsDialogProps) {
-  const { settings, batchflowBatches, batchflowVideos, batchflowClients, updateBatchflowVideoStatus } = useApp();
+  const { settings, batchflowBatches, batchflowVideos, batchflowClients, updateBatchflowVideo, updateBatchflowVideoStatus } = useApp();
   const cleanHandle = cleanInstagramHandle(handle || '');
 
   const [posts, setPosts] = useState<InstagramRecentPost[]>([]);
@@ -400,24 +403,48 @@ export default function InstagramRecentPostsDialog({
         linkingPost.postedDateTime ||
         linkingPost.postedDate ||
         (linkingPost.permalink ? extractDateFromVideoUrl(linkingPost.permalink) : null);
-      const clean = cleanVideoUrl(linkingPost.permalink);
+      const shortcode = extractInstagramShortcode(linkingPost.permalink);
 
-      if (linkingPost.thumbnailUrl && clean) {
-        try { localStorage.setItem(`trackrr_thumb_${clean}`, linkingPost.thumbnailUrl); } catch {}
-        try { localStorage.setItem(`trackrr_thumb_${linkingPost.permalink}`, linkingPost.thumbnailUrl); } catch {}
-      }
-      if (linkingPost.caption && clean) {
-        try { localStorage.setItem(`trackrr_caption_${clean}`, linkingPost.caption); } catch {}
+      const formattedLikes = linkingPost.likesCount
+        ? (formatMetricCount(linkingPost.likesCount) || String(linkingPost.likesCount).replace(/likes?/i, '').trim())
+        : null;
+
+      // 1. Persist to cache under all keys
+      saveCachedVideoMeta(linkingPost.permalink, {
+        thumbnailUrl: linkingPost.thumbnailUrl,
+        caption: linkingPost.caption,
+        likes: formattedLikes,
+      });
+
+      // 2. Pre-convert thumbnail to base64 in background and cache with video ID & shortcode
+      if (linkingPost.thumbnailUrl) {
+        fetchImageBase64(linkingPost.thumbnailUrl).then((b64) => {
+          if (b64) {
+            try {
+              localStorage.setItem(`trackrr_thumb_b64_${targetVideo.id}`, b64);
+              if (shortcode) {
+                localStorage.setItem(`trackrr_thumb_b64_sc_${shortcode.toLowerCase()}`, b64);
+              }
+            } catch {}
+          }
+        }).catch(() => {});
       }
 
+      // 3. Update status, url, date, views, likes
       await updateBatchflowVideoStatus(
         targetVideo.id,
         'Posted',
         linkingPost.permalink,
         reelDate,
         null,
-        linkingPost.likesCount || null
+        formattedLikes
       );
+
+      // 4. Save caption description and likes into the video record so it is never lost!
+      await updateBatchflowVideo(targetVideo.id, {
+        description: linkingPost.caption || targetVideo.description || null,
+        likes: formattedLikes || targetVideo.likes,
+      }).catch(() => {});
 
       setLinkSuccessToast(`Linked reel to "${targetVideo.name}" and marked as Posted!`);
       setLinkingPost(null);

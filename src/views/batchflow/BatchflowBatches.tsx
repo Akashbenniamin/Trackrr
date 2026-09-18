@@ -30,8 +30,12 @@ import { registerOkineFont } from '../../lib/okineFont';
 import { useApp } from '../../contexts/AppContext';
 import { usePersistedState } from '../../lib/usePersistedState';
 import {
-  fetchVideoMetadata,
   cleanVideoUrl,
+  extractInstagramShortcode,
+  formatMetricCount,
+  getCachedVideoMeta,
+  saveCachedVideoMeta,
+  fetchVideoMetadata,
   extractVideoLikes,
   extractDateFromVideoUrl,
   getCaptionSnippet,
@@ -698,17 +702,49 @@ export default function BatchflowBatches() {
     if (!postedTargetVideo) return;
     const urlToSave = skip ? null : (postedVideoUrl.trim() ? cleanVideoUrl(postedVideoUrl.trim()) : null);
     const dateToSave = postedCustomDate.trim() || new Date().toISOString().slice(0, 10);
-    const likesToSave = skip ? null : (postedLikes.trim() || postedMetaResult?.likesCount || null);
+    const likesToSave = skip
+      ? null
+      : (postedLikes.trim() || (postedMetaResult?.likesCount ? formatMetricCount(postedMetaResult.likesCount) : null));
+    const captionToSave = skip
+      ? null
+      : (postedMetaResult?.caption || postedTargetVideo.description || null);
 
     if (postedTargetVideo.status !== 'Posted') {
       await updateBatchflowVideoStatus(postedTargetVideo.id, 'Posted', urlToSave, dateToSave, null, likesToSave);
+      if (captionToSave) {
+        await updateBatchflowVideo(postedTargetVideo.id, { description: captionToSave }).catch(() => {});
+      }
     } else {
       await updateBatchflowVideo(postedTargetVideo.id, {
         video_url: skip ? null : urlToSave,
         posted_date: dateToSave.includes('T') ? dateToSave : `${dateToSave}T12:00:00.000Z`,
         likes: likesToSave,
+        ...(captionToSave ? { description: captionToSave } : {}),
       });
     }
+
+    if (!skip && urlToSave) {
+      saveCachedVideoMeta(urlToSave, {
+        thumbnailUrl: postedMetaResult?.thumbnailUrl,
+        caption: captionToSave,
+        likes: likesToSave,
+      });
+
+      if (postedMetaResult?.thumbnailUrl) {
+        const shortcode = extractInstagramShortcode(urlToSave);
+        fetchImageBase64(postedMetaResult.thumbnailUrl).then((b64) => {
+          if (b64) {
+            try {
+              localStorage.setItem(`trackrr_thumb_b64_${postedTargetVideo.id}`, b64);
+              if (shortcode) {
+                localStorage.setItem(`trackrr_thumb_b64_sc_${shortcode.toLowerCase()}`, b64);
+              }
+            } catch {}
+          }
+        }).catch(() => {});
+      }
+    }
+
     setPostedLinkDialogOpen(false);
     setPostedTargetVideo(null);
     setPostedVideoUrl('');
@@ -745,8 +781,17 @@ export default function BatchflowBatches() {
       // Prefer base64 image data so html2canvas never suffers from CORS tainting
       const finalThumbs = new Map<string, string>();
       sortedForExport.forEach(v => {
-        const b64 = metaResult.thumbsBase64Map.get(v.id);
-        const regular = metaResult.thumbsMap.get(v.id);
+        let b64: string | null | undefined = metaResult.thumbsBase64Map.get(v.id);
+        if (!b64) {
+          try { b64 = localStorage.getItem(`trackrr_thumb_b64_${v.id}`); } catch {}
+        }
+        if (!b64 && v.video_url) {
+          const shortcode = extractInstagramShortcode(v.video_url);
+          if (shortcode) {
+            try { b64 = localStorage.getItem(`trackrr_thumb_b64_sc_${shortcode.toLowerCase()}`); } catch {}
+          }
+        }
+        const regular = metaResult.thumbsMap.get(v.id) || (v.video_url ? getCachedVideoMeta(v.video_url).thumbnailUrl : null);
         if (b64) finalThumbs.set(v.id, b64);
         else if (regular) finalThumbs.set(v.id, regular);
       });
@@ -1138,7 +1183,20 @@ export default function BatchflowBatches() {
       const thumbX = margin + 10.0;
       const thumbSize = 16.5;
       const thumbY = curY + 3.75;
-      const base64Img = thumbsBase64Map?.get(v.id);
+      let base64Img: string | null | undefined = thumbsBase64Map?.get(v.id);
+      if (!base64Img) {
+        try {
+          base64Img = localStorage.getItem(`trackrr_thumb_b64_${v.id}`);
+        } catch {}
+      }
+      if (!base64Img && v.video_url) {
+        const shortcode = extractInstagramShortcode(v.video_url);
+        if (shortcode) {
+          try {
+            base64Img = localStorage.getItem(`trackrr_thumb_b64_sc_${shortcode.toLowerCase()}`);
+          } catch {}
+        }
+      }
 
       doc.setFillColor(241, 245, 249);
       doc.setDrawColor(226, 232, 240);
@@ -1181,29 +1239,58 @@ export default function BatchflowBatches() {
       }
 
       // Title + Caption Snippet in () brackets
-      const captionText = captionsMap?.get(v.id) || v.description;
+      const cachedMeta = v.video_url ? getCachedVideoMeta(v.video_url) : null;
+      const captionText = captionsMap?.get(v.id) || v.description || syncedCaptions[v.id] || cachedMeta?.caption;
       const rawSnippet = getCaptionSnippet(captionText, 5);
       const cleanSnippet = sanitizePdfText(rawSnippet).replace(/^["'“”‘’\s\-_.,]+/, '').trim();
       const cleanBaseTitle = sanitizePdfText(v.name || `Video #${v.script_number ?? index + 1}`);
-      const titleWithSnippet = cleanSnippet ? `${cleanBaseTitle} (${cleanSnippet})` : cleanBaseTitle;
-
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.setTextColor(15, 23, 42);
 
       const titleStartX = margin + 29.0;
-      const maxTitleWidth = 58.0;
-      let displayTitle = titleWithSnippet;
-      if (doc.getTextWidth(displayTitle) > maxTitleWidth) {
-        while (displayTitle.length > 0 && doc.getTextWidth(displayTitle + '...') > maxTitleWidth) {
-          displayTitle = displayTitle.slice(0, -1).trim();
+      const maxColWidth = 58.0;
+
+      if (cleanSnippet) {
+        // Line 1: Bold Title
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(10.5);
+        doc.setTextColor(15, 23, 42);
+        let displayTitle = cleanBaseTitle;
+        if (doc.getTextWidth(displayTitle) > maxColWidth) {
+          while (displayTitle.length > 0 && doc.getTextWidth(displayTitle + '...') > maxColWidth) {
+            displayTitle = displayTitle.slice(0, -1).trim();
+          }
+          displayTitle += '...';
         }
-        displayTitle += '...';
+        doc.text(displayTitle, titleStartX, curY + 11.2);
+
+        // Line 2: Italic Caption Snippet
+        doc.setFont('helvetica', 'italic');
+        doc.setFontSize(8.0);
+        doc.setTextColor(100, 116, 139);
+        let displaySnippet = `(${cleanSnippet})`;
+        if (doc.getTextWidth(displaySnippet) > maxColWidth) {
+          while (displaySnippet.length > 2 && doc.getTextWidth(displaySnippet.slice(0, -1) + '...)') > maxColWidth) {
+            displaySnippet = displaySnippet.slice(0, -2).trim() + ')';
+          }
+          displaySnippet = displaySnippet.slice(0, -1).trim() + '...)';
+        }
+        doc.text(displaySnippet, titleStartX, curY + 17.5);
+      } else {
+        // Vertically centered single-line title
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.setTextColor(15, 23, 42);
+        let displayTitle = cleanBaseTitle;
+        if (doc.getTextWidth(displayTitle) > maxColWidth) {
+          while (displayTitle.length > 0 && doc.getTextWidth(displayTitle + '...') > maxColWidth) {
+            displayTitle = displayTitle.slice(0, -1).trim();
+          }
+          displayTitle += '...';
+        }
+        doc.text(displayTitle, titleStartX, curY + 14.5);
       }
-      doc.text(displayTitle, titleStartX, curY + 14.5);
 
       if (v.video_url) {
-        doc.link(thumbX, thumbY, maxTitleWidth + thumbSize + 4, thumbSize, { url: v.video_url });
+        doc.link(thumbX, thumbY, maxColWidth + thumbSize + 4, thumbSize, { url: v.video_url });
       }
 
       const vExtracted = extractVideoLikes(v);
@@ -1211,7 +1298,7 @@ export default function BatchflowBatches() {
       // Col 3: Likes (Soft red)
       const vLikes = (likesMap?.get(v.id) && likesMap.get(v.id)?.trim() !== '')
         ? likesMap.get(v.id)!.trim()
-        : vExtracted.likes;
+        : (vExtracted.likes || cachedMeta?.likes);
       if (vLikes) {
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(11.5);
@@ -1297,10 +1384,25 @@ export default function BatchflowBatches() {
 
     await Promise.all(
       videosToSync.map(async (v) => {
+        // 1. Initial seeds from state or video model
+        if (syncedThumbs[v.id]) thumbsMap.set(v.id, syncedThumbs[v.id]);
+        if (v.description) captionsMap.set(v.id, v.description);
+        else if (syncedCaptions[v.id]) captionsMap.set(v.id, syncedCaptions[v.id]);
+
         const { likes: existingLikes } = extractVideoLikes(v);
         if (existingLikes) {
           likesMap.set(v.id, existingLikes);
         }
+
+        if (v.posted_date) {
+          datesMap.set(v.id, v.posted_date.slice(0, 10));
+        }
+
+        // Check if we already have a pre-converted base64 thumbnail
+        try {
+          const cachedB64 = localStorage.getItem(`trackrr_thumb_b64_${v.id}`);
+          if (cachedB64) thumbsBase64Map.set(v.id, cachedB64);
+        } catch {}
 
         if (v.video_url) {
           const clean = cleanVideoUrl(v.video_url);
@@ -1309,8 +1411,6 @@ export default function BatchflowBatches() {
           const urlDate = extractDateFromVideoUrl(clean);
           if (urlDate) {
             datesMap.set(v.id, urlDate);
-          } else if (v.posted_date) {
-            datesMap.set(v.id, v.posted_date.slice(0, 10));
           }
 
           // YouTube thumbnail check
@@ -1319,20 +1419,30 @@ export default function BatchflowBatches() {
             thumbsMap.set(v.id, `https://img.youtube.com/vi/${vidMatch[1]}/hqdefault.jpg`);
           }
 
-          // LocalStorage cached thumbnail & caption
-          try {
-            const cachedT = localStorage.getItem(`trackrr_thumb_${clean}`);
-            if (cachedT && !thumbsMap.has(v.id)) {
-              thumbsMap.set(v.id, cachedT);
-            }
-            const cachedC = localStorage.getItem(`trackrr_caption_${clean}`);
-            if (cachedC) {
-              captionsMap.set(v.id, cachedC);
-            }
-          } catch {}
+          // Comprehensive cache check (direct keys, cleanNoSlash, shortcode, and trackrr_recent_ig_ posts)
+          const cached = getCachedVideoMeta(v.video_url);
+          if (cached.thumbnailUrl && !thumbsMap.has(v.id)) {
+            thumbsMap.set(v.id, cached.thumbnailUrl);
+          }
+          if (cached.caption && !captionsMap.has(v.id)) {
+            captionsMap.set(v.id, cached.caption);
+          }
+          if (cached.likes && !likesMap.has(v.id)) {
+            likesMap.set(v.id, cached.likes);
+          }
+          if (cached.postedDate && !datesMap.has(v.id)) {
+            datesMap.set(v.id, cached.postedDate.slice(0, 10));
+          }
 
-          if (v.description && !captionsMap.has(v.id)) {
-            captionsMap.set(v.id, v.description);
+          // Check if shortcode has a cached base64
+          if (!thumbsBase64Map.has(v.id)) {
+            const shortcode = extractInstagramShortcode(v.video_url);
+            if (shortcode) {
+              try {
+                const scB64 = localStorage.getItem(`trackrr_thumb_b64_sc_${shortcode.toLowerCase()}`);
+                if (scB64) thumbsBase64Map.set(v.id, scB64);
+              } catch {}
+            }
           }
 
           try {
@@ -1371,16 +1481,22 @@ export default function BatchflowBatches() {
               // 3. Thumbnail update
               if (meta.thumbnailUrl) {
                 thumbsMap.set(v.id, meta.thumbnailUrl);
-                try { localStorage.setItem(`trackrr_thumb_${clean}`, meta.thumbnailUrl); } catch {}
               }
 
               // 4. Caption update
               if (meta.caption) {
                 captionsMap.set(v.id, meta.caption);
-                try { localStorage.setItem(`trackrr_caption_${clean}`, meta.caption); } catch {}
                 if (!v.description) {
                   updates.description = meta.caption;
                 }
+              }
+
+              if (meta.thumbnailUrl || meta.caption || meta.likesCount) {
+                saveCachedVideoMeta(v.video_url, {
+                  thumbnailUrl: meta.thumbnailUrl,
+                  caption: meta.caption,
+                  likes: meta.likesCount ? formatMetricCount(meta.likesCount) : null,
+                });
               }
 
               if (Object.keys(updates).length > 0) {
@@ -1392,13 +1508,24 @@ export default function BatchflowBatches() {
             console.warn(`Could not sync video ${v.id}:`, err);
           }
 
-          // Pre-convert thumbnail to base64 for PDF and PNG export
-          const currentThumb = thumbsMap.get(v.id);
-          if (currentThumb) {
-            try {
-              const b64 = await fetchImageBase64(currentThumb);
-              if (b64) thumbsBase64Map.set(v.id, b64);
-            } catch {}
+          // Pre-convert thumbnail to base64 for PDF and PNG export if missing
+          if (!thumbsBase64Map.has(v.id)) {
+            const currentThumb = thumbsMap.get(v.id);
+            if (currentThumb) {
+              try {
+                const b64 = await fetchImageBase64(currentThumb);
+                if (b64) {
+                  thumbsBase64Map.set(v.id, b64);
+                  try {
+                    localStorage.setItem(`trackrr_thumb_b64_${v.id}`, b64);
+                    const shortcode = extractInstagramShortcode(v.video_url);
+                    if (shortcode) {
+                      localStorage.setItem(`trackrr_thumb_b64_sc_${shortcode.toLowerCase()}`, b64);
+                    }
+                  } catch {}
+                }
+              } catch {}
+            }
           }
         }
       })
@@ -2439,8 +2566,12 @@ export default function BatchflowBatches() {
                         const clean = v.video_url ? cleanVideoUrl(v.video_url) : null;
                         const vidMatch = clean ? clean.match(/(?:v=|\/embed\/|\/shorts\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/i) : null;
                         const ytThumb = vidMatch ? `https://img.youtube.com/vi/${vidMatch[1]}/hqdefault.jpg` : null;
-                        const cachedThumb = clean ? localStorage.getItem(`trackrr_thumb_${clean}`) : null;
-                        const thumbUrl = syncedThumbs[v.id] || cachedThumb || ytThumb;
+                        const cachedMeta = v.video_url ? getCachedVideoMeta(v.video_url) : null;
+                        const cachedB64 = (() => {
+                          try { return localStorage.getItem(`trackrr_thumb_b64_${v.id}`); } catch {}
+                          return null;
+                        })();
+                        const thumbUrl = syncedThumbs[v.id] || cachedB64 || cachedMeta?.thumbnailUrl || ytThumb;
 
                         if (!thumbUrl) return null;
 
@@ -2478,9 +2609,8 @@ export default function BatchflowBatches() {
                           <Typography variant="body2" noWrap sx={{ fontWeight: 700 }}>
                             {v.name}
                             {(() => {
-                              const clean = v.video_url ? cleanVideoUrl(v.video_url) : null;
-                              const cachedCaption = clean ? localStorage.getItem(`trackrr_caption_${clean}`) : null;
-                              const captionText = syncedCaptions[v.id] || v.description || cachedCaption;
+                              const cachedMeta = v.video_url ? getCachedVideoMeta(v.video_url) : null;
+                              const captionText = syncedCaptions[v.id] || v.description || cachedMeta?.caption;
                               const snippet = getCaptionSnippet(captionText, 5);
                               if (!snippet) return null;
                               return (
@@ -3648,12 +3778,17 @@ script 2
 
               {/* Video Rows: Rendered in active sort order! */}
               {sortBatchVideos(currentBatchVideos, sortOrder, pngLikesMap).map((v, index) => {
-                const thumbUrl = pngThumbsMap.get(v.id) || (v.video_url ? localStorage.getItem(`trackrr_thumb_${cleanVideoUrl(v.video_url)}`) : null);
-                const captionText = pngCaptionsMap.get(v.id) || v.description;
+                const cachedMeta = v.video_url ? getCachedVideoMeta(v.video_url) : null;
+                const cachedB64 = (() => {
+                  try { return localStorage.getItem(`trackrr_thumb_b64_${v.id}`); } catch {}
+                  return null;
+                })();
+                const thumbUrl = pngThumbsMap.get(v.id) || cachedB64 || cachedMeta?.thumbnailUrl || (v.video_url ? localStorage.getItem(`trackrr_thumb_${cleanVideoUrl(v.video_url)}`) : null);
+                const captionText = pngCaptionsMap.get(v.id) || v.description || cachedMeta?.caption;
                 const snippet = getCaptionSnippet(captionText, 5);
 
                 const vExtracted = extractVideoLikes(v);
-                const vLikes = pngLikesMap.get(v.id) || vExtracted.likes;
+                const vLikes = pngLikesMap.get(v.id) || vExtracted.likes || cachedMeta?.likes;
 
                 const urlDate = pngDatesMap.get(v.id) || extractDateFromVideoUrl(v.video_url);
                 const effectiveDate = urlDate || (v.status === 'Posted' && v.posted_date ? v.posted_date.slice(0, 10) : null);

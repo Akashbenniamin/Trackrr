@@ -127,7 +127,9 @@ export function cropImageToSquareDataUrl(dataUrl: string, size = 200): Promise<s
   }
   return new Promise<string>((resolve) => {
     const img = new Image();
-    img.crossOrigin = 'anonymous';
+    if (!dataUrl.startsWith('data:')) {
+      img.crossOrigin = 'anonymous';
+    }
     img.onload = () => {
       try {
         const canvas = document.createElement('canvas');
@@ -190,7 +192,7 @@ export function sanitizePdfText(str?: string | null): string {
 /**
  * Convert any image URL to a base64 data URL with CORS support.
  * Center-crops to 1:1 square so PDF and PNG exports are never stretched.
- * First tries direct fetch, then falls back to weserv CORS proxy.
+ * First tries direct fetch, then falls back to wsrv.nl & images.weserv.nl CORS proxies.
  */
 export async function fetchImageBase64(url?: string | null): Promise<string | null> {
   if (!url) return null;
@@ -200,7 +202,7 @@ export async function fetchImageBase64(url?: string | null): Promise<string | nu
 
   const tryFetchToDataUrl = async (targetUrl: string): Promise<string | null> => {
     try {
-      const resp = await fetch(targetUrl);
+      const resp = await fetch(targetUrl, { mode: 'cors' });
       if (!resp.ok) return null;
       const blob = await resp.blob();
       const rawData = await new Promise<string | null>((resolve) => {
@@ -216,16 +218,58 @@ export async function fetchImageBase64(url?: string | null): Promise<string | nu
     }
   };
 
+  // 1. Direct fetch (works for YouTube, Wikimedia, CORS-enabled CDNs)
   const direct = await tryFetchToDataUrl(url);
   if (direct) return direct;
 
+  // 2. wsrv.nl proxy (URL must be stripped of http:// or https://)
+  const strippedUrl = url.replace(/^https?:\/\//, '');
   try {
-    const proxyUrl = `https://images.weserv.nl/?url=${encodeURIComponent(url)}&w=200&h=200&fit=cover&output=jpg`;
-    const proxied = await tryFetchToDataUrl(proxyUrl);
+    const wsrvUrl = `https://wsrv.nl/?url=${encodeURIComponent(strippedUrl)}&w=200&h=200&fit=cover&output=jpg`;
+    const proxied = await tryFetchToDataUrl(wsrvUrl);
     if (proxied) return proxied;
-  } catch {
-    // ignore
-  }
+  } catch {}
+
+  // 3. images.weserv.nl proxy fallback
+  try {
+    const weservUrl = `https://images.weserv.nl/?url=${encodeURIComponent(strippedUrl)}&w=200&h=200&fit=cover&output=jpg`;
+    const proxied = await tryFetchToDataUrl(weservUrl);
+    if (proxied) return proxied;
+  } catch {}
+
+  // 4. HTMLImageElement canvas extraction via proxy
+  try {
+    const fromImage = await new Promise<string | null>((resolve) => {
+      const img = new Image();
+      img.crossOrigin = 'anonymous';
+      img.onload = () => {
+        try {
+          const canvas = document.createElement('canvas');
+          canvas.width = 200;
+          canvas.height = 200;
+          const ctx = canvas.getContext('2d');
+          if (!ctx) return resolve(null);
+          const w = img.naturalWidth || img.width;
+          const h = img.naturalHeight || img.height;
+          let sx = 0, sy = 0, sWidth = w, sHeight = h;
+          if (w > h) {
+            sx = (w - h) / 2;
+            sWidth = h;
+          } else if (h > w) {
+            sy = (h - w) / 2;
+            sHeight = w;
+          }
+          ctx.drawImage(img, sx, sy, sWidth, sHeight, 0, 0, 200, 200);
+          resolve(canvas.toDataURL('image/jpeg', 0.9));
+        } catch {
+          resolve(null);
+        }
+      };
+      img.onerror = () => resolve(null);
+      img.src = `https://wsrv.nl/?url=${encodeURIComponent(strippedUrl)}&w=200&h=200&fit=cover&output=jpg`;
+    });
+    if (fromImage) return fromImage;
+  } catch {}
 
   return null;
 }
@@ -255,6 +299,129 @@ export function cleanVideoUrl(url: string): string {
     return `${parsed.origin}${parsed.pathname}`;
   } catch {
     return url.trim().split('?')[0];
+  }
+}
+
+export interface CachedVideoMeta {
+  thumbnailUrl: string | null;
+  caption: string | null;
+  likes: string | null;
+  postedDate: string | null;
+}
+
+/**
+ * Searches localStorage (direct keys and trackrr_recent_ig_ posts) to recover
+ * cached thumbnail, caption, likes, and postedDate for any video URL or shortcode.
+ */
+export function getCachedVideoMeta(url?: string | null): CachedVideoMeta {
+  const res: CachedVideoMeta = {
+    thumbnailUrl: null,
+    caption: null,
+    likes: null,
+    postedDate: null,
+  };
+  if (!url) return res;
+
+  const clean = cleanVideoUrl(url);
+  const cleanNoSlash = clean.replace(/\/+$/, '');
+  const shortcode = extractInstagramShortcode(url);
+
+  // 1. YouTube thumbnail check
+  const ytMatch = clean.match(/(?:v=|\/embed\/|\/shorts\/|youtu\.be\/)([a-zA-Z0-9_-]{11})/i);
+  if (ytMatch) {
+    res.thumbnailUrl = `https://img.youtube.com/vi/${ytMatch[1]}/hqdefault.jpg`;
+  }
+
+  // 2. Direct key lookups in localStorage
+  try {
+    const keysToTry = [clean, cleanNoSlash, url];
+    if (shortcode) {
+      keysToTry.push(shortcode);
+      keysToTry.push(`sc_${shortcode.toLowerCase()}`);
+    }
+
+    for (const k of keysToTry) {
+      if (!res.thumbnailUrl) {
+        const val = localStorage.getItem(`trackrr_thumb_${k}`);
+        if (val) res.thumbnailUrl = val;
+      }
+      if (!res.caption) {
+        const val = localStorage.getItem(`trackrr_caption_${k}`);
+        if (val) res.caption = val;
+      }
+      if (!res.likes) {
+        const val = localStorage.getItem(`trackrr_likes_${k}`);
+        if (val) res.likes = val;
+      }
+    }
+  } catch {}
+
+  // 3. Scan trackrr_recent_ig_* in localStorage
+  try {
+    const allKeys = Object.keys(localStorage);
+    for (const k of allKeys) {
+      if (k.startsWith('trackrr_recent_ig_')) {
+        const raw = localStorage.getItem(k);
+        if (raw) {
+          const posts = JSON.parse(raw);
+          if (Array.isArray(posts)) {
+            const match = posts.find((p: any) => {
+              if (shortcode && p.shortcode && p.shortcode.toLowerCase() === shortcode.toLowerCase()) return true;
+              if (shortcode && p.permalink && extractInstagramShortcode(p.permalink)?.toLowerCase() === shortcode.toLowerCase()) return true;
+              if (p.permalink) {
+                const pClean = cleanVideoUrl(p.permalink).replace(/\/+$/, '');
+                if (pClean === cleanNoSlash) return true;
+              }
+              if (shortcode && p.permalink?.includes(shortcode)) return true;
+              return false;
+            });
+            if (match) {
+              if (!res.thumbnailUrl && match.thumbnailUrl) res.thumbnailUrl = match.thumbnailUrl;
+              if (!res.caption && match.caption) res.caption = match.caption;
+              if (!res.likes && match.likesCount) res.likes = formatMetricCount(match.likesCount);
+              if (!res.postedDate && (match.postedDateTime || match.postedDate)) {
+                res.postedDate = match.postedDateTime || match.postedDate;
+              }
+              if (res.thumbnailUrl && res.caption && res.likes) break;
+            }
+          }
+        }
+      }
+    }
+  } catch {}
+
+  return res;
+}
+
+/**
+ * Persists thumbnail, caption, and likes into localStorage under clean, cleanNoSlash,
+ * raw URL, and shortcode variants for maximum retrieval resilience.
+ */
+export function saveCachedVideoMeta(
+  url: string,
+  meta: { thumbnailUrl?: string | null; caption?: string | null; likes?: string | null }
+) {
+  if (!url) return;
+  const clean = cleanVideoUrl(url);
+  const cleanNoSlash = clean.replace(/\/+$/, '');
+  const shortcode = extractInstagramShortcode(url);
+
+  const keys = [clean, cleanNoSlash, url];
+  if (shortcode) {
+    keys.push(shortcode);
+    keys.push(`sc_${shortcode.toLowerCase()}`);
+  }
+
+  for (const k of keys) {
+    if (meta.thumbnailUrl) {
+      try { localStorage.setItem(`trackrr_thumb_${k}`, meta.thumbnailUrl); } catch {}
+    }
+    if (meta.caption) {
+      try { localStorage.setItem(`trackrr_caption_${k}`, meta.caption); } catch {}
+    }
+    if (meta.likes) {
+      try { localStorage.setItem(`trackrr_likes_${k}`, meta.likes); } catch {}
+    }
   }
 }
 
@@ -595,13 +762,13 @@ export async function fetchVideoMetadata(
       }
     }
 
-    try {
-      const cachedThumb = localStorage.getItem(`trackrr_thumb_${cleanUrl}`);
-      if (cachedThumb) thumbnailUrl = cachedThumb;
-      const cachedCaption = localStorage.getItem(`trackrr_caption_${cleanUrl}`);
-      if (cachedCaption) caption = cachedCaption;
-    } catch {
-      // ignore
+    const initialCached = getCachedVideoMeta(cleanUrl);
+    if (initialCached.thumbnailUrl && !thumbnailUrl) thumbnailUrl = initialCached.thumbnailUrl;
+    if (initialCached.caption && !caption) caption = initialCached.caption;
+    if (initialCached.likes && !likesCount) likesCount = initialCached.likes;
+    if (initialCached.postedDate && !postedDate) {
+      postedDate = initialCached.postedDate.slice(0, 10);
+      postedDateTime = initialCached.postedDate;
     }
 
     const applyBdResult = (res: { viewsCount: string | null; likesCount: string | null; commentsCount: string | null; postedDate: string | null; postedDateTime: string | null; caption: string | null; thumbnailUrl?: string | null }) => {
@@ -686,7 +853,7 @@ export async function fetchVideoMetadata(
     }
 
     // D. Check cached recent posts in localStorage
-    if (!viewsCount || !likesCount || !postedDate) {
+    if (!viewsCount || !likesCount || !postedDate || !thumbnailUrl || !caption) {
       try {
         const allKeys = Object.keys(localStorage);
         for (const k of allKeys) {
@@ -696,8 +863,9 @@ export async function fetchVideoMetadata(
               const posts = JSON.parse(raw);
               if (Array.isArray(posts)) {
                 const match = posts.find((p: any) =>
-                  (shortcode && p.permalink?.includes(shortcode)) ||
-                  cleanVideoUrl(p.permalink) === cleanUrl
+                  (shortcode && p.permalink && extractInstagramShortcode(p.permalink)?.toLowerCase() === shortcode.toLowerCase()) ||
+                  (p.permalink && cleanVideoUrl(p.permalink) === cleanUrl) ||
+                  (shortcode && p.permalink?.includes(shortcode))
                 );
                 if (match) {
                   if (!viewsCount && match.viewsCount) {
@@ -708,6 +876,12 @@ export async function fetchVideoMetadata(
                   }
                   if (!postedDate && match.postedDate) {
                     postedDate = match.postedDate;
+                  }
+                  if (!thumbnailUrl && match.thumbnailUrl) {
+                    thumbnailUrl = match.thumbnailUrl;
+                  }
+                  if (!caption && match.caption) {
+                    caption = match.caption;
                   }
                   break;
                 }
@@ -785,11 +959,20 @@ export async function fetchVideoMetadata(
     }
 
     if (postedDate || caption || author || likesCount || viewsCount) {
-      if (thumbnailUrl) {
-        try { localStorage.setItem(`trackrr_thumb_${cleanUrl}`, thumbnailUrl); } catch {}
-      }
-      if (caption) {
-        try { localStorage.setItem(`trackrr_caption_${cleanUrl}`, caption); } catch {}
+      saveCachedVideoMeta(cleanUrl, {
+        thumbnailUrl,
+        caption,
+        likes: likesCount ? formatMetricCount(likesCount) : null,
+      });
+
+      if (thumbnailUrl && shortcode) {
+        fetchImageBase64(thumbnailUrl).then((b64) => {
+          if (b64) {
+            try {
+              localStorage.setItem(`trackrr_thumb_b64_sc_${shortcode.toLowerCase()}`, b64);
+            } catch {}
+          }
+        }).catch(() => {});
       }
       let viewsStatus: 'available' | 'hidden_by_creator' | 'requires_user_token' | 'unsupported' = 'unsupported';
       if (viewsCount) {
