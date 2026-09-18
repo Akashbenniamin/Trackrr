@@ -879,25 +879,28 @@ export default function BatchflowBatches() {
     }
   };
 
+  const calcBatchPageHeight = (videoCount: number): number => {
+    const rowHeight = 24.0;
+    const headerAndKpiHeight = 81.0; // Header banner (35mm) + gap (4mm) + KPIs (26mm) + gap (5mm) + tableHeader (11mm)
+    const bottomFooterPadding = 24.0; // Space for divider line at -12mm and footer text at -7mm + bottom margin
+    const contentTotal = headerAndKpiHeight + Math.max(1, videoCount) * rowHeight + bottomFooterPadding;
+    const a4MinHeight = 297.0;
+    return Math.max(a4MinHeight, contentTotal);
+  };
+
   const renderBatchReport = (
     doc: jsPDF,
     batch: BatchflowBatch,
     client: typeof activeClients[0] | undefined,
     videos: BatchflowVideo[],
-    isFirstPage = true,
     likesMap?: Map<string, string>,
     datesMap?: Map<string, string>,
     thumbsBase64Map?: Map<string, string>,
     captionsMap?: Map<string, string>
   ) => {
     const pageWidth = 210;
-    const pageHeight = 297;
     const margin = 14;
     const contentWidth = pageWidth - margin * 2; // 182mm
-
-    if (!isFirstPage) {
-      doc.addPage();
-    }
 
     registerOkineFont(doc);
 
@@ -1091,14 +1094,14 @@ export default function BatchflowBatches() {
       doc.rect(margin, yPos, contentWidth, hHeight, 'F');
 
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(9.5);
+      doc.setFontSize(8.5);
       doc.setTextColor(241, 245, 249); // #F1F5F9
-      doc.text('SL NO.', margin + 4.0, yPos + 7.2);
-      doc.text('VIDEO TITLE', margin + 32.5, yPos + 7.2);
-      doc.text('LIKES', margin + 107, yPos + 7.2);
-      doc.text('SCRIPT NO.', margin + 125, yPos + 7.2);
-      doc.text('STATUS', margin + 152.5, yPos + 7.2, { align: 'center' });
-      doc.text('PIPELINE DATE', margin + 169.5, yPos + 7.2);
+      doc.text('SL NO.', margin + 3.5, yPos + 7.2);
+      doc.text('VIDEO TITLE', margin + 29.0, yPos + 7.2);
+      doc.text('LIKES', margin + 90.0, yPos + 7.2);
+      doc.text('SCRIPT NO.', margin + 105.0, yPos + 7.2);
+      doc.text('STATUS', margin + 131.5, yPos + 7.2, { align: 'center' });
+      doc.text('PIPELINE DATE', margin + 146.5, yPos + 7.2);
     };
 
     drawTableHeader(curY);
@@ -1109,12 +1112,6 @@ export default function BatchflowBatches() {
 
     bSortedVideos.forEach((v, index) => {
       const rowHeight = 24.0;
-      if (curY + rowHeight > pageHeight - 18) {
-        doc.addPage();
-        curY = 20;
-        drawTableHeader(curY);
-        curY += 11.0;
-      }
 
       // Alternating row background
       if (index % 2 === 0) {
@@ -1133,20 +1130,20 @@ export default function BatchflowBatches() {
 
       // Col 1: SL NO. (Large & bold)
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11.5);
+      doc.setFontSize(11);
       doc.setTextColor(100, 116, 139);
-      doc.text(String(index + 1), margin + 4.0, curY + 14.8);
+      doc.text(String(index + 1), margin + 3.5, curY + 14.5);
 
-      // Col 2: Thumbnail & Video Title (Substantial 18mm x 18mm thumbnail for mobile clarity)
-      const thumbX = margin + 11;
-      const thumbSize = 18.0;
-      const thumbY = curY + 3.0;
+      // Col 2: Thumbnail & Video Title
+      const thumbX = margin + 10.0;
+      const thumbSize = 16.5;
+      const thumbY = curY + 3.75;
       const base64Img = thumbsBase64Map?.get(v.id);
 
       doc.setFillColor(241, 245, 249);
       doc.setDrawColor(226, 232, 240);
       doc.setLineWidth(0.3);
-      doc.roundedRect(thumbX, thumbY, thumbSize, thumbSize, 2.2, 2.2, 'FD');
+      doc.roundedRect(thumbX, thumbY, thumbSize, thumbSize, 2.0, 2.0, 'FD');
 
       if (base64Img) {
         try {
@@ -1172,18 +1169,18 @@ export default function BatchflowBatches() {
           doc.addImage(base64Img, 'JPEG', drawX, drawY, drawW, drawH);
         } catch {
           doc.setFont('helvetica', 'bold');
-          doc.setFontSize(11);
+          doc.setFontSize(10.5);
           doc.setTextColor(148, 163, 184);
-          doc.text(`#${v.script_number || index + 1}`, thumbX + thumbSize / 2, thumbY + 10.8, { align: 'center' });
+          doc.text(`#${v.script_number || index + 1}`, thumbX + thumbSize / 2, thumbY + 10.2, { align: 'center' });
         }
       } else {
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(11);
+        doc.setFontSize(10.5);
         doc.setTextColor(148, 163, 184);
-        doc.text(`#${v.script_number || index + 1}`, thumbX + thumbSize / 2, thumbY + 10.8, { align: 'center' });
+        doc.text(`#${v.script_number || index + 1}`, thumbX + thumbSize / 2, thumbY + 10.2, { align: 'center' });
       }
 
-      // Title + Caption Snippet in () brackets (Enlarged to 12pt bold)
+      // Title + Caption Snippet in () brackets
       const captionText = captionsMap?.get(v.id) || v.description;
       const rawSnippet = getCaptionSnippet(captionText, 5);
       const cleanSnippet = sanitizePdfText(rawSnippet).replace(/^["'“”‘’\s\-_.,]+/, '').trim();
@@ -1191,11 +1188,11 @@ export default function BatchflowBatches() {
       const titleWithSnippet = cleanSnippet ? `${cleanBaseTitle} (${cleanSnippet})` : cleanBaseTitle;
 
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(12);
+      doc.setFontSize(11);
       doc.setTextColor(15, 23, 42);
 
-      const titleStartX = margin + 32.5;
-      const maxTitleWidth = 71;
+      const titleStartX = margin + 29.0;
+      const maxTitleWidth = 58.0;
       let displayTitle = titleWithSnippet;
       if (doc.getTextWidth(displayTitle) > maxTitleWidth) {
         while (displayTitle.length > 0 && doc.getTextWidth(displayTitle + '...') > maxTitleWidth) {
@@ -1203,7 +1200,7 @@ export default function BatchflowBatches() {
         }
         displayTitle += '...';
       }
-      doc.text(displayTitle, titleStartX, curY + 14.8);
+      doc.text(displayTitle, titleStartX, curY + 14.5);
 
       if (v.video_url) {
         doc.link(thumbX, thumbY, maxTitleWidth + thumbSize + 4, thumbSize, { url: v.video_url });
@@ -1211,73 +1208,73 @@ export default function BatchflowBatches() {
 
       const vExtracted = extractVideoLikes(v);
 
-      // Col 3: Likes (Enlarged to 13pt bold soft red)
+      // Col 3: Likes (Soft red)
       const vLikes = (likesMap?.get(v.id) && likesMap.get(v.id)?.trim() !== '')
         ? likesMap.get(v.id)!.trim()
         : vExtracted.likes;
       if (vLikes) {
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(13);
+        doc.setFontSize(11.5);
         doc.setTextColor(239, 68, 68); // Soft red (#EF4444)
-        doc.text(vLikes, margin + 107, curY + 14.8);
+        doc.text(vLikes, margin + 90.0, curY + 14.5);
       } else {
         doc.setFont('helvetica', 'normal');
-        doc.setFontSize(12);
+        doc.setFontSize(11);
         doc.setTextColor(148, 163, 184);
-        doc.text('-', margin + 107, curY + 14.8);
+        doc.text('-', margin + 90.0, curY + 14.5);
       }
 
-      // Col 4: SCRIPT NO. (Enlarged to 12pt bold)
+      // Col 4: SCRIPT NO.
       doc.setFont('helvetica', 'bold');
-      doc.setFontSize(12);
+      doc.setFontSize(11);
       doc.setTextColor(71, 85, 105);
-      doc.text(v.script_number === 0 ? '-' : String(v.script_number ?? '-'), margin + 125, curY + 14.8);
+      doc.text(v.script_number === 0 ? '-' : String(v.script_number ?? '-'), margin + 105.0, curY + 14.5);
 
-      // Col 5: Status Pill (Clickable if video_url exists, enlarged to 28mm x 9mm)
-      const pillW = 28;
-      const pillH = 9.0;
-      const pillX = margin + 138.5;
+      // Col 5: Status Pill (Clickable if video_url exists)
+      const pillW = 23.0;
+      const pillH = 8.5;
+      const pillX = margin + 120.0;
       const pillY = curY + (rowHeight - pillH) / 2;
 
       if (v.status === 'Posted') {
         doc.setFillColor(209, 250, 229);
         doc.setDrawColor(167, 243, 208);
-        doc.roundedRect(pillX, pillY, pillW, pillH, 2.2, 2.2, 'FD');
+        doc.roundedRect(pillX, pillY, pillW, pillH, 2.0, 2.0, 'FD');
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(9.5);
+        doc.setFontSize(8.5);
         doc.setTextColor(4, 120, 87);
-        doc.text('POSTED', pillX + pillW / 2, pillY + 6.1, { align: 'center' });
+        doc.text('POSTED', pillX + pillW / 2, pillY + 5.8, { align: 'center' });
         if (v.video_url) {
           doc.link(pillX, pillY, pillW, pillH, { url: v.video_url });
         }
       } else if (v.status === 'Edited') {
         doc.setFillColor(219, 234, 254);
         doc.setDrawColor(191, 219, 254);
-        doc.roundedRect(pillX, pillY, pillW, pillH, 2.2, 2.2, 'FD');
+        doc.roundedRect(pillX, pillY, pillW, pillH, 2.0, 2.0, 'FD');
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(9.5);
+        doc.setFontSize(8.5);
         doc.setTextColor(29, 78, 216);
-        doc.text('EDITED', pillX + pillW / 2, pillY + 6.1, { align: 'center' });
+        doc.text('EDITED', pillX + pillW / 2, pillY + 5.8, { align: 'center' });
       } else {
         doc.setFillColor(254, 243, 199);
         doc.setDrawColor(253, 230, 138);
-        doc.roundedRect(pillX, pillY, pillW, pillH, 2.2, 2.2, 'FD');
+        doc.roundedRect(pillX, pillY, pillW, pillH, 2.0, 2.0, 'FD');
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(9.5);
+        doc.setFontSize(8.5);
         doc.setTextColor(180, 83, 9);
-        doc.text('PENDING', pillX + pillW / 2, pillY + 6.1, { align: 'center' });
+        doc.text('PENDING', pillX + pillW / 2, pillY + 5.8, { align: 'center' });
       }
 
-      // Col 6: Date / Details (PRIORITIZE URL DATE!, enlarged to 10.5pt)
+      // Col 6: Date / Details (PRIORITIZE URL DATE!)
       doc.setFont('helvetica', 'normal');
-      doc.setFontSize(10.5);
+      doc.setFontSize(9.5);
       doc.setTextColor(100, 116, 139);
       const urlDate = datesMap?.get(v.id) || extractDateFromVideoUrl(v.video_url);
       const effectiveDate = urlDate || (v.status === 'Posted' && v.posted_date ? v.posted_date.slice(0, 10) : null);
       const dateText = effectiveDate ? new Date(effectiveDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) :
                        v.status === 'Edited' && v.edited_date ? new Date(v.edited_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) :
                        batch.shoot_date ? `Shoot: ${batch.shoot_date}` : '-';
-      doc.text(dateText, margin + 169.5, curY + 14.8);
+      doc.text(dateText, margin + 146.5, curY + 14.5);
 
       curY += rowHeight;
     });
@@ -1453,10 +1450,12 @@ export default function BatchflowBatches() {
       // 2. Automatically refresh live stats, URL dates, thumbnails, captions
       const { likesMap, datesMap, thumbsBase64Map, captionsMap } = await syncVideosMetadata(sortedForExport);
 
+      const batchPageHeight = calcBatchPageHeight(sortedForExport.length);
+
       const doc = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
-        format: 'a4',
+        format: [210, batchPageHeight],
       });
 
       renderBatchReport(
@@ -1464,7 +1463,6 @@ export default function BatchflowBatches() {
         selectedBatch,
         selectedClient,
         sortedForExport,
-        true,
         likesMap,
         datesMap,
         thumbsBase64Map,
@@ -1473,19 +1471,19 @@ export default function BatchflowBatches() {
 
       const margin = 14;
       const pageWidth = 210;
-      const pageHeight = 297;
       const totalPages = doc.getNumberOfPages();
       for (let p = 1; p <= totalPages; p++) {
         doc.setPage(p);
+        const pHeight = doc.internal.pageSize.getHeight();
         doc.setDrawColor(226, 232, 240);
         doc.setLineWidth(0.3);
-        doc.line(margin, pageHeight - 12, pageWidth - margin, pageHeight - 12);
+        doc.line(margin, pHeight - 12, pageWidth - margin, pHeight - 12);
 
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7.5);
         doc.setTextColor(148, 163, 184);
-        doc.text('Trackrr Studio • Content Batch Management & Production Workflow', margin, pageHeight - 7);
-        doc.text(`Page ${p} of ${totalPages}`, pageWidth - margin, pageHeight - 7, { align: 'right' });
+        doc.text('Trackrr Studio • Content Batch Management & Production Workflow', margin, pHeight - 7);
+        doc.text(`Page ${p} of ${totalPages}`, pageWidth - margin, pHeight - 7, { align: 'right' });
       }
 
       doc.save(`${selectedBatch.name.replace(/[^a-zA-Z0-9_-]/g, '_')}_Report.pdf`);
@@ -1504,33 +1502,43 @@ export default function BatchflowBatches() {
       const allActiveVideos = batchflowVideos.filter(v => activeBatches.some(b => b.id === v.batch_id));
       const { likesMap, datesMap, thumbsBase64Map, captionsMap } = await syncVideosMetadata(allActiveVideos);
 
+      const firstBatch = activeBatches[0];
+      const firstBatchVideos = firstBatch
+        ? sortBatchVideos(batchflowVideos.filter(v => v.batch_id === firstBatch.id), sortOrder, likesMap)
+        : [];
+      const firstBatchHeight = calcBatchPageHeight(firstBatchVideos.length);
+
       const doc = new jsPDF({
         orientation: 'portrait',
         unit: 'mm',
-        format: 'a4',
+        format: [210, firstBatchHeight],
       });
 
       activeBatches.forEach((b, idx) => {
         const client = activeClients.find(c => c.id === b.client_id);
         const bVids = sortBatchVideos(batchflowVideos.filter(v => v.batch_id === b.id), sortOrder, likesMap);
-        renderBatchReport(doc, b, client, bVids, idx === 0, likesMap, datesMap, thumbsBase64Map, captionsMap);
+        const bHeight = calcBatchPageHeight(bVids.length);
+        if (idx > 0) {
+          doc.addPage([210, bHeight], 'portrait');
+        }
+        renderBatchReport(doc, b, client, bVids, likesMap, datesMap, thumbsBase64Map, captionsMap);
       });
 
       const margin = 14;
       const pageWidth = 210;
-      const pageHeight = 297;
       const totalPages = doc.getNumberOfPages();
       for (let p = 1; p <= totalPages; p++) {
         doc.setPage(p);
+        const pHeight = doc.internal.pageSize.getHeight();
         doc.setDrawColor(226, 232, 240);
         doc.setLineWidth(0.3);
-        doc.line(margin, pageHeight - 12, pageWidth - margin, pageHeight - 12);
+        doc.line(margin, pHeight - 12, pageWidth - margin, pHeight - 12);
 
         doc.setFont('helvetica', 'normal');
         doc.setFontSize(7.5);
         doc.setTextColor(148, 163, 184);
-        doc.text('Trackrr Studio • Consolidated Batches Production Report', margin, pageHeight - 7);
-        doc.text(`Page ${p} of ${totalPages}`, pageWidth - margin, pageHeight - 7, { align: 'right' });
+        doc.text('Trackrr Studio • Consolidated Batches Production Report', margin, pHeight - 7);
+        doc.text(`Batch ${p} of ${totalPages}`, pageWidth - margin, pHeight - 7, { align: 'right' });
       }
 
       doc.save(`Trackrr_All_Batches_Report_${new Date().toISOString().slice(0, 10)}.pdf`);
