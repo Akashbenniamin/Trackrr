@@ -106,11 +106,11 @@ export default function AnalyticsView() {
     }).filter(c => c.value > 0).sort((a, b) => b.value - a.value);
   }, [scopedTasks, clients, salaryRates]);
 
-  // Videos per client (scoped)
-  const videosByClient = useMemo(() => {
+  // Tasks per client (scoped)
+  const tasksByClient = useMemo(() => {
     return clients.map(client => {
       const ct = scopedTasks.filter(t => t.client_id === client.id);
-      const total = ct.reduce((s, t) => s + (t.videos ?? 0), 0);
+      const total = ct.length;
       return { name: client.name, total, color: client.color };
     }).filter(c => c.total > 0).sort((a, b) => b.total - a.total);
   }, [scopedTasks, clients]);
@@ -298,17 +298,17 @@ export default function AnalyticsView() {
           </Card>
         )}
 
-        {/* Videos per Client */}
-        {videosByClient.length > 0 && (
+        {/* Tasks per Client */}
+        {tasksByClient.length > 0 && (
           <Card sx={{ p: 2, mb: 2 }}>
-            <SectionTitle>Videos by Client — {scopeLabel}</SectionTitle>
-            <ResponsiveContainer width="100%" height={Math.max(120, videosByClient.length * 36)}>
-              <BarChart data={videosByClient} layout="vertical" margin={{ top: 0, right: 10, bottom: 0, left: 0 }}>
+            <SectionTitle>Tasks by Client — {scopeLabel}</SectionTitle>
+            <ResponsiveContainer width="100%" height={Math.max(120, tasksByClient.length * 36)}>
+              <BarChart data={tasksByClient} layout="vertical" margin={{ top: 0, right: 10, bottom: 0, left: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="rgba(255,255,255,0.05)" horizontal={false} />
                 <XAxis type="number" tick={{ fill: '#94A3B8', fontSize: 10 }} axisLine={false} tickLine={false} />
                 <YAxis type="category" dataKey="name" tick={{ fill: '#94A3B8', fontSize: 11 }} axisLine={false} tickLine={false} width={80} />
                 <Tooltip content={<CustomTooltip />} />
-                <Bar dataKey="total" name="Videos" radius={[0, 4, 4, 0]} fill="#34D399" />
+                <Bar dataKey="total" name="Tasks" radius={[0, 4, 4, 0]} fill="#34D399" />
               </BarChart>
             </ResponsiveContainer>
           </Card>

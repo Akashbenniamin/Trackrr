@@ -37,7 +37,8 @@ export default function ClientsView() {
   }, [tasks, payments]);
 
   const getClientStats = (clientId: string) => {
-    let clientTasks = tasks.filter(t => t.client_id === clientId);
+    const allClientTasks = tasks.filter(t => t.client_id === clientId);
+    let clientTasks = allClientTasks;
     if (monthFilter) {
       clientTasks = clientTasks.filter(t => {
         const d = t.completed_date ?? t.received_date;
@@ -46,6 +47,7 @@ export default function ClientsView() {
     }
     const client = clients.find(c => c.id === clientId);
 
+    // Month-scoped earned (or all-time if no monthFilter)
     let earned = 0;
     if (client?.payment_type === 'monthly') {
       const dates = clientTasks
@@ -58,18 +60,33 @@ export default function ClientsView() {
       });
     }
 
+    // All-time earned across all tasks for this client (to compute all unpaid balance)
+    let allTimeEarned = 0;
+    if (client?.payment_type === 'monthly') {
+      const allDates = allClientTasks
+        .map(t => t.completed_date ?? t.received_date)
+        .filter(Boolean) as string[];
+      allTimeEarned = calcMonthlyRevenue(clientId, salaryRates, allDates, client);
+    } else {
+      allClientTasks.forEach(t => {
+        allTimeEarned += calcTaskRevenueFull(t, client, salaryRates, tasks);
+      });
+    }
+
     const clientPayments = payments.filter(p => p.client_id === clientId);
     const clientDiscounts = discounts.filter(d => d.client_id === clientId);
 
+    // Month-scoped paid (or all-time if no monthFilter)
     const paid = monthFilter
       ? clientPayments.reduce((s, p) => s + getItemAmountForMonth(p, monthFilter), 0)
       : calcClientPaid(payments, clientId);
 
-    const disc = monthFilter
-      ? clientDiscounts.reduce((s, d) => s + getItemAmountForMonth(d, monthFilter), 0)
-      : clientDiscounts.reduce((s, d) => s + (d.amount ?? 0), 0);
+    // All-time paid & discounts
+    const allTimePaid = calcClientPaid(payments, clientId);
+    const allTimeDisc = clientDiscounts.reduce((s, d) => s + (d.amount ?? 0), 0);
 
-    const balance = earned - paid - disc;
+    // Balance ALWAYS includes all the unpaid balance across all time regardless of the selected month
+    const balance = allTimeEarned - allTimePaid - allTimeDisc;
     const taskCount = clientTasks.length;
 
     // Tasks per day for this client
@@ -138,7 +155,8 @@ export default function ClientsView() {
           clients.map(client => {
             const stats = getClientStats(client.id);
             const isExpanded = expandedId === client.id;
-            let clientTasks = tasks.filter(t => t.client_id === client.id);
+            const allClientTasks = tasks.filter(t => t.client_id === client.id);
+            let clientTasks = allClientTasks;
             if (monthFilter) {
               clientTasks = clientTasks.filter(t => {
                 const d = t.completed_date ?? t.received_date;
@@ -355,7 +373,7 @@ export default function ClientsView() {
                 </Box>
 
                 {/* Expand/collapse section */}
-                {(clientTasks.length > 0 || client.payment_type === 'monthly') && (
+                {(allClientTasks.length > 0 || client.payment_type === 'monthly') && (
                   <>
                     <Divider sx={{ borderColor: 'rgba(255,255,255,0.05)' }} />
                     <Box
@@ -375,7 +393,9 @@ export default function ClientsView() {
                       <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, fontSize: '0.74rem' }}>
                         {client.payment_type === 'monthly'
                           ? `${clientTasks.length} task${clientTasks.length !== 1 ? 's' : ''} • Full Retainer Schedule`
-                          : `${clientTasks.length} task${clientTasks.length !== 1 ? 's' : ''} • Task History`}
+                          : monthFilter
+                            ? `${clientTasks.length} task${clientTasks.length !== 1 ? 's' : ''} in period (${allClientTasks.length} all-time) • Task History`
+                            : `${allClientTasks.length} task${allClientTasks.length !== 1 ? 's' : ''} • Task History`}
                       </Typography>
                       {isExpanded ? <ExpandLessRoundedIcon sx={{ fontSize: 18, color: 'text.secondary' }} /> : <ExpandMoreRoundedIcon sx={{ fontSize: 18, color: 'text.secondary' }} />}
                     </Box>
@@ -474,6 +494,52 @@ export default function ClientsView() {
                                 +{clientTasks.length - 5} more tasks
                               </Typography>
                             )}
+                          </Box>
+                        ) : allClientTasks.length > 0 ? (
+                          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5 }}>
+                            <Typography variant="caption" sx={{ color: 'text.disabled', display: 'block', py: 0.5, fontStyle: 'italic', fontSize: '0.72rem' }}>
+                              No tasks in this period. Showing recent task history:
+                            </Typography>
+                            {allClientTasks.slice(0, 5).map(t => {
+                              const d = t.completed_date ?? t.received_date;
+                              const rev = calcTaskRevenueFull(t, client, salaryRates, tasks);
+                              return (
+                                <Box
+                                  key={t.id}
+                                  sx={{
+                                    display: 'flex',
+                                    justifyContent: 'space-between',
+                                    alignItems: 'center',
+                                    py: 0.6,
+                                    px: 0.5,
+                                    borderBottom: '1px solid rgba(255,255,255,0.04)',
+                                  }}
+                                >
+                                  <Box sx={{ minWidth: 0, flex: 1, pr: 1 }}>
+                                    <Typography variant="caption" sx={{ fontSize: '0.78rem', fontWeight: 600, display: 'block', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+                                      {t.title || 'Untitled'}
+                                    </Typography>
+                                    {d && (
+                                      <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.68rem' }}>
+                                        {formatDate(d)}
+                                      </Typography>
+                                    )}
+                                  </Box>
+                                  <Typography
+                                    variant="caption"
+                                    sx={{
+                                      fontFamily: '"MADEOkineSans", "Roboto", sans-serif',
+                                      fontWeight: 800,
+                                      color: '#818CF8',
+                                      fontSize: '0.82rem',
+                                      flexShrink: 0,
+                                    }}
+                                  >
+                                    {cur(rev)}
+                                  </Typography>
+                                </Box>
+                              );
+                            })}
                           </Box>
                         ) : (
                           <Typography variant="caption" sx={{ color: 'text.disabled', display: 'block', py: 0.5 }}>
