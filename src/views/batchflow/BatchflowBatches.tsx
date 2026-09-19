@@ -378,6 +378,7 @@ export default function BatchflowBatches() {
     posted_date?: string;
     status?: BatchflowVideoStatus;
     likes?: string | number | null;
+    thumbnail_url?: string | null;
   } | null>(null);
   const [editingMetaLoading, setEditingMetaLoading] = useState(false);
   const [editingMetaResult, setEditingMetaResult] = useState<VideoMetadataResult | null>(null);
@@ -386,6 +387,8 @@ export default function BatchflowBatches() {
   const [postedTargetVideo, setPostedTargetVideo] = useState<BatchflowVideo | null>(null);
   const [postedVideoUrl, setPostedVideoUrl] = useState('');
   const [postedLikes, setPostedLikes] = useState('');
+  const [postedCaption, setPostedCaption] = useState('');
+  const [postedThumbnailUrl, setPostedThumbnailUrl] = useState('');
   const [postedCustomDate, setPostedCustomDate] = useState(new Date().toISOString().slice(0, 10));
   const [postedMetaLoading, setPostedMetaLoading] = useState(false);
   const [postedMetaResult, setPostedMetaResult] = useState<VideoMetadataResult | null>(null);
@@ -407,6 +410,39 @@ export default function BatchflowBatches() {
   const [syncedThumbs, setSyncedThumbs] = useState<Record<string, string>>({});
   const [syncedCaptions, setSyncedCaptions] = useState<Record<string, string>>({});
 
+  const openPostedDialogForVideo = (v: BatchflowVideo) => {
+    const extracted = extractVideoLikes(v);
+    const cached = v.video_url ? getCachedVideoMeta(v.video_url) : null;
+    setPostedTargetVideo(v);
+    setPostedVideoUrl(v.video_url || '');
+    setPostedLikes(v.likes != null && String(v.likes).trim() !== '' ? String(v.likes).trim() : (extracted.likes || cached?.likes || ''));
+    setPostedCustomDate(v.posted_date ? v.posted_date.slice(0, 10) : (cached?.postedDate ? cached.postedDate.slice(0, 10) : new Date().toISOString().slice(0, 10)));
+    setPostedCaption(v.description || syncedCaptions[v.id] || cached?.caption || '');
+    setPostedThumbnailUrl(syncedThumbs[v.id] || cached?.thumbnailUrl || '');
+    setPostedMetaResult(null);
+    setPostedMetaLoading(false);
+    setPostedLinkDialogOpen(true);
+  };
+
+  const openEditVideoDialog = (v: BatchflowVideo) => {
+    const vExtracted = extractVideoLikes(v);
+    const vCached = v.video_url ? getCachedVideoMeta(v.video_url) : null;
+    setEditingVideo({
+      id: v.id,
+      name: v.name,
+      script_number: v.script_number,
+      description: v.description || syncedCaptions[v.id] || vCached?.caption || '',
+      video_url: v.video_url || '',
+      posted_date: v.posted_date ? v.posted_date.slice(0, 10) : (vCached?.postedDate ? vCached.postedDate.slice(0, 10) : ''),
+      status: v.status,
+      likes: v.likes != null && String(v.likes).trim() !== '' ? String(v.likes).trim() : (vExtracted.likes || vCached?.likes || ''),
+      thumbnail_url: syncedThumbs[v.id] || vCached?.thumbnailUrl || '',
+    });
+    setEditingMetaResult(null);
+    setEditingMetaLoading(false);
+    setEditVideoOpen(true);
+  };
+
   const handleFetchPostedMetadata = async (urlInput?: string) => {
     const raw = (urlInput !== undefined ? urlInput : postedVideoUrl).trim();
     if (!raw) return;
@@ -422,11 +458,18 @@ export default function BatchflowBatches() {
       setPostedCustomDate(immediateUrlDate);
     }
 
+    // Resolve target client handle for this specific video
+    const targetBatch = batchflowBatches.find(b => b.id === postedTargetVideo?.batch_id) || selectedBatch;
+    const targetClient = batchflowClients.find(c => c.id === targetBatch?.client_id) || currentClient;
+    const clientHandle = targetClient?.instagram_id || undefined;
+
     try {
       const res = await fetchVideoMetadata(cleaned, {
         metaAppId: settings.meta_app_id,
         metaClientToken: settings.meta_client_token,
-        clientHandle: currentClient?.instagram_id || undefined,
+        metaUserToken: settings.meta_user_token,
+        metaIgUserId: settings.meta_ig_user_id,
+        clientHandle: clientHandle,
       });
       setPostedMetaResult(res);
 
@@ -436,11 +479,17 @@ export default function BatchflowBatches() {
       if (res.likesCount) {
         setPostedLikes(String(res.likesCount).replace(/likes?/i, '').trim());
       }
-      if (res.thumbnailUrl && postedTargetVideo) {
-        setSyncedThumbs(prev => ({ ...prev, [postedTargetVideo.id]: res.thumbnailUrl! }));
+      if (res.caption) {
+        setPostedCaption(res.caption);
+        if (postedTargetVideo) {
+          setSyncedCaptions(prev => ({ ...prev, [postedTargetVideo.id]: res.caption! }));
+        }
       }
-      if (res.caption && postedTargetVideo) {
-        setSyncedCaptions(prev => ({ ...prev, [postedTargetVideo.id]: res.caption! }));
+      if (res.thumbnailUrl) {
+        setPostedThumbnailUrl(res.thumbnailUrl);
+        if (postedTargetVideo) {
+          setSyncedThumbs(prev => ({ ...prev, [postedTargetVideo.id]: res.thumbnailUrl! }));
+        }
       }
     } catch (err: any) {
       setPostedMetaResult({
@@ -469,11 +518,18 @@ export default function BatchflowBatches() {
     setEditingMetaLoading(true);
     setEditingMetaResult(null);
 
+    const targetVideo = batchflowVideos.find(v => v.id === editingVideo.id);
+    const targetBatch = batchflowBatches.find(b => b.id === targetVideo?.batch_id) || selectedBatch;
+    const targetClient = batchflowClients.find(c => c.id === targetBatch?.client_id) || currentClient;
+    const clientHandle = targetClient?.instagram_id || undefined;
+
     try {
       const res = await fetchVideoMetadata(cleaned, {
         metaAppId: settings.meta_app_id,
         metaClientToken: settings.meta_client_token,
-        clientHandle: currentClient?.instagram_id || undefined,
+        metaUserToken: settings.meta_user_token,
+        metaIgUserId: settings.meta_ig_user_id,
+        clientHandle: clientHandle,
       });
       setEditingMetaResult(res);
 
@@ -485,10 +541,11 @@ export default function BatchflowBatches() {
         setEditingVideo(prev => prev ? { ...prev, likes: cleanL } : null);
       }
       if (res.caption) {
-        setEditingVideo(prev => prev ? { ...prev, description: prev.description || res.caption || undefined } : null);
+        setEditingVideo(prev => prev ? { ...prev, description: res.caption || prev.description } : null);
         setSyncedCaptions(prev => ({ ...prev, [editingVideo.id]: res.caption! }));
       }
       if (res.thumbnailUrl) {
+        setEditingVideo(prev => prev ? { ...prev, thumbnail_url: res.thumbnailUrl || prev.thumbnail_url } : null);
         setSyncedThumbs(prev => ({ ...prev, [editingVideo.id]: res.thumbnailUrl! }));
       }
     } catch (err: any) {
@@ -685,14 +742,7 @@ export default function BatchflowBatches() {
     const curIdx = order.indexOf(v.status);
     const nextStatus = order[(curIdx + 1) % order.length];
     if (nextStatus === 'Posted') {
-      const extracted = extractVideoLikes(v);
-      setPostedTargetVideo(v);
-      setPostedVideoUrl(v.video_url || '');
-      setPostedLikes(extracted.likes || '');
-      setPostedCustomDate(v.posted_date ? v.posted_date.slice(0, 10) : new Date().toISOString().slice(0, 10));
-      setPostedMetaResult(null);
-      setPostedMetaLoading(false);
-      setPostedLinkDialogOpen(true);
+      openPostedDialogForVideo(v);
       return;
     }
     await updateBatchflowVideoStatus(v.id, nextStatus);
@@ -707,7 +757,10 @@ export default function BatchflowBatches() {
       : (postedLikes.trim() || (postedMetaResult?.likesCount ? formatMetricCount(postedMetaResult.likesCount) : null));
     const captionToSave = skip
       ? null
-      : (postedMetaResult?.caption || postedTargetVideo.description || null);
+      : (postedCaption.trim() || postedMetaResult?.caption || postedTargetVideo.description || null);
+    const thumbToSave = skip
+      ? null
+      : (postedThumbnailUrl.trim() || postedMetaResult?.thumbnailUrl || null);
 
     if (postedTargetVideo.status !== 'Posted') {
       await updateBatchflowVideoStatus(postedTargetVideo.id, 'Posted', urlToSave, dateToSave, null, likesToSave);
@@ -723,16 +776,23 @@ export default function BatchflowBatches() {
       });
     }
 
+    if (captionToSave) {
+      setSyncedCaptions(prev => ({ ...prev, [postedTargetVideo.id]: captionToSave }));
+    }
+    if (thumbToSave) {
+      setSyncedThumbs(prev => ({ ...prev, [postedTargetVideo.id]: thumbToSave }));
+    }
+
     if (!skip && urlToSave) {
       saveCachedVideoMeta(urlToSave, {
-        thumbnailUrl: postedMetaResult?.thumbnailUrl,
+        thumbnailUrl: thumbToSave,
         caption: captionToSave,
         likes: likesToSave,
       });
 
-      if (postedMetaResult?.thumbnailUrl) {
+      if (thumbToSave) {
         const shortcode = extractInstagramShortcode(urlToSave);
-        fetchImageBase64(postedMetaResult.thumbnailUrl).then((b64) => {
+        fetchImageBase64(thumbToSave).then((b64) => {
           if (b64) {
             try {
               localStorage.setItem(`trackrr_thumb_b64_${postedTargetVideo.id}`, b64);
@@ -749,6 +809,8 @@ export default function BatchflowBatches() {
     setPostedTargetVideo(null);
     setPostedVideoUrl('');
     setPostedLikes('');
+    setPostedCaption('');
+    setPostedThumbnailUrl('');
     setPostedMetaResult(null);
   };
 
@@ -757,6 +819,8 @@ export default function BatchflowBatches() {
     setPostedTargetVideo(null);
     setPostedVideoUrl('');
     setPostedLikes('');
+    setPostedCaption('');
+    setPostedThumbnailUrl('');
     setPostedMetaResult(null);
   };
 
@@ -1180,6 +1244,7 @@ export default function BatchflowBatches() {
       doc.text(String(index + 1), margin + 3.5, curY + 14.5);
 
       // Col 2: Thumbnail & Video Title
+      const cachedMeta = v.video_url ? getCachedVideoMeta(v.video_url) : null;
       const thumbX = margin + 10.0;
       const thumbSize = 16.5;
       const thumbY = curY + 3.75;
@@ -1195,6 +1260,12 @@ export default function BatchflowBatches() {
           try {
             base64Img = localStorage.getItem(`trackrr_thumb_b64_sc_${shortcode.toLowerCase()}`);
           } catch {}
+        }
+      }
+      if (!base64Img) {
+        const directThumb = syncedThumbs[v.id] || cachedMeta?.thumbnailUrl;
+        if (directThumb?.startsWith('data:image')) {
+          base64Img = directThumb;
         }
       }
 
@@ -1239,7 +1310,6 @@ export default function BatchflowBatches() {
       }
 
       // Title + Caption Snippet in () brackets
-      const cachedMeta = v.video_url ? getCachedVideoMeta(v.video_url) : null;
       const captionText = captionsMap?.get(v.id) || v.description || syncedCaptions[v.id] || cachedMeta?.caption;
       const rawSnippet = getCaptionSnippet(captionText, 5);
       const cleanSnippet = sanitizePdfText(rawSnippet).replace(/^["'“”‘’\s\-_.,]+/, '').trim();
@@ -1298,7 +1368,7 @@ export default function BatchflowBatches() {
       // Col 3: Likes (Soft red)
       const vLikes = (likesMap?.get(v.id) && likesMap.get(v.id)?.trim() !== '')
         ? likesMap.get(v.id)!.trim()
-        : (vExtracted.likes || cachedMeta?.likes);
+        : ((v.likes != null && String(v.likes).trim() !== '') ? String(v.likes).trim() : (vExtracted.likes || cachedMeta?.likes));
       if (vLikes) {
         doc.setFont('helvetica', 'bold');
         doc.setFontSize(11.5);
@@ -1390,7 +1460,9 @@ export default function BatchflowBatches() {
         else if (syncedCaptions[v.id]) captionsMap.set(v.id, syncedCaptions[v.id]);
 
         const { likes: existingLikes } = extractVideoLikes(v);
-        if (existingLikes) {
+        if (v.likes != null && String(v.likes).trim() !== '') {
+          likesMap.set(v.id, String(v.likes).trim());
+        } else if (existingLikes) {
           likesMap.set(v.id, existingLikes);
         }
 
@@ -1445,11 +1517,17 @@ export default function BatchflowBatches() {
             }
           }
 
+          const vBatch = batchflowBatches.find(b => b.id === v.batch_id);
+          const vClient = batchflowClients.find(c => c.id === vBatch?.client_id);
+          const vHandle = vClient?.instagram_id || currentClient?.instagram_id || undefined;
+
           try {
             const metaPromise = fetchVideoMetadata(v.video_url, {
               metaAppId: settings.meta_app_id,
               metaClientToken: settings.meta_client_token,
-              clientHandle: currentClient?.instagram_id || undefined,
+              metaUserToken: settings.meta_user_token,
+              metaIgUserId: settings.meta_ig_user_id,
+              clientHandle: vHandle,
             });
             const meta = await Promise.race([
               metaPromise,
@@ -1510,7 +1588,7 @@ export default function BatchflowBatches() {
 
           // Pre-convert thumbnail to base64 for PDF and PNG export if missing
           if (!thumbsBase64Map.has(v.id)) {
-            const currentThumb = thumbsMap.get(v.id);
+            const currentThumb = thumbsMap.get(v.id) || syncedThumbs[v.id] || cached?.thumbnailUrl;
             if (currentThumb) {
               try {
                 const b64 = await fetchImageBase64(currentThumb);
@@ -2483,19 +2561,7 @@ export default function BatchflowBatches() {
                     key={v.id}
                     onDoubleClick={() => {
                       if (canEdit) {
-                        setEditingVideo({
-                          id: v.id,
-                          name: v.name,
-                          script_number: v.script_number,
-                          description: v.description || '',
-                          video_url: v.video_url || '',
-                          posted_date: v.posted_date ? v.posted_date.slice(0, 10) : '',
-                          status: v.status,
-                          likes: v.likes || null,
-                        });
-                        setEditingMetaResult(null);
-                        setEditingMetaLoading(false);
-                        setEditVideoOpen(true);
+                        openEditVideoDialog(v);
                       }
                     }}
                     onContextMenu={(e) => {
@@ -2709,19 +2775,7 @@ export default function BatchflowBatches() {
                             size="small"
                             onClick={(e) => {
                               e.stopPropagation();
-                              setEditingVideo({
-                                id: v.id,
-                                name: v.name,
-                                script_number: v.script_number,
-                                description: v.description || '',
-                                video_url: v.video_url || '',
-                                posted_date: v.posted_date ? v.posted_date.slice(0, 10) : '',
-                                status: v.status,
-                                likes: v.likes || null,
-                              });
-                              setEditingMetaResult(null);
-                              setEditingMetaLoading(false);
-                              setEditVideoOpen(true);
+                              openEditVideoDialog(v);
                             }}
                             onDoubleClick={(e) => e.stopPropagation()}
                           >
@@ -3134,6 +3188,44 @@ script 2
             slotProps={{ inputLabel: { shrink: true } }}
             helperText="Date shown on video card & PDF export"
           />
+
+          <TextField
+            label="Likes Count (e.g. 122 or 1.2K)"
+            placeholder="e.g. 122 or 1.2K"
+            fullWidth
+            size="small"
+            value={editingVideo?.likes != null ? String(editingVideo.likes) : ''}
+            onChange={e => setEditingVideo(prev => prev ? { ...prev, likes: e.target.value } : null)}
+            helperText="Appears in red on the video card and PDF export"
+          />
+
+          <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
+            {editingVideo?.thumbnail_url ? (
+              <Box
+                component="img"
+                src={editingVideo.thumbnail_url}
+                alt="Thumbnail preview"
+                sx={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 1.5,
+                  objectFit: 'cover',
+                  border: '1px solid',
+                  borderColor: 'divider',
+                  flexShrink: 0,
+                }}
+              />
+            ) : null}
+            <TextField
+              label="Thumbnail URL (Optional)"
+              placeholder="https://..."
+              fullWidth
+              size="small"
+              value={editingVideo?.thumbnail_url || ''}
+              onChange={e => setEditingVideo(prev => prev ? { ...prev, thumbnail_url: e.target.value } : null)}
+              helperText="Image displayed on video card, PDF, and PNG export"
+            />
+          </Box>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setEditVideoOpen(false)}>Cancel</Button>
@@ -3149,14 +3241,48 @@ script 2
                 const scriptNum = typeof rawScriptNum === 'number'
                   ? Math.max(0, rawScriptNum)
                   : (rawScriptNum === '' ? 0 : Math.max(0, parseInt(String(rawScriptNum), 10) || 0));
+                const likesToSave = editingVideo.likes != null && String(editingVideo.likes).trim() !== '' ? String(editingVideo.likes).trim() : null;
+                const descToSave = editingVideo.description?.trim() || null;
+                const thumbToSave = editingVideo.thumbnail_url?.trim() || null;
+
                 await updateBatchflowVideo(editingVideo.id, {
                   name: editingVideo.name.trim(),
                   script_number: scriptNum,
-                  description: editingVideo.description?.trim() || null,
+                  description: descToSave,
                   video_url: clean,
-                  likes: editingVideo.likes != null && String(editingVideo.likes).trim() !== '' ? String(editingVideo.likes).trim() : null,
+                  likes: likesToSave,
                   ...(dateVal ? { posted_date: dateVal } : {}),
                 });
+
+                if (descToSave) {
+                  setSyncedCaptions(prev => ({ ...prev, [editingVideo.id]: descToSave }));
+                }
+                if (thumbToSave) {
+                  setSyncedThumbs(prev => ({ ...prev, [editingVideo.id]: thumbToSave }));
+                }
+
+                if (clean) {
+                  saveCachedVideoMeta(clean, {
+                    thumbnailUrl: thumbToSave,
+                    caption: descToSave,
+                    likes: likesToSave,
+                  });
+
+                  if (thumbToSave) {
+                    const shortcode = extractInstagramShortcode(clean);
+                    fetchImageBase64(thumbToSave).then(b64 => {
+                      if (b64) {
+                        try {
+                          localStorage.setItem(`trackrr_thumb_b64_${editingVideo.id}`, b64);
+                          if (shortcode) {
+                            localStorage.setItem(`trackrr_thumb_b64_sc_${shortcode.toLowerCase()}`, b64);
+                          }
+                        } catch {}
+                      }
+                    }).catch(() => {});
+                  }
+                }
+
                 setEditVideoOpen(false);
               }
             }}
@@ -3400,6 +3526,56 @@ script 2
             slotProps={{ inputLabel: { shrink: true } }}
             helperText="Auto-detected from Instagram or manually adjustable"
           />
+
+          <TextField
+            label="Likes Count (e.g. 122 or 1.2K)"
+            placeholder="e.g. 122 or 1.2K"
+            fullWidth
+            size="small"
+            value={postedLikes}
+            onChange={(e) => setPostedLikes(e.target.value)}
+            helperText="Appears in red on the video card and PDF export"
+          />
+
+          <TextField
+            label="Caption / Hook Description"
+            placeholder="Caption snippet shown in () brackets in PDF"
+            fullWidth
+            size="small"
+            multiline
+            maxRows={3}
+            value={postedCaption}
+            onChange={(e) => setPostedCaption(e.target.value)}
+            helperText="The first few words appear in brackets next to the video title in PDF"
+          />
+
+          <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
+            {postedThumbnailUrl ? (
+              <Box
+                component="img"
+                src={postedThumbnailUrl}
+                alt="Thumbnail preview"
+                sx={{
+                  width: 44,
+                  height: 44,
+                  borderRadius: 1.5,
+                  objectFit: 'cover',
+                  border: '1px solid',
+                  borderColor: 'divider',
+                  flexShrink: 0,
+                }}
+              />
+            ) : null}
+            <TextField
+              label="Thumbnail URL (Optional)"
+              placeholder="https://..."
+              fullWidth
+              size="small"
+              value={postedThumbnailUrl}
+              onChange={(e) => setPostedThumbnailUrl(e.target.value)}
+              helperText="Image displayed on video card, PDF, and PNG export"
+            />
+          </Box>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2, justifyContent: 'space-between' }}>
           <Box sx={{ display: 'flex', gap: 1 }}>
@@ -3490,15 +3666,7 @@ script 2
           <MenuItem
             onClick={() => {
               if (contextMenu?.video) {
-                const v = contextMenu.video;
-                const extracted = extractVideoLikes(v);
-                setPostedTargetVideo(v);
-                setPostedVideoUrl(v.video_url || '');
-                setPostedLikes(extracted.likes || '');
-                setPostedCustomDate(v.posted_date ? v.posted_date.slice(0, 10) : new Date().toISOString().slice(0, 10));
-                setPostedMetaResult(null);
-                setPostedMetaLoading(false);
-                setPostedLinkDialogOpen(true);
+                openPostedDialogForVideo(contextMenu.video);
               }
               setContextMenu(null);
             }}
@@ -3515,20 +3683,7 @@ script 2
           <MenuItem
             onClick={() => {
               if (contextMenu?.video) {
-                const v = contextMenu.video;
-                setEditingVideo({
-                  id: v.id,
-                  name: v.name,
-                  script_number: v.script_number,
-                  description: v.description || '',
-                  video_url: v.video_url || '',
-                  posted_date: v.posted_date ? v.posted_date.slice(0, 10) : '',
-                  status: v.status,
-                  likes: v.likes || null,
-                });
-                setEditingMetaResult(null);
-                setEditingMetaLoading(false);
-                setEditVideoOpen(true);
+                openEditVideoDialog(contextMenu.video);
               }
               setContextMenu(null);
             }}
@@ -3783,12 +3938,12 @@ script 2
                   try { return localStorage.getItem(`trackrr_thumb_b64_${v.id}`); } catch {}
                   return null;
                 })();
-                const thumbUrl = pngThumbsMap.get(v.id) || cachedB64 || cachedMeta?.thumbnailUrl || (v.video_url ? localStorage.getItem(`trackrr_thumb_${cleanVideoUrl(v.video_url)}`) : null);
-                const captionText = pngCaptionsMap.get(v.id) || v.description || cachedMeta?.caption;
+                const thumbUrl = pngThumbsMap.get(v.id) || syncedThumbs[v.id] || cachedB64 || cachedMeta?.thumbnailUrl || (v.video_url ? localStorage.getItem(`trackrr_thumb_${cleanVideoUrl(v.video_url)}`) : null);
+                const captionText = pngCaptionsMap.get(v.id) || v.description || syncedCaptions[v.id] || cachedMeta?.caption;
                 const snippet = getCaptionSnippet(captionText, 5);
 
                 const vExtracted = extractVideoLikes(v);
-                const vLikes = pngLikesMap.get(v.id) || vExtracted.likes || cachedMeta?.likes;
+                const vLikes = pngLikesMap.get(v.id) || ((v.likes != null && String(v.likes).trim() !== '') ? String(v.likes).trim() : null) || vExtracted.likes || cachedMeta?.likes;
 
                 const urlDate = pngDatesMap.get(v.id) || extractDateFromVideoUrl(v.video_url);
                 const effectiveDate = urlDate || (v.status === 'Posted' && v.posted_date ? v.posted_date.slice(0, 10) : null);

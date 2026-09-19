@@ -458,6 +458,16 @@ export function getMetaAccessToken(credentials?: MetaApiCredentials): string | n
     return storedToken.trim();
   }
 
+  try {
+    const rawFt = localStorage.getItem('ft_settings');
+    if (rawFt) {
+      const parsed = JSON.parse(rawFt);
+      if (parsed.meta_app_id?.trim() && parsed.meta_client_token?.trim()) {
+        return `${parsed.meta_app_id.trim()}|${parsed.meta_client_token.trim()}`;
+      }
+    }
+  } catch {}
+
   return null;
 }
 
@@ -479,7 +489,44 @@ export function getMetaUserToken(credentials?: MetaApiCredentials): string | nul
     return storedToken.trim();
   }
 
+  try {
+    const rawFt = localStorage.getItem('ft_settings');
+    if (rawFt) {
+      const parsed = JSON.parse(rawFt);
+      if (parsed.meta_user_token?.trim()) {
+        return parsed.meta_user_token.trim();
+      }
+    }
+  } catch {}
+
   return null;
+}
+
+/**
+ * Get Meta Instagram Business / Creator Account ID from options, env variables, or localStorage
+ */
+export function getMetaIgUserId(credentials?: MetaApiCredentials | { igUserId?: string }): string {
+  const credIgId = (credentials as MetaApiCredentials)?.metaIgUserId || (credentials as { igUserId?: string })?.igUserId;
+  if (credIgId?.trim()) {
+    return credIgId.trim();
+  }
+
+  const storedId = localStorage.getItem('trackrr_meta_ig_user_id');
+  if (storedId?.trim()) {
+    return storedId.trim();
+  }
+
+  try {
+    const rawFt = localStorage.getItem('ft_settings');
+    if (rawFt) {
+      const parsed = JSON.parse(rawFt);
+      if (parsed.meta_ig_user_id?.trim()) {
+        return parsed.meta_ig_user_id.trim();
+      }
+    }
+  } catch {}
+
+  return 'me';
 }
 
 /**
@@ -731,7 +778,7 @@ export async function fetchVideoMetadata(
   if (provider === 'instagram') {
     const metaToken = getMetaAccessToken(credentials);
     const userToken = getMetaUserToken(credentials);
-    const igUserId = credentials?.metaIgUserId || localStorage.getItem('trackrr_meta_ig_user_id') || 'me';
+    const igUserId = getMetaIgUserId(credentials);
 
     let postedDate: string | null = null;
     let postedDateTime: string | null = null;
@@ -818,7 +865,46 @@ export async function fetchVideoMetadata(
     }
 
     // B. Meta Business Discovery API (Uses User Token to fetch public reels metrics: view_count & like_count)
-    const targetHandle = creatorHandle || (credentials?.clientHandle ? cleanInstagramHandle(credentials.clientHandle) : null);
+    let targetHandle = creatorHandle || (credentials?.clientHandle ? cleanInstagramHandle(credentials.clientHandle) : null);
+    if (!targetHandle) {
+      try {
+        const allKeys = Object.keys(localStorage);
+        for (const k of allKeys) {
+          if (k.startsWith('trackrr_recent_ig_')) {
+            const raw = localStorage.getItem(k);
+            if (raw && shortcode && raw.toLowerCase().includes(shortcode.toLowerCase())) {
+              targetHandle = k.replace('trackrr_recent_ig_', '');
+              break;
+            }
+          }
+        }
+      } catch {}
+
+      if (!targetHandle) {
+        try {
+          const rawBf = localStorage.getItem('ft_bf_clients');
+          if (rawBf) {
+            const clients = JSON.parse(rawBf);
+            if (Array.isArray(clients)) {
+              const withIg = clients.filter((c: any) => !c.archived && c.instagram_id?.trim());
+              if (withIg.length === 1) {
+                targetHandle = cleanInstagramHandle(withIg[0].instagram_id);
+              }
+            }
+          }
+        } catch {}
+      }
+
+      if (!targetHandle) {
+        try {
+          const igKeys = Object.keys(localStorage).filter(k => k.startsWith('trackrr_recent_ig_'));
+          if (igKeys.length === 1) {
+            targetHandle = igKeys[0].replace('trackrr_recent_ig_', '');
+          }
+        } catch {}
+      }
+    }
+
     if (userToken && targetHandle) {
       const bdRes = await queryMetaBusinessDiscovery(targetHandle, userToken, igUserId, shortcode, cleanUrl);
       if (bdRes?.matched) {
@@ -948,17 +1034,20 @@ export async function fetchVideoMetadata(
       }
     }
 
-    // E2. If creatorHandle was discovered via oEmbed or Microlink, and views are still missing, query Business Discovery!
-    if (userToken && !viewsCount && creatorHandle) {
-      const bdRes = await queryMetaBusinessDiscovery(creatorHandle, userToken, igUserId, shortcode, cleanUrl);
-      if (bdRes?.matched) {
-        applyBdResult(bdRes);
-      } else if (bdRes?.metaApiError) {
-        metaApiError = bdRes.metaApiError;
+    // E2. If creatorHandle or targetHandle is known and metrics or thumbnail are still missing, query Business Discovery!
+    if (userToken && (!viewsCount || !likesCount || !thumbnailUrl) && (creatorHandle || targetHandle)) {
+      const h = creatorHandle || targetHandle;
+      if (h) {
+        const bdRes = await queryMetaBusinessDiscovery(h, userToken, igUserId, shortcode, cleanUrl);
+        if (bdRes?.matched) {
+          applyBdResult(bdRes);
+        } else if (bdRes?.metaApiError) {
+          metaApiError = bdRes.metaApiError;
+        }
       }
     }
 
-    if (postedDate || caption || author || likesCount || viewsCount) {
+    if (postedDate || caption || author || likesCount || viewsCount || thumbnailUrl) {
       saveCachedVideoMeta(cleanUrl, {
         thumbnailUrl,
         caption,
@@ -1213,7 +1302,7 @@ export async function fetchClientRecentInstagramPosts(
   const cached = getStoredRecentPosts(cleanHandle);
 
   const metaToken = credentials?.userToken || credentials?.metaUserToken || getMetaUserToken(credentials);
-  const igUserId = credentials?.igUserId || localStorage.getItem('trackrr_meta_ig_user_id') || 'me';
+  const igUserId = getMetaIgUserId(credentials);
 
   if (metaToken) {
     try {
