@@ -792,6 +792,72 @@ export async function queryMetaBusinessDiscovery(
 }
 
 /**
+ * Checks if the Trackrr Chrome extension is installed and active in the browser.
+ */
+export function isTrackrrExtensionInstalled(): boolean {
+  if (typeof document === 'undefined' || typeof window === 'undefined') return false;
+  return (
+    document.documentElement.getAttribute('data-trackrr-extension') !== null ||
+    Boolean((window as any).__TRACKRR_EXTENSION_ACTIVE__)
+  );
+}
+
+/**
+ * Fetch Instagram metadata via Trackrr Chrome Extension bridge.
+ * Returns null if extension is not installed or times out.
+ */
+export async function fetchFromTrackrrExtension(url: string, timeoutMs = 4000): Promise<VideoMetadataResult | null> {
+  if (typeof window === 'undefined') return null;
+
+  return new Promise((resolve) => {
+    const requestId = `trackrr_req_${Date.now()}_${Math.random().toString(36).slice(2, 9)}`;
+    let timer: any = null;
+
+    const handler = (event: MessageEvent) => {
+      if (event.source !== window || !event.data || typeof event.data !== 'object') return;
+      if (event.data.type === 'TRACKRR_EXT_RESULT' && event.data.requestId === requestId) {
+        window.removeEventListener('message', handler);
+        if (timer) clearTimeout(timer);
+        const d = event.data;
+        if (d.error && !d.thumbnailUrl && !d.likesCount && !d.caption) {
+          resolve(null);
+          return;
+        }
+        resolve({
+          provider: 'instagram',
+          postedDate: d.postedDate || null,
+          postedDateTime: d.postedDateTime || null,
+          likesCount: d.likesCount ? formatMetricCount(d.likesCount) : null,
+          commentsCount: d.commentsCount || null,
+          caption: d.caption || null,
+          title: d.caption ? d.caption.slice(0, 80) : undefined,
+          author: d.author || undefined,
+          creatorHandle: d.author || undefined,
+          thumbnailUrl: d.thumbnailUrl || undefined,
+          usedOfficialMetaApi: true,
+        });
+      }
+    };
+
+    window.addEventListener('message', handler);
+
+    timer = setTimeout(() => {
+      window.removeEventListener('message', handler);
+      resolve(null);
+    }, timeoutMs);
+
+    window.postMessage(
+      {
+        type: 'TRACKRR_EXT_FETCH',
+        requestId,
+        url,
+      },
+      '*'
+    );
+  });
+}
+
+/**
  * Fetch video metadata via Meta oEmbed or YouTube oEmbed
  */
 export async function fetchVideoMetadata(
@@ -805,8 +871,33 @@ export async function fetchVideoMetadata(
     return { provider: 'other', error: 'Empty URL provided.' };
   }
 
-  // --- 1. INSTAGRAM (Meta Official oEmbed + Graph API Business Discovery + Insights + Fallback) ---
+  // --- 1. INSTAGRAM (Chrome Extension Companion + Meta Official oEmbed + Graph API + Fallback) ---
   if (provider === 'instagram') {
+    // Priority 1: Check Trackrr Chrome Extension bridge for instant browser-session extraction
+    try {
+      const extResult = await fetchFromTrackrrExtension(cleanUrl);
+      if (extResult && (extResult.thumbnailUrl || extResult.caption || extResult.likesCount)) {
+        saveCachedVideoMeta(cleanUrl, {
+          thumbnailUrl: extResult.thumbnailUrl,
+          caption: extResult.caption,
+          likes: extResult.likesCount,
+        });
+        const shortcode = extractInstagramShortcode(cleanUrl);
+        if (extResult.thumbnailUrl && shortcode) {
+          fetchImageBase64(extResult.thumbnailUrl).then((b64) => {
+            if (b64) {
+              try {
+                localStorage.setItem(`trackrr_thumb_b64_sc_${shortcode.toLowerCase()}`, b64);
+              } catch {}
+            }
+          }).catch(() => {});
+        }
+        return extResult;
+      }
+    } catch (e) {
+      console.warn('Trackrr extension communication check failed:', e);
+    }
+
     const metaToken = getMetaAccessToken(credentials);
     const userToken = getMetaUserToken(credentials);
     const igUserId = getMetaIgUserId(credentials);

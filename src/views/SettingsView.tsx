@@ -37,10 +37,12 @@ import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded';
 import HelpOutlineRoundedIcon from '@mui/icons-material/HelpOutlineRounded';
 import { useApp } from '../contexts/AppContext';
 import { useAuth } from '../contexts/AuthContext';
+import ExtensionRoundedIcon from '@mui/icons-material/ExtensionRounded';
 import { storage } from '../lib/storage';
 import {
   fetchVideoMetadata,
   resolveInstagramBusinessAccountId,
+  isTrackrrExtensionInstalled,
   DEFAULT_META_APP_ID,
   DEFAULT_META_CLIENT_TOKEN,
   type VideoMetadataResult,
@@ -273,6 +275,31 @@ export default function SettingsView() {
   const [metaTestHandle, setMetaTestHandle] = useState('');
   const [metaTesting, setMetaTesting] = useState(false);
   const [metaTestResult, setMetaTestResult] = useState<VideoMetadataResult | null>(null);
+
+  // Trackrr Chrome Extension Connection State
+  const [extActive, setExtActive] = useState(false);
+
+  useEffect(() => {
+    const check = () => {
+      setExtActive(isTrackrrExtensionInstalled());
+    };
+    check();
+    const handler = (e: MessageEvent) => {
+      if (e.data?.type === 'TRACKRR_EXT_PONG' || e.data?.type === 'TRACKRR_EXT_RESULT') {
+        setExtActive(true);
+      }
+    };
+    window.addEventListener('message', handler);
+    window.postMessage({ type: 'TRACKRR_EXT_PING' }, '*');
+    const interval = setInterval(() => {
+      check();
+      window.postMessage({ type: 'TRACKRR_EXT_PING' }, '*');
+    }, 2500);
+    return () => {
+      window.removeEventListener('message', handler);
+      clearInterval(interval);
+    };
+  }, []);
 
   const handleSaveMetaCredentials = async () => {
     const cleanAppId = metaAppId.trim() || DEFAULT_META_APP_ID;
@@ -905,6 +932,105 @@ export default function SettingsView() {
               onChange={handleFileSelect}
             />
           </Box>
+        </Card>
+
+        {/* Trackrr Chrome Extension Companion Card */}
+        <Card
+          sx={{
+            p: 2.5,
+            mb: 2.5,
+            border: '1px solid',
+            borderColor: extActive ? 'rgba(16, 185, 129, 0.4)' : 'rgba(6, 182, 212, 0.3)',
+            bgcolor: extActive ? 'rgba(16, 185, 129, 0.03)' : 'rgba(6, 182, 212, 0.02)',
+          }}
+        >
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5, flexWrap: 'wrap', gap: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+              <Box
+                sx={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: 2,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: 'linear-gradient(135deg, #06B6D4 0%, #3B82F6 100%)',
+                  color: '#fff',
+                  boxShadow: '0 4px 12px rgba(6, 182, 212, 0.3)',
+                }}
+              >
+                <ExtensionRoundedIcon sx={{ fontSize: 22 }} />
+              </Box>
+              <Box>
+                <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.2 }}>
+                  Trackrr Chrome Sync Extension (Zero API Setup)
+                </Typography>
+                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+                  Auto-extracts Instagram thumbnails, captions, and live likes using your browser session
+                </Typography>
+              </Box>
+            </Box>
+
+            {extActive ? (
+              <Chip
+                label="Extension Connected & Active"
+                color="success"
+                size="small"
+                icon={<CheckCircleRoundedIcon sx={{ fontSize: '14px !important' }} />}
+                sx={{ fontWeight: 700, fontSize: '0.72rem' }}
+              />
+            ) : (
+              <Chip
+                label="Extension Not Detected"
+                color="default"
+                size="small"
+                sx={{ fontWeight: 700, fontSize: '0.72rem' }}
+              />
+            )}
+          </Box>
+
+          {extActive ? (
+            <Alert severity="success" sx={{ fontSize: '0.78rem' }}>
+              <strong>Chrome Extension Active:</strong> Whenever you paste an Instagram Reel link into Trackrr, the extension automatically supplies high-resolution thumbnails, exact likes, and captions through your browser session with zero rate limits!
+            </Alert>
+          ) : (
+            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+              <Alert severity="info" sx={{ fontSize: '0.78rem' }}>
+                <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.5 }}>
+                  How to Load the Extension in Chrome (10-Second Setup):
+                </Typography>
+                <ol style={{ margin: 0, paddingLeft: 18, lineHeight: 1.6 }}>
+                  <li>Open a new tab in Chrome and go to: <code style={{ background: 'rgba(255,255,255,0.1)', padding: '2px 4px', borderRadius: 4 }}>chrome://extensions</code></li>
+                  <li>Turn on the <strong>Developer mode</strong> toggle in the top-right corner.</li>
+                  <li>Click <strong>Load unpacked</strong> in the top-left corner.</li>
+                  <li>Select the <code style={{ background: 'rgba(255,255,255,0.1)', padding: '2px 4px', borderRadius: 4 }}>trackrr-extension</code> folder inside your Trackrr project folder.</li>
+                  <li>Return here &rarr; this badge will turn green automatically!</li>
+                </ol>
+              </Alert>
+
+              <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap' }}>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  onClick={() => {
+                    window.postMessage({ type: 'TRACKRR_EXT_PING' }, '*');
+                    setTimeout(() => {
+                      const detected = isTrackrrExtensionInstalled();
+                      setExtActive(detected);
+                      setToastMessage(detected ? 'Extension detected and active!' : 'Extension not detected yet. Make sure it is loaded in chrome://extensions');
+                    }, 300);
+                  }}
+                  startIcon={<SyncRoundedIcon sx={{ fontSize: 16 }} />}
+                  sx={{ textTransform: 'none', fontWeight: 700, fontSize: '0.75rem' }}
+                >
+                  Verify Connection
+                </Button>
+                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
+                  Path: <code style={{ fontSize: '0.72rem' }}>trackrr-extension</code>
+                </Typography>
+              </Box>
+            </Box>
+          )}
         </Card>
 
         {/* Meta & Instagram Auto-Fetch Configuration */}

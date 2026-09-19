@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <title>Trackrr Sync Companion</title>
+  <style>
+    body {
+      width: 320px;
+      margin: 0;
+      padding: 16px;
+      background: #0F172A;
+      color: #F8FAFC;
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, Helvetica, Arial, sans-serif;
+      box-sizing: border-box;
+    }
+    .header {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      margin-bottom: 14px;
+      padding-bottom: 12px;
+      border-bottom: 1px solid rgba(255,255,255,0.1);
+    }
+    .header img {
+      width: 28px;
+      height: 28px;
+      border-radius: 6px;
+    }
+    .header h1 {
+      font-size: 15px;
+      margin: 0;
+      font-weight: 800;
+      letter-spacing: -0.02em;
+    }
+    .status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
+      font-weight: 700;
+      color: #10B981;
+      background: rgba(16, 185, 129, 0.12);
+      padding: 4px 8px;
+      border-radius: 9999px;
+      border: 1px solid rgba(16, 185, 129, 0.25);
+      margin-bottom: 14px;
+    }
+    .status-dot {
+      width: 6px;
+      height: 6px;
+      border-radius: 50%;
+      background: #10B981;
+    }
+    .desc {
+      font-size: 12px;
+      color: #94A3B8;
+      line-height: 1.5;
+      margin-bottom: 14px;
+    }
+    .input-box {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      margin-bottom: 12px;
+    }
+    input {
+      background: #1E293B;
+      border: 1px solid rgba(255,255,255,0.12);
+      border-radius: 6px;
+      padding: 8px 10px;
+      font-size: 12px;
+      color: #fff;
+      outline: none;
+    }
+    input:focus {
+      border-color: #06B6D4;
+    }
+    button {
+      background: linear-gradient(135deg, #06B6D4, #3B82F6);
+      color: #fff;
+      border: none;
+      border-radius: 6px;
+      padding: 8px;
+      font-size: 12px;
+      font-weight: 700;
+      cursor: pointer;
+      transition: opacity 0.15s;
+    }
+    button:hover {
+      opacity: 0.9;
+    }
+    #result {
+      margin-top: 10px;
+      padding: 10px;
+      background: #1E293B;
+      border-radius: 6px;
+      font-size: 11px;
+      display: none;
+      border: 1px solid rgba(255,255,255,0.08);
+    }
+    .preview-row {
+      display: flex;
+      gap: 8px;
+      align-items: center;
+    }
+    .preview-thumb {
+      width: 44px;
+      height: 44px;
+      border-radius: 4px;
+      object-fit: cover;
+      background: #334155;
+    }
+    .preview-info {
+      flex: 1;
+      overflow: hidden;
+    }
+    .preview-likes {
+      color: #F43F5E;
+      font-weight: 700;
+      margin-top: 2px;
+    }
+  </style>
+</head>
+<body>
+  <div class="header">
+    <img src="icons/icon-48.png" alt="logo" />
+    <div>
+      <h1>Trackrr Sync</h1>
+      <div style="font-size: 10px; color: #64748B;">Instagram Auto-Sync Extension</div>
+    </div>
+  </div>
+
+  <div class="status">
+    <div class="status-dot"></div>
+    Active & Connected
+  </div>
+
+  <div class="desc">
+    This extension automatically provides live Instagram Reel thumbnails, captions, and like counts to your Trackrr dashboard.
+  </div>
+
+  <div class="input-box">
+    <input type="text" id="urlInput" placeholder="Paste Reel URL to test..." />
+    <button id="testBtn">Test Extraction</button>
+  </div>
+
+  <div id="result">
+    <div class="preview-row">
+      <img id="resThumb" class="preview-thumb" src="" alt="thumb" />
+      <div class="preview-info">
+        <div id="resCaption" style="font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Caption</div>
+        <div id="resLikes" class="preview-likes">❤️ 0 likes</div>
+        <div id="resDate" style="color: #94A3B8; font-size: 10px;">Date</div>
+      </div>
+    </div>
+  </div>
+
+  <script src="popup.js"></script>
+</body>
+</html>
