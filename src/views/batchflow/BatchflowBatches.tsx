@@ -25,6 +25,8 @@ import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
 import SyncRoundedIcon from '@mui/icons-material/SyncRounded';
 import ArchiveRoundedIcon from '@mui/icons-material/ArchiveRounded';
 import FileUploadRoundedIcon from '@mui/icons-material/FileUploadRounded';
+import FavoriteRoundedIcon from '@mui/icons-material/FavoriteRounded';
+import AddPhotoAlternateRoundedIcon from '@mui/icons-material/AddPhotoAlternateRounded';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import { registerOkineFont } from '../../lib/okineFont';
@@ -2643,7 +2645,38 @@ export default function BatchflowBatches() {
                         })();
                         const thumbUrl = syncedThumbs[v.id] || cachedB64 || cachedMeta?.thumbnailUrl || ytThumb;
 
-                        if (!thumbUrl) return null;
+                        if (!thumbUrl) {
+                          return canEdit ? (
+                            <Tooltip title="Click to edit & upload thumbnail">
+                              <Box
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  openEditVideoDialog(v);
+                                }}
+                                sx={{
+                                  width: 34,
+                                  height: 34,
+                                  borderRadius: 1,
+                                  border: '1px dashed rgba(255,255,255,0.2)',
+                                  display: 'flex',
+                                  alignItems: 'center',
+                                  justifyContent: 'center',
+                                  cursor: 'pointer',
+                                  color: 'text.disabled',
+                                  bgcolor: 'rgba(255,255,255,0.03)',
+                                  transition: 'all 0.15s ease',
+                                  '&:hover': {
+                                    borderColor: 'primary.main',
+                                    color: 'primary.main',
+                                    bgcolor: 'rgba(255,255,255,0.08)',
+                                  },
+                                }}
+                              >
+                                <AddPhotoAlternateRoundedIcon sx={{ fontSize: 16 }} />
+                              </Box>
+                            </Tooltip>
+                          ) : null;
+                        }
 
                         return (
                           <Box
@@ -2728,17 +2761,30 @@ export default function BatchflowBatches() {
                             );
                           })()}
                         </Box>
-                        <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.68rem', display: 'block' }}>
+                        <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.68rem', display: 'flex', alignItems: 'center', gap: 1, flexWrap: 'wrap' }}>
+                          <span>
+                            {(() => {
+                              const urlDate = extractDateFromVideoUrl(v.video_url);
+                              const effectiveDate = urlDate || (v.status === 'Posted' && v.posted_date ? v.posted_date.slice(0, 10) : null);
+                              if (effectiveDate) {
+                                return `Posted: ${new Date(effectiveDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
+                              }
+                              if (v.status === 'Edited' && v.edited_date) {
+                                return `Edited: ${new Date(v.edited_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
+                              }
+                              return 'Ready for editing';
+                            })()}
+                          </span>
                           {(() => {
-                            const urlDate = extractDateFromVideoUrl(v.video_url);
-                            const effectiveDate = urlDate || (v.status === 'Posted' && v.posted_date ? v.posted_date.slice(0, 10) : null);
-                            if (effectiveDate) {
-                              return `Posted: ${new Date(effectiveDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
-                            }
-                            if (v.status === 'Edited' && v.edited_date) {
-                              return `Edited: ${new Date(v.edited_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' })}`;
-                            }
-                            return 'Ready for editing';
+                            const cached = v.video_url ? getCachedVideoMeta(v.video_url) : null;
+                            const likesVal = v.likes != null && String(v.likes).trim() !== '' ? String(v.likes).trim() : cached?.likes;
+                            if (!likesVal) return null;
+                            return (
+                              <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.35, color: '#F43F5E', fontWeight: 600 }}>
+                                <FavoriteRoundedIcon sx={{ fontSize: 11 }} />
+                                {likesVal}
+                              </Box>
+                            );
                           })()}
                         </Typography>
                       </Box>
