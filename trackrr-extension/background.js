@@ -28,11 +28,25 @@ function extractDateFromShortcode(shortcode) {
 
 function formatMetricCount(val) {
   if (val === null || val === undefined) return null;
-  const str = String(val).trim();
-  if (!str) return null;
-  if (/[kKmMbB]/.test(str)) return str.toUpperCase();
-  const num = parseInt(str.replace(/[^0-9]/g, ''), 10);
-  if (isNaN(num)) return str;
+  let str = String(val).trim();
+  if (!str || !/\d/.test(str)) return null; // CRITICAL: must contain at least one digit! Never return "M" or non-digit strings
+
+  // Strip extraneous labels like "likes", "views", "plays"
+  str = str.replace(/^(?:likes?|views?|plays?)\s*|\s*(?:likes?|views?|plays?)$/gi, '').trim();
+
+  // If already formatted with suffix like 14.5K, 2.1M, 1B
+  const suffixMatch = str.match(/^([0-9]+(?:[.,][0-9]+)?)\s*([kKmMbB])$/i);
+  if (suffixMatch) {
+    const numPart = suffixMatch[1].replace(',', '.');
+    const unit = suffixMatch[2].toUpperCase();
+    return `${numPart}${unit}`;
+  }
+
+  const cleanDigits = str.replace(/[^0-9]/g, '');
+  if (!cleanDigits) return null;
+  const num = parseInt(cleanDigits, 10);
+  if (isNaN(num)) return null;
+
   if (num >= 1_000_000_000) {
     const f = (num / 1_000_000_000).toFixed(1);
     return f.endsWith('.0') ? f.slice(0, -2) + 'B' : f + 'B';
@@ -79,6 +93,7 @@ async function fetchInstagramMetadata(rawUrl) {
   let thumbnailUrl = null;
   let caption = null;
   let likesCount = null;
+  let viewsCount = null;
   let commentsCount = null;
   let author = null;
 
@@ -100,7 +115,18 @@ async function fetchInstagramMetadata(rawUrl) {
         const item = json?.items?.[0] || json?.graphql?.shortcode_media;
         if (item) {
           if (item.caption?.text) caption = item.caption.text;
-          if (item.like_count !== undefined) likesCount = formatMetricCount(item.like_count);
+          if (item.like_count !== undefined && item.like_count !== null) {
+            likesCount = formatMetricCount(item.like_count);
+          }
+          if (item.play_count !== undefined && item.play_count !== null) {
+            viewsCount = formatMetricCount(item.play_count);
+          } else if (item.video_view_count !== undefined && item.video_view_count !== null) {
+            viewsCount = formatMetricCount(item.video_view_count);
+          } else if (item.view_count !== undefined && item.view_count !== null) {
+            viewsCount = formatMetricCount(item.view_count);
+          } else if (item.ig_play_count !== undefined && item.ig_play_count !== null) {
+            viewsCount = formatMetricCount(item.ig_play_count);
+          }
           if (item.comment_count !== undefined) commentsCount = String(item.comment_count);
           if (item.user?.username) author = item.user.username;
           if (item.taken_at) {
@@ -124,7 +150,7 @@ async function fetchInstagramMetadata(rawUrl) {
   }
 
   // Strategy 2: Embed captioned HTML fallback
-  if (!thumbnailUrl || !caption || !likesCount) {
+  if (!thumbnailUrl || !caption || !likesCount || !viewsCount) {
     try {
       const embedUrl = 'https://www.instagram.com/p/' + shortcode + '/embed/captioned/';
       const embedResp = await fetch(embedUrl);
@@ -140,11 +166,20 @@ async function fetchInstagramMetadata(rawUrl) {
           }
         }
 
-        // Extract likes
+        // Extract likes strictly requiring digits
         if (!likesCount) {
-          const likeMatch = html.match(/([0-9,KMkm.]+)\s*(?:likes|like)/i);
+          const likeMatch = html.match(/(?:^|[^\w])([0-9][0-9,.]*\s*[KkMmBb]?)\s*(?:likes|like)\b/i);
           if (likeMatch && likeMatch[1]) {
             likesCount = formatMetricCount(likeMatch[1]);
+          }
+        }
+
+        // Extract views from script tags or text
+        if (!viewsCount) {
+          const viewScriptMatch = html.match(/"(?:video_view_count|play_count|view_count)":\s*(\d+)/i) ||
+                                  html.match(/(?:^|[^\w])([0-9][0-9,.]*\s*[KkMmBb]?)\s*(?:views|view|plays|play)\b/i);
+          if (viewScriptMatch && viewScriptMatch[1]) {
+            viewsCount = formatMetricCount(viewScriptMatch[1]);
           }
         }
 
@@ -178,8 +213,8 @@ async function fetchInstagramMetadata(rawUrl) {
     }
   }
 
-  // Strategy 3: Standard page OpenGraph fallback
-  if (!thumbnailUrl || !caption) {
+  // Strategy 3: Standard page OpenGraph & JSON fallback
+  if (!thumbnailUrl || !caption || !likesCount || !viewsCount) {
     try {
       const pageUrl = 'https://www.instagram.com/reel/' + shortcode + '/';
       const pageResp = await fetch(pageUrl);
@@ -192,17 +227,42 @@ async function fetchInstagramMetadata(rawUrl) {
             thumbnailUrl = ogImg[1].replace(/&amp;/g, '&');
           }
         }
-        if (!caption) {
+        if (!caption || !likesCount || !viewsCount) {
           const ogDesc = pageHtml.match(/<meta[^>]*property=["']og:description["'][^>]*content=["']([^"']+)["']/i) ||
                          pageHtml.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:description["']/i);
           if (ogDesc && ogDesc[1]) {
             const cleanDesc = ogDesc[1].replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim();
-            const descLikes = cleanDesc.match(/([0-9,KMkm.]+)\s+likes/i);
-            if (!likesCount && descLikes && descLikes[1]) {
-              likesCount = formatMetricCount(descLikes[1]);
+            if (!likesCount) {
+              const descLikes = cleanDesc.match(/(?:^|[^\w])([0-9][0-9,.]*\s*[KkMmBb]?)\s*(?:likes|like)\b/i);
+              if (descLikes && descLikes[1]) {
+                likesCount = formatMetricCount(descLikes[1]);
+              }
             }
-            const colonIdx = cleanDesc.indexOf(':');
-            caption = colonIdx !== -1 ? cleanDesc.slice(colonIdx + 1).trim() : cleanDesc;
+            if (!viewsCount) {
+              const descViews = cleanDesc.match(/(?:^|[^\w])([0-9][0-9,.]*\s*[KkMmBb]?)\s*(?:views|view|plays|play)\b/i);
+              if (descViews && descViews[1]) {
+                viewsCount = formatMetricCount(descViews[1]);
+              }
+            }
+            if (!caption) {
+              const colonIdx = cleanDesc.indexOf(':');
+              caption = colonIdx !== -1 ? cleanDesc.slice(colonIdx + 1).trim() : cleanDesc;
+            }
+          }
+        }
+
+        // Script JSON checks
+        if (!viewsCount) {
+          const pageViewMatch = pageHtml.match(/"(?:video_view_count|play_count|view_count)":\s*(\d+)/i);
+          if (pageViewMatch && pageViewMatch[1]) {
+            viewsCount = formatMetricCount(pageViewMatch[1]);
+          }
+        }
+        if (!likesCount) {
+          const pageLikeMatch = pageHtml.match(/"(?:like_count|edge_media_preview_like)":\s*\{"count":\s*(\d+)/i) ||
+                                pageHtml.match(/"like_count":\s*(\d+)/i);
+          if (pageLikeMatch && pageLikeMatch[1]) {
+            likesCount = formatMetricCount(pageLikeMatch[1]);
           }
         }
       }
@@ -224,6 +284,7 @@ async function fetchInstagramMetadata(rawUrl) {
     postedDate: postedDate,
     postedDateTime: postedDateTime,
     likesCount: likesCount,
+    viewsCount: viewsCount,
     commentsCount: commentsCount,
     caption: caption,
     author: author,

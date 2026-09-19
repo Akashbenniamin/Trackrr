@@ -26,6 +26,7 @@ import SyncRoundedIcon from '@mui/icons-material/SyncRounded';
 import ArchiveRoundedIcon from '@mui/icons-material/ArchiveRounded';
 import FileUploadRoundedIcon from '@mui/icons-material/FileUploadRounded';
 import FavoriteRoundedIcon from '@mui/icons-material/FavoriteRounded';
+import VisibilityRoundedIcon from '@mui/icons-material/VisibilityRounded';
 import AddPhotoAlternateRoundedIcon from '@mui/icons-material/AddPhotoAlternateRounded';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
@@ -381,6 +382,7 @@ export default function BatchflowBatches() {
     video_url?: string;
     posted_date?: string;
     status?: BatchflowVideoStatus;
+    views?: string | number | null;
     likes?: string | number | null;
     thumbnail_url?: string | null;
   } | null>(null);
@@ -390,6 +392,7 @@ export default function BatchflowBatches() {
   const [postedLinkDialogOpen, setPostedLinkDialogOpen] = useState(false);
   const [postedTargetVideo, setPostedTargetVideo] = useState<BatchflowVideo | null>(null);
   const [postedVideoUrl, setPostedVideoUrl] = useState('');
+  const [postedViews, setPostedViews] = useState('');
   const [postedLikes, setPostedLikes] = useState('');
   const [postedCaption, setPostedCaption] = useState('');
   const [postedThumbnailUrl, setPostedThumbnailUrl] = useState('');
@@ -419,9 +422,13 @@ export default function BatchflowBatches() {
   const openPostedDialogForVideo = (v: BatchflowVideo) => {
     const extracted = extractVideoLikes(v);
     const cached = v.video_url ? getCachedVideoMeta(v.video_url) : null;
+    const cleanLikes = formatMetricCount(v.likes) || extracted.likes || cached?.likes || '';
+    const cleanViews = formatMetricCount(v.views) || extracted.views || cached?.views || '';
+
     setPostedTargetVideo(v);
     setPostedVideoUrl(v.video_url || '');
-    setPostedLikes(v.likes != null && String(v.likes).trim() !== '' ? String(v.likes).trim() : (extracted.likes || cached?.likes || ''));
+    setPostedLikes(cleanLikes);
+    setPostedViews(cleanViews);
     setPostedCustomDate(v.posted_date ? v.posted_date.slice(0, 10) : (cached?.postedDate ? cached.postedDate.slice(0, 10) : new Date().toISOString().slice(0, 10)));
     setPostedCaption(v.description || syncedCaptions[v.id] || cached?.caption || '');
     setPostedThumbnailUrl(syncedThumbs[v.id] || cached?.thumbnailUrl || '');
@@ -433,6 +440,9 @@ export default function BatchflowBatches() {
   const openEditVideoDialog = (v: BatchflowVideo) => {
     const vExtracted = extractVideoLikes(v);
     const vCached = v.video_url ? getCachedVideoMeta(v.video_url) : null;
+    const cleanLikes = formatMetricCount(v.likes) || vExtracted.likes || vCached?.likes || '';
+    const cleanViews = formatMetricCount(v.views) || vExtracted.views || vCached?.views || '';
+
     setEditingVideo({
       id: v.id,
       name: v.name,
@@ -441,7 +451,8 @@ export default function BatchflowBatches() {
       video_url: v.video_url || '',
       posted_date: v.posted_date ? v.posted_date.slice(0, 10) : (vCached?.postedDate ? vCached.postedDate.slice(0, 10) : ''),
       status: v.status,
-      likes: v.likes != null && String(v.likes).trim() !== '' ? String(v.likes).trim() : (vExtracted.likes || vCached?.likes || ''),
+      views: cleanViews,
+      likes: cleanLikes,
       thumbnail_url: syncedThumbs[v.id] || vCached?.thumbnailUrl || '',
     });
     setEditingMetaResult(null);
@@ -484,6 +495,9 @@ export default function BatchflowBatches() {
       }
       if (res.likesCount) {
         setPostedLikes(String(res.likesCount).replace(/likes?/i, '').trim());
+      }
+      if (res.viewsCount) {
+        setPostedViews(String(res.viewsCount).replace(/views?|plays?/i, '').trim());
       }
       if (res.caption) {
         setPostedCaption(res.caption);
@@ -545,6 +559,10 @@ export default function BatchflowBatches() {
       if (res.likesCount) {
         const cleanL = String(res.likesCount).replace(/likes?/i, '').trim();
         setEditingVideo(prev => prev ? { ...prev, likes: cleanL } : null);
+      }
+      if (res.viewsCount) {
+        const cleanV = String(res.viewsCount).replace(/views?|plays?/i, '').trim();
+        setEditingVideo(prev => prev ? { ...prev, views: cleanV } : null);
       }
       if (res.caption) {
         setEditingVideo(prev => prev ? { ...prev, description: res.caption || prev.description } : null);
@@ -760,7 +778,10 @@ export default function BatchflowBatches() {
     const dateToSave = postedCustomDate.trim() || new Date().toISOString().slice(0, 10);
     const likesToSave = skip
       ? null
-      : (postedLikes.trim() || (postedMetaResult?.likesCount ? formatMetricCount(postedMetaResult.likesCount) : null));
+      : (formatMetricCount(postedLikes.trim()) || (postedMetaResult?.likesCount ? formatMetricCount(postedMetaResult.likesCount) : null));
+    const viewsToSave = skip
+      ? null
+      : (formatMetricCount(postedViews.trim()) || (postedMetaResult?.viewsCount ? formatMetricCount(postedMetaResult.viewsCount) : null));
     const captionToSave = skip
       ? null
       : (postedCaption.trim() || postedMetaResult?.caption || postedTargetVideo.description || null);
@@ -769,7 +790,7 @@ export default function BatchflowBatches() {
       : (postedThumbnailUrl.trim() || postedMetaResult?.thumbnailUrl || null);
 
     if (postedTargetVideo.status !== 'Posted') {
-      await updateBatchflowVideoStatus(postedTargetVideo.id, 'Posted', urlToSave, dateToSave, null, likesToSave);
+      await updateBatchflowVideoStatus(postedTargetVideo.id, 'Posted', urlToSave, dateToSave, viewsToSave, likesToSave);
       if (captionToSave) {
         await updateBatchflowVideo(postedTargetVideo.id, { description: captionToSave }).catch(() => {});
       }
@@ -777,6 +798,7 @@ export default function BatchflowBatches() {
       await updateBatchflowVideo(postedTargetVideo.id, {
         video_url: skip ? null : urlToSave,
         posted_date: dateToSave.includes('T') ? dateToSave : `${dateToSave}T12:00:00.000Z`,
+        views: viewsToSave,
         likes: likesToSave,
         ...(captionToSave ? { description: captionToSave } : {}),
       });
@@ -794,6 +816,7 @@ export default function BatchflowBatches() {
         thumbnailUrl: thumbToSave,
         caption: captionToSave,
         likes: likesToSave,
+        views: viewsToSave,
       });
 
       if (thumbToSave) {
@@ -2777,12 +2800,26 @@ export default function BatchflowBatches() {
                           </span>
                           {(() => {
                             const cached = v.video_url ? getCachedVideoMeta(v.video_url) : null;
-                            const likesVal = v.likes != null && String(v.likes).trim() !== '' ? String(v.likes).trim() : cached?.likes;
-                            if (!likesVal) return null;
+                            const rawViews = v.views != null && String(v.views).trim() !== '' ? String(v.views).trim() : cached?.views;
+                            const viewsVal = formatMetricCount(rawViews);
+                            const rawLikes = v.likes != null && String(v.likes).trim() !== '' ? String(v.likes).trim() : cached?.likes;
+                            const likesVal = formatMetricCount(rawLikes);
+                            if (!viewsVal && !likesVal) return null;
                             return (
-                              <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.35, color: '#F43F5E', fontWeight: 600 }}>
-                                <FavoriteRoundedIcon sx={{ fontSize: 11 }} />
-                                {likesVal}
+                              <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.75 }}>
+                                {viewsVal && (
+                                  <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.35, color: '#38BDF8', fontWeight: 600 }}>
+                                    <VisibilityRoundedIcon sx={{ fontSize: 11 }} />
+                                    {viewsVal}
+                                  </Box>
+                                )}
+                                {viewsVal && likesVal && <span style={{ opacity: 0.4 }}>•</span>}
+                                {likesVal && (
+                                  <Box component="span" sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.35, color: '#F43F5E', fontWeight: 600 }}>
+                                    <FavoriteRoundedIcon sx={{ fontSize: 11 }} />
+                                    {likesVal}
+                                  </Box>
+                                )}
                               </Box>
                             );
                           })()}
@@ -3216,6 +3253,15 @@ script 2
                   {editingMetaResult.error || 'No date found for this URL.'}
                 </Typography>
               )}
+              {editingMetaResult.viewsCount && (
+                <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
+                  <Chip
+                    label={`${editingMetaResult.viewsCount} Views`}
+                    size="small"
+                    sx={{ height: 20, fontSize: '0.68rem', fontWeight: 700, color: '#38BDF8', bgcolor: 'rgba(56, 189, 248, 0.1)' }}
+                  />
+                </Box>
+              )}
               {editingMetaResult.likesCount && (
                 <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap' }}>
                   <Chip
@@ -3239,15 +3285,26 @@ script 2
             helperText="Date shown on video card & PDF export"
           />
 
-          <TextField
-            label="Likes Count (e.g. 122 or 1.2K)"
-            placeholder="e.g. 122 or 1.2K"
-            fullWidth
-            size="small"
-            value={editingVideo?.likes != null ? String(editingVideo.likes) : ''}
-            onChange={e => setEditingVideo(prev => prev ? { ...prev, likes: e.target.value } : null)}
-            helperText="Appears in red on the video card and PDF export"
-          />
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
+            <TextField
+              label="Views Count (e.g. 45K)"
+              placeholder="e.g. 45K"
+              fullWidth
+              size="small"
+              value={editingVideo?.views != null ? String(editingVideo.views) : ''}
+              onChange={e => setEditingVideo(prev => prev ? { ...prev, views: e.target.value } : null)}
+              helperText="Reels view/play count"
+            />
+            <TextField
+              label="Likes Count (e.g. 122 or 1.2K)"
+              placeholder="e.g. 122 or 1.2K"
+              fullWidth
+              size="small"
+              value={editingVideo?.likes != null ? String(editingVideo.likes) : ''}
+              onChange={e => setEditingVideo(prev => prev ? { ...prev, likes: e.target.value } : null)}
+              helperText="Appears in red on video card"
+            />
+          </Box>
 
           <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
             {editingVideo?.thumbnail_url ? (
@@ -3319,7 +3376,8 @@ script 2
                 const scriptNum = typeof rawScriptNum === 'number'
                   ? Math.max(0, rawScriptNum)
                   : (rawScriptNum === '' ? 0 : Math.max(0, parseInt(String(rawScriptNum), 10) || 0));
-                const likesToSave = editingVideo.likes != null && String(editingVideo.likes).trim() !== '' ? String(editingVideo.likes).trim() : null;
+                const likesToSave = editingVideo.likes != null && String(editingVideo.likes).trim() !== '' ? (formatMetricCount(editingVideo.likes) || null) : null;
+                const viewsToSave = editingVideo.views != null && String(editingVideo.views).trim() !== '' ? (formatMetricCount(editingVideo.views) || null) : null;
                 const descToSave = editingVideo.description?.trim() || null;
                 const thumbToSave = editingVideo.thumbnail_url?.trim() || null;
 
@@ -3328,6 +3386,7 @@ script 2
                   script_number: scriptNum,
                   description: descToSave,
                   video_url: clean,
+                  views: viewsToSave,
                   likes: likesToSave,
                   ...(dateVal ? { posted_date: dateVal } : {}),
                 });
@@ -3344,6 +3403,7 @@ script 2
                     thumbnailUrl: thumbToSave,
                     caption: descToSave,
                     likes: likesToSave,
+                    views: viewsToSave,
                   });
 
                   if (thumbToSave) {
@@ -3581,6 +3641,15 @@ script 2
                     {postedMetaResult.error || 'Could not auto-extract publication date. Please pick a date below.'}
                   </Typography>
                 )}
+                {postedMetaResult.viewsCount && (
+                  <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', mt: 0.5 }}>
+                    <Chip
+                      label={`${postedMetaResult.viewsCount} Views`}
+                      size="small"
+                      sx={{ height: 20, fontSize: '0.68rem', fontWeight: 700, color: '#38BDF8', bgcolor: 'rgba(56, 189, 248, 0.1)' }}
+                    />
+                  </Box>
+                )}
                 {postedMetaResult.likesCount && (
                   <Box sx={{ display: 'flex', gap: 1, alignItems: 'center', flexWrap: 'wrap', mt: 0.5 }}>
                     <Chip
@@ -3605,15 +3674,26 @@ script 2
             helperText="Auto-detected from Instagram or manually adjustable"
           />
 
-          <TextField
-            label="Likes Count (e.g. 122 or 1.2K)"
-            placeholder="e.g. 122 or 1.2K"
-            fullWidth
-            size="small"
-            value={postedLikes}
-            onChange={(e) => setPostedLikes(e.target.value)}
-            helperText="Appears in red on the video card and PDF export"
-          />
+          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
+            <TextField
+              label="Views Count (e.g. 45K)"
+              placeholder="e.g. 45K"
+              fullWidth
+              size="small"
+              value={postedViews}
+              onChange={(e) => setPostedViews(e.target.value)}
+              helperText="Reels view/play count"
+            />
+            <TextField
+              label="Likes Count (e.g. 122 or 1.2K)"
+              placeholder="e.g. 122 or 1.2K"
+              fullWidth
+              size="small"
+              value={postedLikes}
+              onChange={(e) => setPostedLikes(e.target.value)}
+              helperText="Appears in red on video card"
+            />
+          </Box>
 
           <TextField
             label="Caption / Hook Description"

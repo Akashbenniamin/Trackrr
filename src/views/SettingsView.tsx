@@ -4,7 +4,7 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions, TextField,
   Avatar, IconButton, Alert, List, ListItem,
   ListItemAvatar, ListItemText, Chip, Snackbar, ButtonBase,
-  CircularProgress, InputAdornment, Accordion, AccordionSummary, AccordionDetails,
+  CircularProgress,
 } from '@mui/material';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
@@ -27,24 +27,17 @@ import StorageRoundedIcon from '@mui/icons-material/StorageRounded';
 import DataObjectRoundedIcon from '@mui/icons-material/DataObjectRounded';
 import MovieCreationRoundedIcon from '@mui/icons-material/MovieCreationRounded';
 import WorkOutlineRoundedIcon from '@mui/icons-material/WorkOutlineRounded';
-import InstagramIcon from '@mui/icons-material/Instagram';
 import VisibilityRoundedIcon from '@mui/icons-material/VisibilityRounded';
-import VisibilityOffRoundedIcon from '@mui/icons-material/VisibilityOffRounded';
 import SyncRoundedIcon from '@mui/icons-material/SyncRounded';
 import FavoriteRoundedIcon from '@mui/icons-material/FavoriteRounded';
 import CalendarTodayRoundedIcon from '@mui/icons-material/CalendarTodayRounded';
-import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded';
-import HelpOutlineRoundedIcon from '@mui/icons-material/HelpOutlineRounded';
 import { useApp } from '../contexts/AppContext';
 import { useAuth } from '../contexts/AuthContext';
 import ExtensionRoundedIcon from '@mui/icons-material/ExtensionRounded';
 import { storage } from '../lib/storage';
 import {
   fetchVideoMetadata,
-  resolveInstagramBusinessAccountId,
   isTrackrrExtensionInstalled,
-  DEFAULT_META_APP_ID,
-  DEFAULT_META_CLIENT_TOKEN,
   type VideoMetadataResult,
 } from '../lib/videoMetadata';
 import type { WorkspaceType, ThemeStyle } from '../types';
@@ -254,28 +247,6 @@ export default function SettingsView() {
 
   const isBatchflow = activeWorkspace?.type === 'batchflow';
 
-  // Meta / Instagram API Credentials State (Defaulted to built-in system app credentials)
-  const [metaAppId, setMetaAppId] = useState(settings.meta_app_id || DEFAULT_META_APP_ID);
-  const [metaClientToken, setMetaClientToken] = useState(settings.meta_client_token || DEFAULT_META_CLIENT_TOKEN);
-  const [metaUserToken, setMetaUserToken] = useState(settings.meta_user_token || '');
-  const [metaIgUserId, setMetaIgUserId] = useState(settings.meta_ig_user_id || '');
-  const [showTokens, setShowTokens] = useState(false);
-  const [detectingIgId, setDetectingIgId] = useState(false);
-
-  // Keep state in sync if settings update from cloud
-  useEffect(() => {
-    setMetaAppId(settings.meta_app_id || DEFAULT_META_APP_ID);
-    setMetaClientToken(settings.meta_client_token || DEFAULT_META_CLIENT_TOKEN);
-    if (settings.meta_user_token !== undefined) setMetaUserToken(settings.meta_user_token || '');
-    if (settings.meta_ig_user_id !== undefined) setMetaIgUserId(settings.meta_ig_user_id || '');
-  }, [settings.meta_app_id, settings.meta_client_token, settings.meta_user_token, settings.meta_ig_user_id]);
-
-  // Test Link Fetch State
-  const [metaTestUrl, setMetaTestUrl] = useState('');
-  const [metaTestHandle, setMetaTestHandle] = useState('');
-  const [metaTesting, setMetaTesting] = useState(false);
-  const [metaTestResult, setMetaTestResult] = useState<VideoMetadataResult | null>(null);
-
   // Trackrr Chrome Extension Connection State
   const [extActive, setExtActive] = useState(false);
 
@@ -301,61 +272,10 @@ export default function SettingsView() {
     };
   }, []);
 
-  const handleSaveMetaCredentials = async () => {
-    const cleanAppId = metaAppId.trim() || DEFAULT_META_APP_ID;
-    const cleanClientToken = metaClientToken.trim() || DEFAULT_META_CLIENT_TOKEN;
-    const cleanUserToken = metaUserToken.trim();
-    const cleanIgUserId = metaIgUserId.trim();
-
-    await updateSettings({
-      meta_app_id: cleanAppId,
-      meta_client_token: cleanClientToken,
-      meta_user_token: cleanUserToken,
-      meta_ig_user_id: cleanIgUserId,
-    });
-
-    setToastMessage('Meta & Instagram API credentials saved successfully!');
-  };
-
-  const handleClearMetaCredentials = async () => {
-    setMetaAppId(DEFAULT_META_APP_ID);
-    setMetaClientToken(DEFAULT_META_CLIENT_TOKEN);
-    setMetaUserToken('');
-    setMetaIgUserId('');
-
-    await updateSettings({
-      meta_app_id: DEFAULT_META_APP_ID,
-      meta_client_token: DEFAULT_META_CLIENT_TOKEN,
-      meta_user_token: '',
-      meta_ig_user_id: '',
-    });
-
-    setToastMessage('User tokens cleared. Built-in Meta App credentials restored.');
-  };
-
-  const handleAutoDetectIgId = async () => {
-    const token = metaUserToken.trim() || settings.meta_user_token?.trim();
-    if (!token) {
-      setToastMessage('Please paste your Meta User Access Token first.');
-      return;
-    }
-
-    setDetectingIgId(true);
-    try {
-      const res = await resolveInstagramBusinessAccountId(token);
-      if (res?.id) {
-        setMetaIgUserId(res.id);
-        await updateSettings({ meta_ig_user_id: res.id });
-        setToastMessage(`Connected to Instagram: @${res.username || 'business'} (ID: ${res.id})! Saved.`);
-      } else {
-        alert(res?.error || 'Could not find a linked Instagram Business/Creator Account. Make sure your Facebook Page is linked to your Instagram Professional Account and the token includes instagram_basic and pages_show_list permissions.');
-      }
-    } catch (err: any) {
-      alert(`Auto-detection error: ${err?.message || 'Network error'}`);
-    } finally {
-      setDetectingIgId(false);
-    }
-  };
+  // Test Link Fetch State
+  const [metaTestUrl, setMetaTestUrl] = useState('');
+  const [metaTesting, setMetaTesting] = useState(false);
+  const [metaTestResult, setMetaTestResult] = useState<VideoMetadataResult | null>(null);
 
   const handleTestMetaApi = async () => {
     const raw = metaTestUrl.trim();
@@ -365,13 +285,7 @@ export default function SettingsView() {
     setMetaTestResult(null);
 
     try {
-      const res = await fetchVideoMetadata(raw, {
-        metaAppId: metaAppId.trim() || settings.meta_app_id,
-        metaClientToken: metaClientToken.trim() || settings.meta_client_token,
-        metaUserToken: metaUserToken.trim() || settings.meta_user_token,
-        metaIgUserId: metaIgUserId.trim() || settings.meta_ig_user_id,
-        clientHandle: metaTestHandle.trim() || undefined,
-      });
+      const res = await fetchVideoMetadata(raw);
       setMetaTestResult(res);
     } catch (err: any) {
       setMetaTestResult({
@@ -934,7 +848,7 @@ export default function SettingsView() {
           </Box>
         </Card>
 
-        {/* Trackrr Chrome Extension Companion Card */}
+        {/* Trackrr Chrome Sync Extension */}
         <Card
           sx={{
             p: 2.5,
@@ -944,12 +858,12 @@ export default function SettingsView() {
             bgcolor: extActive ? 'rgba(16, 185, 129, 0.03)' : 'rgba(6, 182, 212, 0.02)',
           }}
         >
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1.5, flexWrap: 'wrap', gap: 1 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 2, flexWrap: 'wrap', gap: 1.5 }}>
             <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
               <Box
                 sx={{
-                  width: 38,
-                  height: 38,
+                  width: 42,
+                  height: 42,
                   borderRadius: 2,
                   display: 'flex',
                   alignItems: 'center',
@@ -959,56 +873,85 @@ export default function SettingsView() {
                   boxShadow: '0 4px 12px rgba(6, 182, 212, 0.3)',
                 }}
               >
-                <ExtensionRoundedIcon sx={{ fontSize: 22 }} />
+                <ExtensionRoundedIcon sx={{ fontSize: 24 }} />
               </Box>
               <Box>
                 <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.2 }}>
-                  Trackrr Chrome Sync Extension (Zero API Setup)
+                  Trackrr Chrome Sync Extension
                 </Typography>
                 <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
-                  Auto-extracts Instagram thumbnails, captions, and live likes using your browser session
+                  Auto-sync Reel thumbnails, captions, views, and live likes directly from your browser session
                 </Typography>
               </Box>
             </Box>
 
-            {extActive ? (
-              <Chip
-                label="Extension Connected & Active"
-                color="success"
-                size="small"
-                icon={<CheckCircleRoundedIcon sx={{ fontSize: '14px !important' }} />}
-                sx={{ fontWeight: 700, fontSize: '0.72rem' }}
-              />
-            ) : (
-              <Chip
-                label="Extension Not Detected"
-                color="default"
-                size="small"
-                sx={{ fontWeight: 700, fontSize: '0.72rem' }}
-              />
-            )}
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              {extActive ? (
+                <Chip
+                  label="Extension Connected & Active"
+                  color="success"
+                  size="small"
+                  icon={<CheckCircleRoundedIcon sx={{ fontSize: '14px !important' }} />}
+                  sx={{ fontWeight: 700, fontSize: '0.72rem' }}
+                />
+              ) : (
+                <Chip
+                  label="Extension Not Detected"
+                  color="default"
+                  size="small"
+                  sx={{ fontWeight: 700, fontSize: '0.72rem' }}
+                />
+              )}
+            </Box>
           </Box>
 
-          {extActive ? (
-            <Alert severity="success" sx={{ fontSize: '0.78rem' }}>
-              <strong>Chrome Extension Active:</strong> Whenever you paste an Instagram Reel link into Trackrr, the extension automatically supplies high-resolution thumbnails, exact likes, and captions through your browser session with zero rate limits!
-            </Alert>
-          ) : (
-            <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
-              <Alert severity="info" sx={{ fontSize: '0.78rem' }}>
-                <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.5 }}>
-                  How to Load the Extension in Chrome (10-Second Setup):
+          {/* Download & Installation Section */}
+          <Box
+            sx={{
+              p: 2,
+              mb: 2.5,
+              borderRadius: 2,
+              bgcolor: 'action.hover',
+              border: '1px solid',
+              borderColor: 'divider',
+              display: 'flex',
+              flexDirection: 'column',
+              gap: 2,
+            }}
+          >
+            <Box sx={{ display: 'flex', alignItems: { xs: 'flex-start', sm: 'center' }, justifyContent: 'space-between', flexWrap: 'wrap', gap: 1.5 }}>
+              <Box>
+                <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                  Download Trackrr Companion Extension
                 </Typography>
-                <ol style={{ margin: 0, paddingLeft: 18, lineHeight: 1.6 }}>
-                  <li>Open a new tab in Chrome and go to: <code style={{ background: 'rgba(255,255,255,0.1)', padding: '2px 4px', borderRadius: 4 }}>chrome://extensions</code></li>
-                  <li>Turn on the <strong>Developer mode</strong> toggle in the top-right corner.</li>
-                  <li>Click <strong>Load unpacked</strong> in the top-left corner.</li>
-                  <li>Select the <code style={{ background: 'rgba(255,255,255,0.1)', padding: '2px 4px', borderRadius: 4 }}>trackrr-extension</code> folder inside your Trackrr project folder.</li>
-                  <li>Return here &rarr; this badge will turn green automatically!</li>
-                </ol>
-              </Alert>
-
-              <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center', flexWrap: 'wrap' }}>
+                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+                  Extract full-resolution covers, live likes, and views without any Meta API keys or rate limits.
+                </Typography>
+              </Box>
+              <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
+                <Button
+                  variant="contained"
+                  component="a"
+                  href="/trackrr-extension.zip"
+                  download="trackrr-extension.zip"
+                  startIcon={<FileDownloadRoundedIcon />}
+                  sx={{
+                    background: 'linear-gradient(135deg, #06B6D4 0%, #3B82F6 100%)',
+                    color: '#fff',
+                    fontWeight: 800,
+                    textTransform: 'none',
+                    fontSize: '0.82rem',
+                    px: 2.5,
+                    py: 0.8,
+                    borderRadius: 1.5,
+                    boxShadow: '0 4px 12px rgba(6, 182, 212, 0.3)',
+                    '&:hover': {
+                      background: 'linear-gradient(135deg, #0891B2 0%, #2563EB 100%)',
+                    },
+                  }}
+                >
+                  Download Extension (.zip)
+                </Button>
                 <Button
                   variant="outlined"
                   size="small"
@@ -1017,199 +960,65 @@ export default function SettingsView() {
                     setTimeout(() => {
                       const detected = isTrackrrExtensionInstalled();
                       setExtActive(detected);
-                      setToastMessage(detected ? 'Extension detected and active!' : 'Extension not detected yet. Make sure it is loaded in chrome://extensions');
+                      setToastMessage(detected ? 'Extension detected and active!' : 'Extension not detected yet. Follow the 3 steps below to load it.');
                     }, 300);
                   }}
                   startIcon={<SyncRoundedIcon sx={{ fontSize: 16 }} />}
-                  sx={{ textTransform: 'none', fontWeight: 700, fontSize: '0.75rem' }}
+                  sx={{ textTransform: 'none', fontWeight: 700, fontSize: '0.78rem' }}
                 >
                   Verify Connection
                 </Button>
-                <Typography variant="caption" sx={{ color: 'text.secondary' }}>
-                  Path: <code style={{ fontSize: '0.72rem' }}>trackrr-extension</code>
-                </Typography>
-              </Box>
-            </Box>
-          )}
-        </Card>
-
-        {/* Meta & Instagram Auto-Fetch Configuration */}
-        <Card sx={{ p: 2.5, mb: 2.5 }}>
-          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1, flexWrap: 'wrap', gap: 1 }}>
-            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
-              <Box
-                sx={{
-                  width: 38,
-                  height: 38,
-                  borderRadius: 2,
-                  display: 'flex',
-                  alignItems: 'center',
-                  justifyContent: 'center',
-                  background: 'linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%)',
-                  color: '#fff',
-                  boxShadow: '0 4px 12px rgba(220, 39, 67, 0.3)',
-                }}
-              >
-                <InstagramIcon sx={{ fontSize: 22 }} />
-              </Box>
-              <Box>
-                <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.2 }}>
-                  Meta & Instagram Auto-Fetch
-                </Typography>
-                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
-                  Auto-extract HD thumbnails, publication dates, live likes, and captions from Reels
-                </Typography>
               </Box>
             </Box>
 
-            {/* Status Chip */}
-            {metaUserToken ? (
-              <Chip
-                label="Full Access: Business Discovery Active"
-                color="success"
-                size="small"
-                icon={<CheckCircleRoundedIcon sx={{ fontSize: '14px !important' }} />}
-                sx={{ fontWeight: 700, fontSize: '0.72rem' }}
-              />
-            ) : (
-              <Chip
-                label="Built-in Meta App Active (Global Default)"
-                color="primary"
-                size="small"
-                icon={<CheckCircleRoundedIcon sx={{ fontSize: '14px !important' }} />}
-                sx={{ fontWeight: 700, fontSize: '0.72rem' }}
-              />
-            )}
-          </Box>
+            <Divider sx={{ borderColor: 'divider' }} />
 
-          <Alert severity="info" sx={{ my: 2, fontSize: '0.8rem', lineHeight: 1.5 }}>
-            <strong>Built-in Meta Credentials Active:</strong> Meta App ID and Client Token are pre-configured globally into Trackrr.
-            To unlock live reel metrics (live like counts, full captions, and HD thumbnails for your client batches), simply add your <strong>Meta User Access Token</strong> below.
-          </Alert>
+            {/* Quick 3-Step Setup */}
+            <Box>
+              <Typography variant="caption" sx={{ fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em', color: 'primary.main', mb: 1, display: 'block' }}>
+                Quick 3-Step Installation (Takes 15 seconds)
+              </Typography>
+              <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: 'repeat(3, 1fr)' }, gap: 1.5 }}>
+                <Box sx={{ p: 1.5, borderRadius: 1.5, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+                  <Typography variant="body2" sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.5, color: '#06B6D4' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 20, height: 20, borderRadius: '50%', background: 'rgba(6,182,212,0.15)', fontSize: '0.75rem', fontWeight: 900 }}>1</span>
+                    Download & Unzip
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', lineHeight: 1.4 }}>
+                    Click <strong>Download Extension (.zip)</strong> above and extract the folder to your computer.
+                  </Typography>
+                </Box>
 
-          {/* Credentials Inputs */}
-          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mb: 2.5 }}>
-            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
-              {/* Meta App ID */}
-              <TextField
-                label="Meta App ID"
-                size="small"
-                fullWidth
-                placeholder="e.g. 123456789012345"
-                value={metaAppId}
-                onChange={e => setMetaAppId(e.target.value)}
-                helperText={metaAppId === DEFAULT_META_APP_ID ? 'Built-in system default (Pre-configured for all users)' : 'Custom App ID override'}
-              />
+                <Box sx={{ p: 1.5, borderRadius: 1.5, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+                  <Typography variant="body2" sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.5, color: '#3B82F6' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 20, height: 20, borderRadius: '50%', background: 'rgba(59,130,246,0.15)', fontSize: '0.75rem', fontWeight: 900 }}>2</span>
+                    Open Extensions
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', lineHeight: 1.4 }}>
+                    In Chrome, go to <code style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 4px', borderRadius: 3 }}>chrome://extensions</code> and turn on <strong>Developer mode</strong> (top right).
+                  </Typography>
+                </Box>
 
-              {/* Meta Client Token */}
-              <TextField
-                label="Meta Client Token"
-                size="small"
-                fullWidth
-                type={showTokens ? 'text' : 'password'}
-                placeholder="e.g. a1b2c3d4e5f6..."
-                value={metaClientToken}
-                onChange={e => setMetaClientToken(e.target.value)}
-                helperText={metaClientToken === DEFAULT_META_CLIENT_TOKEN ? 'Built-in system default (Pre-configured for all users)' : 'Custom Client Token override'}
-                InputProps={{
-                  endAdornment: (
-                    <InputAdornment position="end">
-                      <IconButton size="small" onClick={() => setShowTokens(!showTokens)}>
-                        {showTokens ? <VisibilityOffRoundedIcon sx={{ fontSize: 16 }} /> : <VisibilityRoundedIcon sx={{ fontSize: 16 }} />}
-                      </IconButton>
-                    </InputAdornment>
-                  ),
-                }}
-              />
-
-              {/* Meta User Access Token */}
-              <TextField
-                label="Meta User Access Token (Long-Lived)"
-                size="small"
-                fullWidth
-                type={showTokens ? 'text' : 'password'}
-                placeholder="e.g. EAA..."
-                value={metaUserToken}
-                onChange={e => setMetaUserToken(e.target.value)}
-                helperText="User token with instagram_basic & pages_show_list permissions"
-                InputProps={{
-                  endAdornment: (
-                    <InputAdornment position="end">
-                      <IconButton size="small" onClick={() => setShowTokens(!showTokens)}>
-                        {showTokens ? <VisibilityOffRoundedIcon sx={{ fontSize: 16 }} /> : <VisibilityRoundedIcon sx={{ fontSize: 16 }} />}
-                      </IconButton>
-                    </InputAdornment>
-                  ),
-                }}
-              />
-
-              {/* Connected Instagram Business Account ID */}
-              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
-                <TextField
-                  label="Instagram Account ID (Business / Creator)"
-                  size="small"
-                  fullWidth
-                  placeholder="e.g. 178414..."
-                  value={metaIgUserId}
-                  onChange={e => setMetaIgUserId(e.target.value)}
-                  helperText="Your linked Instagram ID (starts with 178414...)"
-                />
-                <Button
-                  size="small"
-                  variant="text"
-                  startIcon={detectingIgId ? <CircularProgress size={13} /> : <SyncRoundedIcon sx={{ fontSize: 14 }} />}
-                  onClick={handleAutoDetectIgId}
-                  disabled={detectingIgId || !metaUserToken.trim()}
-                  sx={{
-                    alignSelf: 'flex-start',
-                    fontSize: '0.73rem',
-                    textTransform: 'none',
-                    fontWeight: 700,
-                    py: 0.25,
-                    px: 0.75,
-                    color: '#E1306C',
-                  }}
-                >
-                  {detectingIgId ? 'Auto-detecting ID…' : '⚡ Auto-Detect ID from User Token'}
-                </Button>
+                <Box sx={{ p: 1.5, borderRadius: 1.5, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+                  <Typography variant="body2" sx={{ fontWeight: 800, display: 'flex', alignItems: 'center', gap: 0.75, mb: 0.5, color: '#10B981' }}>
+                    <span style={{ display: 'inline-flex', alignItems: 'center', justifyContent: 'center', width: 20, height: 20, borderRadius: '50%', background: 'rgba(16,185,129,0.15)', fontSize: '0.75rem', fontWeight: 900 }}>3</span>
+                    Load Unpacked
+                  </Typography>
+                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', lineHeight: 1.4 }}>
+                    Click <strong>Load unpacked</strong> and select the unzipped <code style={{ background: 'rgba(255,255,255,0.08)', padding: '1px 4px', borderRadius: 3 }}>trackrr-extension</code> folder. Done!
+                  </Typography>
+                </Box>
               </Box>
-            </Box>
-
-            {/* Save & Clear Buttons */}
-            <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center', mt: 0.5 }}>
-              <Button
-                variant="contained"
-                onClick={handleSaveMetaCredentials}
-                sx={{
-                  background: 'linear-gradient(45deg, #f09433, #dc2743, #bc1888)',
-                  '&:hover': { background: 'linear-gradient(45deg, #e6683c, #cc2366, #9c126e)' },
-                  fontWeight: 700,
-                  textTransform: 'none',
-                  px: 3,
-                }}
-              >
-                Save Meta Credentials
-              </Button>
-              {(metaAppId || metaClientToken || metaUserToken || metaIgUserId) && (
-                <Button
-                  variant="outlined"
-                  color="inherit"
-                  onClick={handleClearMetaCredentials}
-                  sx={{ textTransform: 'none', borderColor: 'divider', color: 'text.secondary' }}
-                >
-                  Clear Credentials
-                </Button>
-              )}
             </Box>
           </Box>
 
           {/* Test Link Fetch Section */}
-          <Box sx={{ p: 2, bgcolor: 'action.hover', borderRadius: 2, border: '1px solid', borderColor: 'divider', mb: 2 }}>
+          <Box sx={{ p: 2, bgcolor: 'action.hover', borderRadius: 2, border: '1px solid', borderColor: 'divider' }}>
             <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.5 }}>
               Test Video Metadata Extraction
             </Typography>
             <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1.5 }}>
-              Paste any Instagram Reel URL and test thumbnail, date, likes, and caption retrieval in real-time.
+              Paste any Instagram Reel link to test real-time thumbnail, date, views, likes, and caption retrieval.
             </Typography>
 
             <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, gap: 1.5 }}>
@@ -1219,13 +1028,6 @@ export default function SettingsView() {
                 placeholder="https://www.instagram.com/reel/... or https://youtube.com/..."
                 value={metaTestUrl}
                 onChange={e => setMetaTestUrl(e.target.value)}
-                sx={{ flex: 2 }}
-              />
-              <TextField
-                size="small"
-                placeholder="Creator handle e.g. leoholidays.in (Optional)"
-                value={metaTestHandle}
-                onChange={e => setMetaTestHandle(e.target.value)}
                 sx={{ flex: 1 }}
               />
               <Button
@@ -1254,13 +1056,7 @@ export default function SettingsView() {
                         </Typography>
                       </Box>
                       <Chip
-                        label={
-                          metaTestResult.usedOfficialMetaApi && metaTestResult.likesCount
-                            ? 'Official Meta Business Discovery (HD Thumbnail + Likes + Caption)'
-                            : metaTestResult.usedOfficialMetaApi
-                            ? 'Official Meta oEmbed API'
-                            : 'Fallback Resolver / Snowflake'
-                        }
+                        label={metaTestResult.usedOfficialMetaApi ? 'Extracted via Chrome Extension' : 'Extracted via Link Fallback'}
                         size="small"
                         color={metaTestResult.usedOfficialMetaApi ? 'success' : 'default'}
                         sx={{ height: 22, fontSize: '0.68rem', fontWeight: 700 }}
@@ -1304,6 +1100,14 @@ export default function SettingsView() {
                               </Typography>
                             </Box>
                           )}
+                          {metaTestResult.viewsCount && (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: '#38BDF8' }}>
+                              <VisibilityRoundedIcon sx={{ fontSize: 14 }} />
+                              <Typography variant="caption" sx={{ fontWeight: 700 }}>
+                                {metaTestResult.viewsCount} views
+                              </Typography>
+                            </Box>
+                          )}
                           {metaTestResult.likesCount && (
                             <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: '#E1306C' }}>
                               <FavoriteRoundedIcon sx={{ fontSize: 14 }} />
@@ -1320,60 +1124,11 @@ export default function SettingsView() {
                         </Box>
                       </Box>
                     </Box>
-
-                    {metaTestResult.metaApiError && (
-                      <Alert severity="info" sx={{ mt: 1, py: 0.5, fontSize: '0.78rem' }}>
-                        Meta Notice: {metaTestResult.metaApiError}
-                      </Alert>
-                    )}
                   </Box>
                 )}
               </Box>
             )}
           </Box>
-
-          {/* Quick Setup Instructions Accordion */}
-          <Accordion
-            sx={{
-              bgcolor: 'action.hover',
-              backgroundImage: 'none',
-              border: '1px solid',
-              borderColor: 'divider',
-              borderRadius: '8px !important',
-              '&:before': { display: 'none' },
-            }}
-          >
-            <AccordionSummary expandIcon={<ExpandMoreRoundedIcon sx={{ fontSize: 18 }} />}>
-              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <HelpOutlineRoundedIcon sx={{ fontSize: 16, color: 'primary.main' }} />
-                <Typography variant="body2" sx={{ fontWeight: 700 }}>
-                  Quick Step-by-Step Setup Guide (Free)
-                </Typography>
-              </Box>
-            </AccordionSummary>
-            <AccordionDetails sx={{ pt: 0, fontSize: '0.8rem', lineHeight: 1.6 }}>
-              <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.5 }}>
-                1. Basic oEmbed App Credentials (Dates & Post Info, Never Expires):
-              </Typography>
-              <ol style={{ margin: '0 0 12px 0', paddingLeft: 20 }}>
-                <li>Visit <a href="https://developers.facebook.com" target="_blank" rel="noopener noreferrer" style={{ color: '#38BDF8', fontWeight: 600 }}>developers.facebook.com</a> and click <strong>Create App</strong> (Type: <em>Other &gt; Business</em>).</li>
-                <li>In <em>Add Products</em>, add <strong>oEmbed</strong>.</li>
-                <li>Go to <strong>App Settings &gt; Basic</strong> to copy your <strong>App ID</strong>.</li>
-                <li>Under <strong>App Settings &gt; Advanced</strong>, copy your <strong>Client Token</strong>.</li>
-              </ol>
-
-              <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.5 }}>
-                2. User Access Token (Unlocks Live Likes, Captions & HD Thumbnails via Business Discovery):
-              </Typography>
-              <ol style={{ margin: 0, paddingLeft: 20 }}>
-                <li>In Meta Developer Portal, go to <strong>Tools &gt; Graph API Explorer</strong>.</li>
-                <li>Select your App, add permissions <code>instagram_basic</code> and <code>pages_show_list</code>, and click <strong>Generate Access Token</strong>.</li>
-                <li>Paste the token into the <strong>Meta User Access Token</strong> field above.</li>
-                <li>Click <strong>⚡ Auto-Detect ID from User Token</strong> to automatically find and link your Instagram Creator Account ID!</li>
-                <li>Click <strong>Save Meta Credentials</strong>.</li>
-              </ol>
-            </AccordionDetails>
-          </Accordion>
         </Card>
 
         {/* Supabase Cloud Database Setup */}

@@ -36,14 +36,25 @@ export const DEFAULT_META_CLIENT_TOKEN = '0929768c61c7ff78983c6cded5a3bfb7';
  */
 export function formatMetricCount(val: number | string | null | undefined): string | null {
   if (val === null || val === undefined) return null;
-  const str = String(val).trim();
-  if (!str) return null;
-  // If already formatted like 14.5K or 2.1M, return clean
-  if (/[kKmMbB]/.test(str)) {
-    return str.toUpperCase();
+  let str = String(val).trim();
+  if (!str || !/\d/.test(str)) return null; // CRITICAL: must contain at least one digit! Never return "M" or non-digit strings
+
+  // Strip extraneous labels like "likes", "views", "plays"
+  str = str.replace(/^(?:likes?|views?|plays?)\s*|\s*(?:likes?|views?|plays?)$/gi, '').trim();
+
+  // If already formatted with suffix like 14.5K, 2.1M, 1B
+  const suffixMatch = str.match(/^([0-9]+(?:[.,][0-9]+)?)\s*([kKmMbB])$/i);
+  if (suffixMatch) {
+    const numPart = suffixMatch[1].replace(',', '.');
+    const unit = suffixMatch[2].toUpperCase();
+    return `${numPart}${unit}`;
   }
-  const num = parseInt(str.replace(/[^0-9]/g, ''), 10);
-  if (isNaN(num)) return str;
+
+  const cleanDigits = str.replace(/[^0-9]/g, '');
+  if (!cleanDigits) return null;
+  const num = parseInt(cleanDigits, 10);
+  if (isNaN(num)) return null;
+
   if (num >= 1_000_000_000) {
     const formatted = (num / 1_000_000_000).toFixed(1);
     return formatted.endsWith('.0') ? `${formatted.slice(0, -2)}B` : `${formatted}B`;
@@ -312,18 +323,20 @@ export interface CachedVideoMeta {
   thumbnailUrl: string | null;
   caption: string | null;
   likes: string | null;
+  views: string | null;
   postedDate: string | null;
 }
 
 /**
  * Searches localStorage (direct keys and trackrr_recent_ig_ posts) to recover
- * cached thumbnail, caption, likes, and postedDate for any video URL or shortcode.
+ * cached thumbnail, caption, likes, views, and postedDate for any video URL or shortcode.
  */
 export function getCachedVideoMeta(url?: string | null): CachedVideoMeta {
   const res: CachedVideoMeta = {
     thumbnailUrl: null,
     caption: null,
     likes: null,
+    views: null,
     postedDate: null,
   };
   if (!url) return res;
@@ -357,7 +370,11 @@ export function getCachedVideoMeta(url?: string | null): CachedVideoMeta {
       }
       if (!res.likes) {
         const val = localStorage.getItem(`trackrr_likes_${k}`);
-        if (val) res.likes = val;
+        if (val) res.likes = formatMetricCount(val);
+      }
+      if (!res.views) {
+        const val = localStorage.getItem(`trackrr_views_${k}`);
+        if (val) res.views = formatMetricCount(val);
       }
     }
   } catch {}
@@ -385,6 +402,7 @@ export function getCachedVideoMeta(url?: string | null): CachedVideoMeta {
               if (!res.thumbnailUrl && match.thumbnailUrl) res.thumbnailUrl = match.thumbnailUrl;
               if (!res.caption && match.caption) res.caption = match.caption;
               if (!res.likes && match.likesCount) res.likes = formatMetricCount(match.likesCount);
+              if (!res.views && match.viewsCount) res.views = formatMetricCount(match.viewsCount);
               if (!res.postedDate && (match.postedDateTime || match.postedDate)) {
                 res.postedDate = match.postedDateTime || match.postedDate;
               }
@@ -400,12 +418,12 @@ export function getCachedVideoMeta(url?: string | null): CachedVideoMeta {
 }
 
 /**
- * Persists thumbnail, caption, and likes into localStorage under clean, cleanNoSlash,
+ * Persists thumbnail, caption, likes, and views into localStorage under clean, cleanNoSlash,
  * raw URL, and shortcode variants for maximum retrieval resilience.
  */
 export function saveCachedVideoMeta(
   url: string,
-  meta: { thumbnailUrl?: string | null; caption?: string | null; likes?: string | null }
+  meta: { thumbnailUrl?: string | null; caption?: string | null; likes?: string | null; views?: string | null }
 ) {
   if (!url) return;
   const clean = cleanVideoUrl(url);
@@ -426,7 +444,16 @@ export function saveCachedVideoMeta(
       try { localStorage.setItem(`trackrr_caption_${k}`, meta.caption); } catch {}
     }
     if (meta.likes) {
-      try { localStorage.setItem(`trackrr_likes_${k}`, meta.likes); } catch {}
+      const cleanLikes = formatMetricCount(meta.likes);
+      if (cleanLikes) {
+        try { localStorage.setItem(`trackrr_likes_${k}`, cleanLikes); } catch {}
+      }
+    }
+    if (meta.views) {
+      const cleanViews = formatMetricCount(meta.views);
+      if (cleanViews) {
+        try { localStorage.setItem(`trackrr_views_${k}`, cleanViews); } catch {}
+      }
     }
   }
 }
@@ -828,6 +855,7 @@ export async function fetchFromTrackrrExtension(url: string, timeoutMs = 4000): 
           postedDate: d.postedDate || null,
           postedDateTime: d.postedDateTime || null,
           likesCount: d.likesCount ? formatMetricCount(d.likesCount) : null,
+          viewsCount: d.viewsCount ? formatMetricCount(d.viewsCount) : null,
           commentsCount: d.commentsCount || null,
           caption: d.caption || null,
           title: d.caption ? d.caption.slice(0, 80) : undefined,
@@ -876,11 +904,12 @@ export async function fetchVideoMetadata(
     // Priority 1: Check Trackrr Chrome Extension bridge for instant browser-session extraction
     try {
       const extResult = await fetchFromTrackrrExtension(cleanUrl);
-      if (extResult && (extResult.thumbnailUrl || extResult.caption || extResult.likesCount)) {
+      if (extResult && (extResult.thumbnailUrl || extResult.caption || extResult.likesCount || extResult.viewsCount)) {
         saveCachedVideoMeta(cleanUrl, {
           thumbnailUrl: extResult.thumbnailUrl,
           caption: extResult.caption,
           likes: extResult.likesCount,
+          views: extResult.viewsCount,
         });
         const shortcode = extractInstagramShortcode(cleanUrl);
         if (extResult.thumbnailUrl && shortcode) {
@@ -1516,16 +1545,16 @@ export function extractVideoLikes(video: { views?: string | number | null; likes
     if (!rawLikes) {
       rawLikes = rawViews.replace(/likes?/i, '').trim();
     }
+    rawViews = '';
   }
 
-  // Clean likes to only be the number string (strip "likes", "like")
-  if (rawLikes) {
-    rawLikes = formatMetricCount(rawLikes.replace(/likes?/i, '').trim()) || '';
-  }
+  // Clean likes and views through formatMetricCount (which rejects any non-digit string like "M")
+  const cleanLikes = rawLikes ? (formatMetricCount(rawLikes.replace(/likes?/i, '').trim()) || null) : null;
+  const cleanViews = rawViews ? (formatMetricCount(rawViews.replace(/views?|plays?/i, '').trim()) || null) : null;
 
   return {
-    views: null,
-    likes: rawLikes || null,
+    views: cleanViews,
+    likes: cleanLikes,
   };
 }
 

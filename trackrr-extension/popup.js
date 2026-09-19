@@ -19,7 +19,8 @@ document.getElementById('testBtn').addEventListener('click', async () => {
     resultBox.style.display = 'block';
     document.getElementById('resThumb').src = res.thumbnailUrl || '';
     document.getElementById('resCaption').innerText = res.caption ? (res.caption.slice(0, 40) + '...') : (res.author || 'Reel');
-    document.getElementById('resLikes').innerText = res.likesCount ? ('❤️ ' + res.likesCount) : 'Likes hidden';
+    document.getElementById('resViews').innerText = res.viewsCount ? ('👁️ ' + res.viewsCount) : '👁️ -';
+    document.getElementById('resLikes').innerText = res.likesCount ? ('❤️ ' + res.likesCount) : '❤️ -';
     document.getElementById('resDate').innerText = 'Posted: ' + (res.postedDate || 'Unknown');
   });
 });

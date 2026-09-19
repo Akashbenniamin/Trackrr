@@ -114,10 +114,19 @@
       flex: 1;
       overflow: hidden;
     }
-    .preview-likes {
-      color: #F43F5E;
+    .preview-metrics {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      font-size: 11px;
       font-weight: 700;
       margin-top: 2px;
+    }
+    .preview-views {
+      color: #38BDF8;
+    }
+    .preview-likes {
+      color: #F43F5E;
     }
   </style>
 </head>
@@ -136,7 +145,7 @@
   </div>
 
   <div class="desc">
-    This extension automatically provides live Instagram Reel thumbnails, captions, and like counts to your Trackrr dashboard.
+    This extension automatically provides live Instagram Reel thumbnails, captions, views, and like counts to your Trackrr dashboard.
   </div>
 
   <div class="input-box">
@@ -149,8 +158,12 @@
       <img id="resThumb" class="preview-thumb" src="" alt="thumb" />
       <div class="preview-info">
         <div id="resCaption" style="font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;">Caption</div>
-        <div id="resLikes" class="preview-likes">❤️ 0 likes</div>
-        <div id="resDate" style="color: #94A3B8; font-size: 10px;">Date</div>
+        <div class="preview-metrics">
+          <span id="resViews" class="preview-views">👁️ 0 views</span>
+          <span style="opacity: 0.4">•</span>
+          <span id="resLikes" class="preview-likes">❤️ 0 likes</span>
+        </div>
+        <div id="resDate" style="color: #94A3B8; font-size: 10px; margin-top: 2px;">Date</div>
       </div>
     </div>
   </div>
