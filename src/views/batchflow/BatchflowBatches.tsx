@@ -1188,7 +1188,7 @@ export default function BatchflowBatches() {
 
     // Workspace name above client name
     const wsName = (activeWorkspace?.name || 'Workspace').toUpperCase();
-    doc.setFont('helvetica', 'bold');
+    doc.setFont('Okine', 'bold');
     doc.setFontSize(8);
     doc.setTextColor(129, 140, 248);
     doc.text(wsName, margin, 11.5);
@@ -1203,7 +1203,7 @@ export default function BatchflowBatches() {
 
     // Subtitle / generated timestamp
     const dateStr = `Exported on ${new Date().toLocaleDateString('en-US', { month: 'short', day: 'numeric', year: 'numeric' })}`;
-    doc.setFont('helvetica', 'normal');
+    doc.setFont('Okine', 'normal');
     doc.setFontSize(7.5);
     doc.setTextColor(148, 163, 184);
     doc.text(dateStr, margin, 28);
@@ -1211,7 +1211,7 @@ export default function BatchflowBatches() {
     // Right Tag: Batch Name in dark pill without "Client:" or "Batch:" prefix
     const batchTag = batch.name.toUpperCase();
     doc.setFontSize(8.5);
-    doc.setFont('helvetica', 'bold');
+    doc.setFont('Okine', 'bold');
     const tagWidth = doc.getTextWidth(batchTag) + 12;
     const tagX = pageWidth - margin - tagWidth;
     doc.setFillColor(30, 41, 59); // #1E293B
@@ -1220,7 +1220,7 @@ export default function BatchflowBatches() {
     doc.text(batchTag, tagX + 6, 14.8);
 
     // Shoot Date on header right
-    doc.setFont('helvetica', 'normal');
+    doc.setFont('Okine', 'normal');
     doc.setFontSize(8);
     doc.setTextColor(148, 163, 184);
     const shootDateStr = batch.shoot_date ? `Shoot Date: ${batch.shoot_date}` : 'Shoot Date: Not specified';
@@ -1337,7 +1337,7 @@ export default function BatchflowBatches() {
       doc.setFillColor(kpi.dot[0], kpi.dot[1], kpi.dot[2]);
       doc.circle(dotX, dotY, 1.0, 'F');
 
-      doc.setFont('helvetica', 'bold');
+      doc.setFont('Okine', 'bold');
       doc.setFontSize(7.2);
       doc.setTextColor(kpi.text[0], kpi.text[1], kpi.text[2]);
       doc.text(kpi.label, dotX + 3.8, dotY, { baseline: 'middle' });
@@ -1373,7 +1373,7 @@ export default function BatchflowBatches() {
       doc.setFillColor(30, 41, 59); // #1E293B
       doc.rect(margin, yPos, contentWidth, hHeight, 'F');
 
-      doc.setFont('helvetica', 'bold');
+      doc.setFont('Okine', 'bold');
       doc.setFontSize(8.5);
       doc.setTextColor(241, 245, 249); // #F1F5F9
       doc.text('VIDEO TITLE', margin + 23.0, yPos + 7.2);
@@ -1456,16 +1456,16 @@ export default function BatchflowBatches() {
           } catch {}
           doc.addImage(base64Img, 'JPEG', drawX, drawY, drawW, drawH);
         } catch {
-          doc.setFont('helvetica', 'bold');
+          doc.setFont('Okine', 'bold');
           doc.setFontSize(10.5);
           doc.setTextColor(148, 163, 184);
-          doc.text(`#${v.script_number || index + 1}`, thumbX + thumbSize / 2, thumbY + 10.2, { align: 'center' });
+          doc.text(`#${v.script_number || index + 1}`, thumbX + thumbSize / 2, thumbY + 10.5, { align: 'center' });
         }
       } else {
-        doc.setFont('helvetica', 'bold');
+        doc.setFont('Okine', 'bold');
         doc.setFontSize(10.5);
         doc.setTextColor(148, 163, 184);
-        doc.text(`#${v.script_number || index + 1}`, thumbX + thumbSize / 2, thumbY + 10.2, { align: 'center' });
+        doc.text(`#${v.script_number || index + 1}`, thumbX + thumbSize / 2, thumbY + 10.5, { align: 'center' });
       }
 
       // Title + Caption Snippet
@@ -1479,9 +1479,9 @@ export default function BatchflowBatches() {
       const maxColWidth = 73.0;
 
       if (cleanSnippet) {
-        // Line 1: Bold Title (Enlarged by ~5pts for prominent readability)
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(15.5);
+        // Line 1: Bold Title (MADE Okine Sans Bold, reduced to 12.5pt for clean, balanced hierarchy)
+        doc.setFont('Okine', 'bold');
+        doc.setFontSize(12.5);
         doc.setTextColor(15, 23, 42);
         let displayTitle = cleanBaseTitle;
         if (doc.getTextWidth(displayTitle) > maxColWidth) {
@@ -1490,11 +1490,11 @@ export default function BatchflowBatches() {
           }
           displayTitle += '...';
         }
-        doc.text(displayTitle, titleStartX, curY + 11.0);
+        doc.text(displayTitle, titleStartX, curY + 10.5);
 
-        // Line 2: Caption Snippet (Thicker bold-italic in darker slate #334155, 9.5pt)
-        doc.setFont('helvetica', 'bolditalic');
-        doc.setFontSize(9.5);
+        // Line 2: Caption Snippet (MADE Okine Sans Regular, reduced to 8.2pt in #334155)
+        doc.setFont('Okine', 'normal');
+        doc.setFontSize(8.2);
         doc.setTextColor(51, 65, 85); // #334155
         let displaySnippet = `(${cleanSnippet})`;
         if (doc.getTextWidth(displaySnippet) > maxColWidth) {
@@ -1503,11 +1503,11 @@ export default function BatchflowBatches() {
           }
           displaySnippet = displaySnippet.slice(0, -1).trim() + '...)';
         }
-        doc.text(displaySnippet, titleStartX, curY + 18.0);
+        doc.text(displaySnippet, titleStartX, curY + 16.8);
       } else {
-        // Vertically centered single-line title (Enlarged by ~5pts)
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(15.5);
+        // Vertically centered single-line title (MADE Okine Sans Bold, 12.5pt)
+        doc.setFont('Okine', 'bold');
+        doc.setFontSize(12.5);
         doc.setTextColor(15, 23, 42);
         let displayTitle = cleanBaseTitle;
         if (doc.getTextWidth(displayTitle) > maxColWidth) {
@@ -1535,19 +1535,19 @@ export default function BatchflowBatches() {
         : ((v.views != null && String(v.views).trim() !== '') ? String(v.views).trim() : (syncedViews[v.id] || cachedMeta?.views));
 
       // Line 1: Likes (Soft red #EF4444)
-      doc.setFont('helvetica', 'bold');
+      doc.setFont('Okine', 'bold');
       doc.setFontSize(9.5);
       doc.setTextColor(239, 68, 68);
       doc.text(vLikes ? `${vLikes} likes` : '- likes', margin + 100.0, curY + 10.5);
 
       // Line 2: Views (Sky blue #0284C7)
-      doc.setFont('helvetica', 'bold');
+      doc.setFont('Okine', 'bold');
       doc.setFontSize(9.5);
       doc.setTextColor(2, 132, 199);
       doc.text(vViews ? `${vViews} views` : '- views', margin + 100.0, curY + 16.8);
 
       // SCRIPT NO. Column
-      doc.setFont('helvetica', 'bold');
+      doc.setFont('Okine', 'bold');
       doc.setFontSize(11);
       doc.setTextColor(71, 85, 105);
       doc.text(v.script_number === 0 ? '-' : String(v.script_number ?? '-'), margin + 128.0, curY + 14.5, { align: 'center' });
@@ -1562,7 +1562,7 @@ export default function BatchflowBatches() {
         doc.setFillColor(209, 250, 229);
         doc.setDrawColor(167, 243, 208);
         doc.roundedRect(pillX, pillY, pillW, pillH, 2.0, 2.0, 'FD');
-        doc.setFont('helvetica', 'bold');
+        doc.setFont('Okine', 'bold');
         doc.setFontSize(8.5);
         doc.setTextColor(4, 120, 87);
         doc.text('POSTED', pillX + pillW / 2, pillY + 5.8, { align: 'center' });
@@ -1573,7 +1573,7 @@ export default function BatchflowBatches() {
         doc.setFillColor(219, 234, 254);
         doc.setDrawColor(191, 219, 254);
         doc.roundedRect(pillX, pillY, pillW, pillH, 2.0, 2.0, 'FD');
-        doc.setFont('helvetica', 'bold');
+        doc.setFont('Okine', 'bold');
         doc.setFontSize(8.5);
         doc.setTextColor(29, 78, 216);
         doc.text('EDITED', pillX + pillW / 2, pillY + 5.8, { align: 'center' });
@@ -1581,7 +1581,7 @@ export default function BatchflowBatches() {
         doc.setFillColor(254, 243, 199);
         doc.setDrawColor(253, 230, 138);
         doc.roundedRect(pillX, pillY, pillW, pillH, 2.0, 2.0, 'FD');
-        doc.setFont('helvetica', 'bold');
+        doc.setFont('Okine', 'bold');
         doc.setFontSize(8.5);
         doc.setTextColor(180, 83, 9);
         doc.text('PENDING', pillX + pillW / 2, pillY + 5.8, { align: 'center' });
@@ -1593,24 +1593,24 @@ export default function BatchflowBatches() {
         const rawDate = urlDate || (v.status === 'Posted' && v.posted_date ? v.posted_date.slice(0, 10) : (v.status === 'Edited' && v.edited_date ? v.edited_date.slice(0, 10) : null));
         const stacked = formatStackedDate(rawDate);
         if (stacked) {
-          doc.setFont('helvetica', 'bold');
+          doc.setFont('Okine', 'bold');
           doc.setFontSize(9.0);
           doc.setTextColor(30, 41, 59);
           doc.text(stacked[0], margin + 165.0, curY + 10.5);
 
-          doc.setFont('helvetica', 'normal');
+          doc.setFont('Okine', 'normal');
           doc.setFontSize(8.5);
           doc.setTextColor(100, 116, 139);
           doc.text(stacked[1], margin + 165.0, curY + 16.5);
         } else {
-          doc.setFont('helvetica', 'normal');
+          doc.setFont('Okine', 'normal');
           doc.setFontSize(10.0);
           doc.setTextColor(148, 163, 184);
           doc.text('-', margin + 165.0, curY + 14.5);
         }
       } else {
         // Pending: remove date completely
-        doc.setFont('helvetica', 'normal');
+        doc.setFont('Okine', 'normal');
         doc.setFontSize(10.0);
         doc.setTextColor(148, 163, 184);
         doc.text('-', margin + 165.0, curY + 14.5);
@@ -4752,14 +4752,16 @@ script 2
                           #{v.script_number ?? index + 1}
                         </Box>
                       )}
-                      <Typography sx={{ fontSize: '16.5px', fontWeight: 700, color: '#0F172A', lineHeight: 1.3 }}>
-                        {v.name || `Video #${v.script_number ?? index + 1}`}
+                      <Box sx={{ minWidth: 0 }}>
+                        <Typography sx={{ fontSize: '14.5px', fontWeight: 800, color: '#0F172A', lineHeight: 1.25 }}>
+                          {v.name || `Video #${v.script_number ?? index + 1}`}
+                        </Typography>
                         {snippet && (
-                          <Typography component="span" sx={{ fontSize: '14.5px', fontWeight: 500, color: '#64748B', ml: 0.75, fontStyle: 'italic' }}>
+                          <Typography sx={{ fontSize: '11px', fontWeight: 500, color: '#334155', mt: 0.25, lineHeight: 1.2 }}>
                             ({snippet})
                           </Typography>
                         )}
-                      </Typography>
+                      </Box>
                     </Box>
 
                     {/* Col 3: Likes in Soft Red & Views in Sky Blue */}
