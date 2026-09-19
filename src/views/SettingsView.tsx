@@ -256,15 +256,15 @@ export default function SettingsView() {
     setDownloadingExt(true);
     setToastMessage('Fetching latest Trackrr extension from GitHub...');
 
-    // 1. Direct GitHub raw download with cache buster (always latest commit)
+    // 1. Local mirror asset relative to base URL (instant & matches current build)
+    const localUrl = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/trackrr-extension.zip?t=${Date.now()}`;
+    // 2. Direct GitHub raw download fallback
     const githubUrl = `https://raw.githubusercontent.com/Akashbenniamin/Trackrr/main/public/trackrr-extension.zip?t=${Date.now()}`;
-    // 2. Local mirror asset relative to base URL
-    const localUrl = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/trackrr-extension.zip`;
 
     let downloaded = false;
 
     try {
-      const res = await fetch(githubUrl);
+      const res = await fetch(localUrl);
       if (res.ok) {
         const blob = await res.blob();
         const blobUrl = URL.createObjectURL(blob);
@@ -275,16 +275,16 @@ export default function SettingsView() {
         a.click();
         document.body.removeChild(a);
         setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
-        setToastMessage('Latest Trackrr extension downloaded from GitHub!');
+        setToastMessage('Trackrr extension downloaded successfully!');
         downloaded = true;
       }
     } catch (e) {
-      console.warn('Direct GitHub fetch failed, attempting local mirror:', e);
+      console.warn('Local bundle fetch failed, attempting GitHub raw:', e);
     }
 
     if (!downloaded) {
       try {
-        const res = await fetch(localUrl);
+        const res = await fetch(githubUrl);
         if (res.ok) {
           const blob = await res.blob();
           const blobUrl = URL.createObjectURL(blob);
@@ -295,11 +295,11 @@ export default function SettingsView() {
           a.click();
           document.body.removeChild(a);
           setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
-          setToastMessage('Trackrr extension downloaded from local mirror!');
+          setToastMessage('Latest Trackrr extension downloaded from GitHub!');
           downloaded = true;
         }
       } catch (e) {
-        console.warn('Local mirror fetch failed:', e);
+        console.warn('GitHub raw fetch failed:', e);
       }
     }
 
