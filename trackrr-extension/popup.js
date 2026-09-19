@@ -24,3 +24,15 @@ document.getElementById('testBtn').addEventListener('click', async () => {
     document.getElementById('resDate').innerText = 'Posted: ' + (res.postedDate || 'Unknown');
   });
 });
+
+document.getElementById('reloadBtn')?.addEventListener('click', () => {
+  const btn = document.getElementById('reloadBtn');
+  if (btn) btn.innerText = 'Reloading...';
+  setTimeout(() => {
+    if (chrome?.runtime?.reload) {
+      chrome.runtime.reload();
+    } else {
+      window.location.reload();
+    }
+  }, 150);
+});

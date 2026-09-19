@@ -34,6 +34,7 @@ import CalendarTodayRoundedIcon from '@mui/icons-material/CalendarTodayRounded';
 import { useApp } from '../contexts/AppContext';
 import { useAuth } from '../contexts/AuthContext';
 import ExtensionRoundedIcon from '@mui/icons-material/ExtensionRounded';
+import GitHubIcon from '@mui/icons-material/GitHub';
 import { storage } from '../lib/storage';
 import {
   fetchVideoMetadata,
@@ -249,6 +250,66 @@ export default function SettingsView() {
 
   // Trackrr Chrome Extension Connection State
   const [extActive, setExtActive] = useState(false);
+  const [downloadingExt, setDownloadingExt] = useState(false);
+
+  const handleDownloadLatestExtension = async () => {
+    setDownloadingExt(true);
+    setToastMessage('Fetching latest Trackrr extension from GitHub...');
+
+    // 1. Direct GitHub raw download with cache buster (always latest commit)
+    const githubUrl = `https://raw.githubusercontent.com/Akashbenniamin/Trackrr/main/public/trackrr-extension.zip?t=${Date.now()}`;
+    // 2. Local mirror asset relative to base URL
+    const localUrl = `${import.meta.env.BASE_URL.replace(/\/$/, '')}/trackrr-extension.zip`;
+
+    let downloaded = false;
+
+    try {
+      const res = await fetch(githubUrl);
+      if (res.ok) {
+        const blob = await res.blob();
+        const blobUrl = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = blobUrl;
+        a.download = 'trackrr-extension.zip';
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+        setToastMessage('Latest Trackrr extension downloaded from GitHub!');
+        downloaded = true;
+      }
+    } catch (e) {
+      console.warn('Direct GitHub fetch failed, attempting local mirror:', e);
+    }
+
+    if (!downloaded) {
+      try {
+        const res = await fetch(localUrl);
+        if (res.ok) {
+          const blob = await res.blob();
+          const blobUrl = URL.createObjectURL(blob);
+          const a = document.createElement('a');
+          a.href = blobUrl;
+          a.download = 'trackrr-extension.zip';
+          document.body.appendChild(a);
+          a.click();
+          document.body.removeChild(a);
+          setTimeout(() => URL.revokeObjectURL(blobUrl), 1000);
+          setToastMessage('Trackrr extension downloaded from local mirror!');
+          downloaded = true;
+        }
+      } catch (e) {
+        console.warn('Local mirror fetch failed:', e);
+      }
+    }
+
+    if (!downloaded) {
+      window.open('https://raw.githubusercontent.com/Akashbenniamin/Trackrr/main/public/trackrr-extension.zip', '_blank');
+      setToastMessage('Opening GitHub download link...');
+    }
+
+    setDownloadingExt(false);
+  };
 
   useEffect(() => {
     const check = () => {
@@ -931,10 +992,9 @@ export default function SettingsView() {
               <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
                 <Button
                   variant="contained"
-                  component="a"
-                  href="/trackrr-extension.zip"
-                  download="trackrr-extension.zip"
-                  startIcon={<FileDownloadRoundedIcon />}
+                  onClick={handleDownloadLatestExtension}
+                  disabled={downloadingExt}
+                  startIcon={downloadingExt ? <CircularProgress size={16} sx={{ color: '#fff' }} /> : <FileDownloadRoundedIcon />}
                   sx={{
                     background: 'linear-gradient(135deg, #06B6D4 0%, #3B82F6 100%)',
                     color: '#fff',
@@ -950,7 +1010,19 @@ export default function SettingsView() {
                     },
                   }}
                 >
-                  Download Extension (.zip)
+                  {downloadingExt ? 'Downloading from GitHub...' : '1-Click Download (.zip)'}
+                </Button>
+                <Button
+                  variant="outlined"
+                  size="small"
+                  component="a"
+                  href="https://github.com/Akashbenniamin/Trackrr/tree/main/trackrr-extension"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  startIcon={<GitHubIcon sx={{ fontSize: 16 }} />}
+                  sx={{ textTransform: 'none', fontWeight: 700, fontSize: '0.78rem' }}
+                >
+                  GitHub Source
                 </Button>
                 <Button
                   variant="outlined"
@@ -985,7 +1057,7 @@ export default function SettingsView() {
                     Download & Unzip
                   </Typography>
                   <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', lineHeight: 1.4 }}>
-                    Click <strong>Download Extension (.zip)</strong> above and extract the folder to your computer.
+                    Click <strong>1-Click Download (.zip)</strong> above to fetch the latest version directly from GitHub, then extract the folder to your computer.
                   </Typography>
                 </Box>
 
