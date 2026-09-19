@@ -41,6 +41,8 @@ import { storage } from '../lib/storage';
 import {
   fetchVideoMetadata,
   resolveInstagramBusinessAccountId,
+  DEFAULT_META_APP_ID,
+  DEFAULT_META_CLIENT_TOKEN,
   type VideoMetadataResult,
 } from '../lib/videoMetadata';
 import type { WorkspaceType, ThemeStyle } from '../types';
@@ -250,9 +252,9 @@ export default function SettingsView() {
 
   const isBatchflow = activeWorkspace?.type === 'batchflow';
 
-  // Meta / Instagram API Credentials State
-  const [metaAppId, setMetaAppId] = useState(settings.meta_app_id || '');
-  const [metaClientToken, setMetaClientToken] = useState(settings.meta_client_token || '');
+  // Meta / Instagram API Credentials State (Defaulted to built-in system app credentials)
+  const [metaAppId, setMetaAppId] = useState(settings.meta_app_id || DEFAULT_META_APP_ID);
+  const [metaClientToken, setMetaClientToken] = useState(settings.meta_client_token || DEFAULT_META_CLIENT_TOKEN);
   const [metaUserToken, setMetaUserToken] = useState(settings.meta_user_token || '');
   const [metaIgUserId, setMetaIgUserId] = useState(settings.meta_ig_user_id || '');
   const [showTokens, setShowTokens] = useState(false);
@@ -260,8 +262,8 @@ export default function SettingsView() {
 
   // Keep state in sync if settings update from cloud
   useEffect(() => {
-    if (settings.meta_app_id !== undefined) setMetaAppId(settings.meta_app_id || '');
-    if (settings.meta_client_token !== undefined) setMetaClientToken(settings.meta_client_token || '');
+    setMetaAppId(settings.meta_app_id || DEFAULT_META_APP_ID);
+    setMetaClientToken(settings.meta_client_token || DEFAULT_META_CLIENT_TOKEN);
     if (settings.meta_user_token !== undefined) setMetaUserToken(settings.meta_user_token || '');
     if (settings.meta_ig_user_id !== undefined) setMetaIgUserId(settings.meta_ig_user_id || '');
   }, [settings.meta_app_id, settings.meta_client_token, settings.meta_user_token, settings.meta_ig_user_id]);
@@ -273,8 +275,8 @@ export default function SettingsView() {
   const [metaTestResult, setMetaTestResult] = useState<VideoMetadataResult | null>(null);
 
   const handleSaveMetaCredentials = async () => {
-    const cleanAppId = metaAppId.trim();
-    const cleanClientToken = metaClientToken.trim();
+    const cleanAppId = metaAppId.trim() || DEFAULT_META_APP_ID;
+    const cleanClientToken = metaClientToken.trim() || DEFAULT_META_CLIENT_TOKEN;
     const cleanUserToken = metaUserToken.trim();
     const cleanIgUserId = metaIgUserId.trim();
 
@@ -289,19 +291,19 @@ export default function SettingsView() {
   };
 
   const handleClearMetaCredentials = async () => {
-    setMetaAppId('');
-    setMetaClientToken('');
+    setMetaAppId(DEFAULT_META_APP_ID);
+    setMetaClientToken(DEFAULT_META_CLIENT_TOKEN);
     setMetaUserToken('');
     setMetaIgUserId('');
 
     await updateSettings({
-      meta_app_id: '',
-      meta_client_token: '',
+      meta_app_id: DEFAULT_META_APP_ID,
+      meta_client_token: DEFAULT_META_CLIENT_TOKEN,
       meta_user_token: '',
       meta_ig_user_id: '',
     });
 
-    setToastMessage('Meta & Instagram credentials cleared.');
+    setToastMessage('User tokens cleared. Built-in Meta App credentials restored.');
   };
 
   const handleAutoDetectIgId = async () => {
@@ -943,27 +945,20 @@ export default function SettingsView() {
                 icon={<CheckCircleRoundedIcon sx={{ fontSize: '14px !important' }} />}
                 sx={{ fontWeight: 700, fontSize: '0.72rem' }}
               />
-            ) : (metaAppId && metaClientToken) ? (
+            ) : (
               <Chip
-                label="Basic Access: oEmbed App Token Active"
+                label="Built-in Meta App Active (Global Default)"
                 color="primary"
                 size="small"
                 icon={<CheckCircleRoundedIcon sx={{ fontSize: '14px !important' }} />}
                 sx={{ fontWeight: 700, fontSize: '0.72rem' }}
               />
-            ) : (
-              <Chip
-                label="Not Configured (Manual / Snowflake Only)"
-                variant="outlined"
-                size="small"
-                sx={{ fontWeight: 600, fontSize: '0.72rem', color: 'text.secondary' }}
-              />
             )}
           </Box>
 
           <Alert severity="info" sx={{ my: 2, fontSize: '0.8rem', lineHeight: 1.5 }}>
-            <strong>Why Meta credentials?</strong> Instagram strictly blocks third-party scrapers with bot-protection errors.
-            Connecting your official Meta credentials enables BatchFlow to reliably fetch live reel metrics (likes, HD thumbnails, captions, and dates) directly via Meta's Graph and oEmbed APIs.
+            <strong>Built-in Meta Credentials Active:</strong> Meta App ID and Client Token are pre-configured globally into Trackrr.
+            To unlock live reel metrics (live like counts, full captions, and HD thumbnails for your client batches), simply add your <strong>Meta User Access Token</strong> below.
           </Alert>
 
           {/* Credentials Inputs */}
@@ -977,7 +972,7 @@ export default function SettingsView() {
                 placeholder="e.g. 123456789012345"
                 value={metaAppId}
                 onChange={e => setMetaAppId(e.target.value)}
-                helperText="Found in developers.facebook.com app dashboard (Permanent)"
+                helperText={metaAppId === DEFAULT_META_APP_ID ? 'Built-in system default (Pre-configured for all users)' : 'Custom App ID override'}
               />
 
               {/* Meta Client Token */}
@@ -989,7 +984,7 @@ export default function SettingsView() {
                 placeholder="e.g. a1b2c3d4e5f6..."
                 value={metaClientToken}
                 onChange={e => setMetaClientToken(e.target.value)}
-                helperText="Found in App Settings > Advanced > Client Token"
+                helperText={metaClientToken === DEFAULT_META_CLIENT_TOKEN ? 'Built-in system default (Pre-configured for all users)' : 'Custom Client Token override'}
                 InputProps={{
                   endAdornment: (
                     <InputAdornment position="end">

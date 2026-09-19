@@ -26,6 +26,12 @@ export interface MetaApiCredentials {
 }
 
 /**
+ * Built-in default Meta App credentials for official Instagram API integration.
+ */
+export const DEFAULT_META_APP_ID = '1645469393673995';
+export const DEFAULT_META_CLIENT_TOKEN = '0929768c61c7ff78983c6cded5a3bfb7';
+
+/**
  * Format raw view or like count to clean shorthand (e.g. 14500 -> 14.5K)
  */
 export function formatMetricCount(val: number | string | null | undefined): string | null {
@@ -468,7 +474,8 @@ export function getMetaAccessToken(credentials?: MetaApiCredentials): string | n
     }
   } catch {}
 
-  return null;
+  // Built-in default app credentials for all users
+  return `${DEFAULT_META_APP_ID}|${DEFAULT_META_CLIENT_TOKEN}`;
 }
 
 /**
