@@ -12,6 +12,7 @@ import OpenInNewRoundedIcon from '@mui/icons-material/OpenInNewRounded';
 import RefreshRoundedIcon from '@mui/icons-material/RefreshRounded';
 import AccessTimeRoundedIcon from '@mui/icons-material/AccessTimeRounded';
 import FavoriteRoundedIcon from '@mui/icons-material/FavoriteRounded';
+import VisibilityRoundedIcon from '@mui/icons-material/VisibilityRounded';
 import ChatBubbleOutlineRoundedIcon from '@mui/icons-material/ChatBubbleOutlineRounded';
 import InstagramIcon from '@mui/icons-material/Instagram';
 import PlayCircleOutlineRoundedIcon from '@mui/icons-material/PlayCircleOutlineRounded';
@@ -34,6 +35,7 @@ import {
   saveCachedVideoMeta,
   fetchImageBase64,
   formatMetricCount,
+  cleanInstagramCaption,
   type InstagramRecentPost,
 } from '../lib/videoMetadata';
 import type { BatchflowVideo } from '../types';
@@ -137,6 +139,7 @@ export default function InstagramRecentPostsDialog({
                   ...p,
                   thumbnailUrl: meta.thumbnailUrl,
                   likesCount: meta.likesCount || p.likesCount,
+                  viewsCount: meta.viewsCount || p.viewsCount,
                 };
                 changed = true;
                 try { localStorage.setItem(`trackrr_thumb_${clean}`, meta.thumbnailUrl); } catch {}
@@ -188,6 +191,7 @@ export default function InstagramRecentPostsDialog({
           postedDateTime: v.posted_date || (urlDate ? `${urlDate}T12:00:00.000Z` : undefined),
           caption: v.name,
           likesCount: v.likes ? String(v.likes) : null,
+          viewsCount: v.views ? String(v.views) : null,
         });
       });
     stored.forEach(addInitial);
@@ -223,6 +227,7 @@ export default function InstagramRecentPostsDialog({
             postedDateTime: v.posted_date || (urlDate ? `${urlDate}T12:00:00.000Z` : undefined),
             caption: v.name,
             likesCount: v.likes ? String(v.likes) : null,
+            viewsCount: v.views ? String(v.views) : null,
           };
         });
 
@@ -245,6 +250,7 @@ export default function InstagramRecentPostsDialog({
             ...item,
             thumbnailUrl: item.thumbnailUrl || existing.thumbnailUrl,
             likesCount: item.likesCount || existing.likesCount,
+            viewsCount: item.viewsCount || existing.viewsCount,
             commentsCount: item.commentsCount || existing.commentsCount,
             postedDate: item.postedDate || existing.postedDate,
             postedDateTime: item.postedDateTime || existing.postedDateTime,
@@ -328,8 +334,9 @@ export default function InstagramRecentPostsDialog({
         thumbnailUrl: meta.thumbnailUrl,
         postedDate: meta.postedDate || new Date().toISOString().slice(0, 10),
         postedDateTime: meta.postedDateTime || undefined,
-        caption: meta.caption || meta.title,
+        caption: cleanInstagramCaption(meta.caption || meta.title, cleanHandle) || undefined,
         likesCount: meta.likesCount,
+        viewsCount: meta.viewsCount,
         commentsCount: meta.commentsCount,
       };
 
@@ -408,12 +415,19 @@ export default function InstagramRecentPostsDialog({
       const formattedLikes = linkingPost.likesCount
         ? (formatMetricCount(linkingPost.likesCount) || String(linkingPost.likesCount).replace(/likes?/i, '').trim())
         : null;
+      const formattedViews = linkingPost.viewsCount
+        ? (formatMetricCount(linkingPost.viewsCount) || String(linkingPost.viewsCount).replace(/views?|plays?/i, '').trim())
+        : null;
+
+      const cleanCap = cleanInstagramCaption(linkingPost.caption, cleanHandle);
 
       // 1. Persist to cache under all keys
       saveCachedVideoMeta(linkingPost.permalink, {
         thumbnailUrl: linkingPost.thumbnailUrl,
-        caption: linkingPost.caption,
+        caption: cleanCap || undefined,
         likes: formattedLikes,
+        views: formattedViews,
+        postedDate: reelDate || undefined,
       });
 
       // 2. Pre-convert thumbnail to base64 in background and cache with video ID & shortcode
@@ -436,14 +450,15 @@ export default function InstagramRecentPostsDialog({
         'Posted',
         linkingPost.permalink,
         reelDate,
-        null,
+        formattedViews,
         formattedLikes
       );
 
-      // 4. Save caption description and likes into the video record so it is never lost!
+      // 4. Save caption description and likes and views into the video record so it is never lost!
       await updateBatchflowVideo(targetVideo.id, {
-        description: linkingPost.caption || targetVideo.description || null,
+        description: cleanCap || targetVideo.description || null,
         likes: formattedLikes || targetVideo.likes,
+        views: formattedViews || targetVideo.views,
       }).catch(() => {});
 
       setLinkSuccessToast(`Linked reel to "${targetVideo.name}" and marked as Posted!`);
@@ -796,6 +811,13 @@ export default function InstagramRecentPostsDialog({
                           />
                         )}
 
+                        {post.viewsCount && (
+                          <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, color: '#38BDF8', fontSize: '0.72rem', fontWeight: 700 }}>
+                            <VisibilityRoundedIcon sx={{ fontSize: 13 }} />
+                            {post.viewsCount}
+                          </Box>
+                        )}
+
                         {post.likesCount && (
                           <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.4, color: '#F43F5E', fontSize: '0.72rem', fontWeight: 700 }}>
                             <FavoriteRoundedIcon sx={{ fontSize: 13 }} />
@@ -823,10 +845,9 @@ export default function InstagramRecentPostsDialog({
                           WebkitLineClamp: 2,
                           WebkitBoxOrient: 'vertical',
                           overflow: 'hidden',
-                          mb: 1,
                         }}
                       >
-                        {post.caption || 'No caption available for this reel.'}
+                        {cleanInstagramCaption(post.caption, cleanHandle) || 'No caption'}
                       </Typography>
                     </Box>
 
@@ -1258,6 +1279,12 @@ export default function InstagramRecentPostsDialog({
                     sx={{ height: 18, fontSize: '0.65rem', fontWeight: 700, bgcolor: 'rgba(16, 185, 129, 0.12)', color: '#34D399' }}
                   />
                 )}
+                {linkingPost.viewsCount && (
+                  <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.3, color: '#38BDF8', fontSize: '0.7rem', fontWeight: 700 }}>
+                    <VisibilityRoundedIcon sx={{ fontSize: 12 }} />
+                    {linkingPost.viewsCount}
+                  </Box>
+                )}
                 {linkingPost.likesCount && (
                   <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.3, color: '#F43F5E', fontSize: '0.7rem', fontWeight: 700 }}>
                     <FavoriteRoundedIcon sx={{ fontSize: 12 }} />
@@ -1276,7 +1303,7 @@ export default function InstagramRecentPostsDialog({
                   overflow: 'hidden',
                 }}
               >
-                {linkingPost.caption || linkingPost.permalink}
+                {cleanInstagramCaption(linkingPost.caption, cleanHandle) || linkingPost.permalink}
               </Typography>
             </Box>
           </Card>

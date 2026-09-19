@@ -20,7 +20,8 @@
     "service_worker": "background.js"
   },
   "permissions": [
-    "storage"
+    "storage",
+    "cookies"
   ],
   "host_permissions": [
     "*://*.instagram.com/*",

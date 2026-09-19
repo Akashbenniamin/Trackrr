@@ -123,13 +123,68 @@ export function extractDateFromVideoUrl(url?: string | null): string | null {
 }
 
 /**
+ * Clean Instagram caption by removing prepended author handles, "on Instagram" markers,
+ * likes/comments description headers, HTML artifacts, and surrounding quotation marks.
+ */
+export function cleanInstagramCaption(rawCaption?: string | null, author?: string | null): string | null {
+  if (!rawCaption) return null;
+  let text = String(rawCaption);
+
+  // Strip HTML anchors for usernames first if present (e.g. from embed HTML: <a class="CaptionUsername">creator</a>)
+  text = text.replace(/<a[^>]*class="[^"]*(?:UsernameText|CaptionUsername)[^"]*"[^>]*>[\s\S]*?<\/a>/gi, '');
+  text = text.replace(/<a[^>]*href="\/[a-zA-Z0-9._]+\/"[^>]*>[\s\S]*?<\/a>/gi, '');
+  // Strip any remaining HTML tags
+  text = text.replace(/<[^>]+>/g, ' ');
+  // Unescape common HTML entities
+  text = text.replace(/&quot;/g, '"').replace(/&#39;/g, "'").replace(/&amp;/g, '&').replace(/&lt;/g, '<').replace(/&gt;/g, '>');
+  text = text.replace(/\r?\n|\r/g, ' ').replace(/\s+/g, ' ').trim();
+  if (!text) return null;
+
+  // 1. Strip "X likes, Y comments - username on Date: “caption”"
+  const ogPrefixMatch = text.match(/^(?:[\d,KMkm.]+\s+(?:likes?|views?|comments?)[,\s-]*)+[a-zA-Z0-9._]+\s+on\s+[A-Za-z]+\s+\d{1,2},\s+\d{4}\s*[:：]\s*/i);
+  if (ogPrefixMatch) {
+    text = text.slice(ogPrefixMatch[0].length);
+  }
+
+  // 2. Strip Meta oEmbed / OG prefix: e.g. "username on Instagram: \"caption\""
+  text = text.replace(/^@?[a-zA-Z0-9._]+\s+on\s+Instagram\s*[:：]?\s*/i, '');
+
+  // 3. If author/creatorHandle is known, strip it from the start (e.g. "author: caption" or "author caption")
+  if (author && author.trim()) {
+    const cleanAuthor = author.replace(/^@/, '').trim();
+    if (cleanAuthor) {
+      const authorRegex = new RegExp(`^@?${cleanAuthor.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')}\\s*[:：\\-–—]?\\s*`, 'i');
+      text = text.replace(authorRegex, '');
+    }
+  }
+
+  // 4. Strip any username prefix with colon or hyphen like "some_handle: caption" or "@some_handle - caption"
+  text = text.replace(/^@?[a-zA-Z0-9._]{2,30}\s*[:：\-–—]\s*/, '');
+
+  // 5. Strip username handles starting with @ followed by space: "@leoholidays.in Every Tamil..."
+  text = text.replace(/^@[a-zA-Z0-9._]{2,30}\s+/, '');
+
+  // 6. Strip domain-like or dotted/underscored handle at start: "leoholidays.in Every Tamil..."
+  text = text.replace(/^[a-zA-Z0-9_-]*[._][a-zA-Z0-9._-]+\s+/, '');
+
+  // 7. Strip surrounding quotes (curly or straight)
+  text = text.replace(/^[“\"'«\s]+|[”\"'»\s]+$/g, '').trim();
+
+  // If text is empty or just says "on Instagram" or similar artifact
+  if (!text || /^on\s+Instagram$/i.test(text)) {
+    return null;
+  }
+
+  return text;
+}
+
+/**
  * Extract the first few words of a video caption for display inside () brackets.
  */
-export function getCaptionSnippet(caption?: string | null, maxWords = 5): string | null {
-  if (!caption) return null;
-  const clean = caption.replace(/\r?\n|\r/g, ' ').replace(/\s+/g, ' ').trim();
-  if (!clean) return null;
-  const words = clean.split(' ').filter(w => w.trim().length > 0);
+export function getCaptionSnippet(caption?: string | null, maxWords = 5, author?: string | null): string | null {
+  const cleaned = cleanInstagramCaption(caption, author);
+  if (!cleaned) return null;
+  const words = cleaned.split(' ').filter(w => w.trim().length > 0);
   if (words.length === 0) return null;
   const snippet = words.slice(0, maxWords).join(' ');
   return words.length > maxWords ? `${snippet}...` : snippet;
@@ -423,7 +478,7 @@ export function getCachedVideoMeta(url?: string | null): CachedVideoMeta {
  */
 export function saveCachedVideoMeta(
   url: string,
-  meta: { thumbnailUrl?: string | null; caption?: string | null; likes?: string | null; views?: string | null }
+  meta: { thumbnailUrl?: string | null; caption?: string | null; likes?: string | null; views?: string | null; postedDate?: string | null }
 ) {
   if (!url) return;
   const clean = cleanVideoUrl(url);
@@ -454,6 +509,9 @@ export function saveCachedVideoMeta(
       if (cleanViews) {
         try { localStorage.setItem(`trackrr_views_${k}`, cleanViews); } catch {}
       }
+    }
+    if (meta.postedDate) {
+      try { localStorage.setItem(`trackrr_date_${k}`, meta.postedDate); } catch {}
     }
   }
 }
@@ -576,25 +634,27 @@ export function parseInstagramDescription(text?: string | null) {
   const commentsMatch = text.match(/([\d,KMkm.]+)\s+comments/i);
   const commentsCount = commentsMatch ? commentsMatch[1] : null;
 
-  const viewsMatch = text.match(/([\d,KMkm.]+)\s+(?:views|plays)/i);
+  const viewsMatch = text.match(/([\d,KMkm.]+)\s*(?:views?|plays?|reels? plays?)/i);
   const viewsCount = viewsMatch ? viewsMatch[1] : null;
 
   const handleDateMatch = text.match(/-\s+([^\s]+)\s+on\s+([A-Za-z]+\s+\d{1,2},\s+\d{4}):/i);
   const creatorHandle = handleDateMatch ? handleDateMatch[1] : null;
   const dateStr = handleDateMatch ? handleDateMatch[2] : null;
 
-  let caption: string | null = null;
+  let rawCaption: string | null = null;
   const quoteMatch = text.match(/[:：]\s*[“\"]([\s\S]*)[”\"]\.?$/);
   if (quoteMatch && quoteMatch[1]) {
-    caption = quoteMatch[1].trim();
+    rawCaption = quoteMatch[1].trim();
   } else {
     const colonIdx = text.indexOf(':');
     if (colonIdx !== -1) {
-      caption = text.slice(colonIdx + 1).replace(/^[“\"]|[”\"]\.?$/g, '').trim();
+      rawCaption = text.slice(colonIdx + 1).replace(/^[“\"]|[”\"]\.?$/g, '').trim();
     } else {
-      caption = text.trim();
+      rawCaption = text.trim();
     }
   }
+
+  const caption = cleanInstagramCaption(rawCaption, creatorHandle);
 
   return { likesCount, commentsCount, viewsCount, creatorHandle, dateStr, caption };
 }
@@ -850,6 +910,7 @@ export async function fetchFromTrackrrExtension(url: string, timeoutMs = 4000): 
           resolve(null);
           return;
         }
+        const cleanCap = cleanInstagramCaption(d.caption, d.author);
         resolve({
           provider: 'instagram',
           postedDate: d.postedDate || null,
@@ -857,8 +918,8 @@ export async function fetchFromTrackrrExtension(url: string, timeoutMs = 4000): 
           likesCount: d.likesCount ? formatMetricCount(d.likesCount) : null,
           viewsCount: d.viewsCount ? formatMetricCount(d.viewsCount) : null,
           commentsCount: d.commentsCount || null,
-          caption: d.caption || null,
-          title: d.caption ? d.caption.slice(0, 80) : undefined,
+          caption: cleanCap || null,
+          title: cleanCap ? cleanCap.slice(0, 80) : undefined,
           author: d.author || undefined,
           creatorHandle: d.author || undefined,
           thumbnailUrl: d.thumbnailUrl || undefined,
@@ -991,18 +1052,19 @@ export async function fetchVideoMetadata(
         if (response.ok) {
           const data = await response.json();
           usedOfficialMetaApi = true;
-          title = data.title || undefined;
+          const cleanCap = cleanInstagramCaption(data.title, data.author_name);
+          title = cleanCap || data.title || undefined;
           author = data.author_name || undefined;
           creatorHandle = data.author_name || creatorHandle;
           thumbnailUrl = data.thumbnail_url || undefined;
-          caption = data.title || undefined;
+          caption = cleanCap || data.title || undefined;
           rawHtml = data.html;
           mediaId = data.media_id || null;
 
-          if (data.thumbnail_url || data.title) {
+          if (data.thumbnail_url || caption) {
             saveCachedVideoMeta(cleanUrl, {
               thumbnailUrl: data.thumbnail_url,
-              caption: data.title,
+              caption: caption,
             });
           }
 
@@ -1138,8 +1200,8 @@ export async function fetchVideoMetadata(
       }
     }
 
-    // E. Fetch public metadata resolver (Microlink) if likes, date, or caption are missing
-    if (!likesCount || !postedDate || !caption) {
+    // E. Fetch public metadata resolver (Microlink) if views, likes, date, or caption are missing
+    if (!viewsCount || !likesCount || !postedDate || !caption) {
       try {
         const fallbackUrl = `https://api.microlink.io?url=${encodeURIComponent(cleanUrl)}`;
         const fbResponse = await fetch(fallbackUrl);
@@ -1184,12 +1246,49 @@ export async function fetchVideoMetadata(
             viewsCount = formatMetricCount(parsed.viewsCount);
           }
           if (!caption) {
-            caption = parsed.caption || d?.description || null;
+            caption = cleanInstagramCaption(parsed.caption || d?.description || null, author);
           }
         }
       } catch (err) {
         console.warn('Fallback resolver error:', err);
       }
+    }
+
+    // F. Direct Instagram Embed scraping fallback (bypasses noscript redirect for views & likes)
+    if (shortcode && (!viewsCount || !likesCount || !thumbnailUrl || !caption)) {
+      try {
+        const embedUrl = `https://www.instagram.com/p/${shortcode}/embed/captioned/?_fb_noscript=1`;
+        const embedResp = await fetch(embedUrl);
+        if (embedResp.ok) {
+          const embedHtml = await embedResp.text();
+          if (!viewsCount) {
+            const vMatch = embedHtml.match(/"(?:video_play_count|video_view_count|play_count|view_count|ig_play_count)":\s*["']?(\d+)["']?/i) ||
+                           embedHtml.match(/(?:^|[^\w])([0-9][0-9,.]*\s*[KkMmBb]?)\s*(?:views?|plays?|reels? plays?)\b/i);
+            if (vMatch && vMatch[1]) viewsCount = formatMetricCount(vMatch[1]);
+          }
+          if (!likesCount) {
+            const lMatch = embedHtml.match(/(?:^|[^\w])([0-9][0-9,.]*\s*[KkMmBb]?)\s*(?:likes|like)\b/i) ||
+                           embedHtml.match(/"(?:like_count|edge_media_preview_like)":\s*(?:\{"count":\s*)?["']?(\d+)["']?/i);
+            if (lMatch && lMatch[1]) likesCount = formatMetricCount(lMatch[1]);
+          }
+          if (!thumbnailUrl) {
+            const imgMatch = embedHtml.match(/class="[^"]*EmbeddedMediaImage[^"]*"[^>]*src="([^"]+)"/i) ||
+                             embedHtml.match(/<img[^>]*src="([^"]+scontent[^"]+)"/i);
+            if (imgMatch && imgMatch[1]) thumbnailUrl = imgMatch[1].replace(/&amp;/g, '&');
+          }
+          if (!caption) {
+            const cMatch = embedHtml.match(/class="[^"]*Caption[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+            if (cMatch && cMatch[1]) {
+              const rawC = cMatch[1].replace(/<a[^>]*class="[^"]*(?:UsernameText|CaptionUsername)[^"]*"[^>]*>[\s\S]*?<\/a>/gi, '')
+                                    .replace(/<a[^>]*href="\/[a-zA-Z0-9._]+\/"[^>]*>[\s\S]*?<\/a>/gi, '')
+                                    .replace(/<[^>]+>/g, ' ')
+                                    .replace(/\s+/g, ' ')
+                                    .trim();
+              caption = cleanInstagramCaption(rawC, author);
+            }
+          }
+        }
+      } catch {}
     }
 
     // E2. If creatorHandle or targetHandle is known and metrics or thumbnail are still missing, query Business Discovery!
@@ -1205,11 +1304,21 @@ export async function fetchVideoMetadata(
       }
     }
 
+    const effectiveAuthor = author || creatorHandle || targetHandle;
+    if (caption) {
+      caption = cleanInstagramCaption(caption, effectiveAuthor);
+    }
+    if (title && (!caption || title.length < caption.length)) {
+      const cleanT = cleanInstagramCaption(title, effectiveAuthor);
+      if (cleanT) title = cleanT;
+    }
+
     if (postedDate || caption || author || likesCount || viewsCount || thumbnailUrl) {
       saveCachedVideoMeta(cleanUrl, {
         thumbnailUrl,
         caption,
         likes: likesCount ? formatMetricCount(likesCount) : null,
+        views: viewsCount ? formatMetricCount(viewsCount) : null,
       });
 
       if (thumbnailUrl && shortcode) {

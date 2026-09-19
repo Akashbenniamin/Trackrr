@@ -35,6 +35,7 @@ import { useApp } from '../../contexts/AppContext';
 import { usePersistedState } from '../../lib/usePersistedState';
 import {
   cleanVideoUrl,
+  cleanInstagramCaption,
   extractInstagramShortcode,
   formatMetricCount,
   getCachedVideoMeta,
@@ -410,14 +411,17 @@ export default function BatchflowBatches() {
   // PNG Export states
   const [isExportingPNG, setIsExportingPNG] = useState(false);
   const [pngLikesMap, setPngLikesMap] = useState<Map<string, string>>(new Map());
+  const [pngViewsMap, setPngViewsMap] = useState<Map<string, string>>(new Map());
   const [pngDatesMap, setPngDatesMap] = useState<Map<string, string>>(new Map());
   const [pngThumbsMap, setPngThumbsMap] = useState<Map<string, string>>(new Map());
   const [pngCaptionsMap, setPngCaptionsMap] = useState<Map<string, string>>(new Map());
   const pngExportRef = useRef<HTMLDivElement>(null);
 
-  // Live in-memory cache for thumbnails & captions in UI
+  // Live in-memory cache for thumbnails, captions, views, & likes in UI
   const [syncedThumbs, setSyncedThumbs] = useState<Record<string, string>>({});
   const [syncedCaptions, setSyncedCaptions] = useState<Record<string, string>>({});
+  const [syncedLikes, setSyncedLikes] = useState<Record<string, string>>({});
+  const [syncedViews, setSyncedViews] = useState<Record<string, string>>({});
 
   const openPostedDialogForVideo = (v: BatchflowVideo) => {
     const extracted = extractVideoLikes(v);
@@ -500,9 +504,10 @@ export default function BatchflowBatches() {
         setPostedViews(String(res.viewsCount).replace(/views?|plays?/i, '').trim());
       }
       if (res.caption) {
-        setPostedCaption(res.caption);
-        if (postedTargetVideo) {
-          setSyncedCaptions(prev => ({ ...prev, [postedTargetVideo.id]: res.caption! }));
+        const cleanCap = cleanInstagramCaption(res.caption, clientHandle);
+        setPostedCaption(cleanCap || res.caption);
+        if (postedTargetVideo && (cleanCap || res.caption)) {
+          setSyncedCaptions(prev => ({ ...prev, [postedTargetVideo.id]: (cleanCap || res.caption)! }));
         }
       }
       if (res.thumbnailUrl) {
@@ -565,8 +570,11 @@ export default function BatchflowBatches() {
         setEditingVideo(prev => prev ? { ...prev, views: cleanV } : null);
       }
       if (res.caption) {
-        setEditingVideo(prev => prev ? { ...prev, description: res.caption || prev.description } : null);
-        setSyncedCaptions(prev => ({ ...prev, [editingVideo.id]: res.caption! }));
+        const cleanCap = cleanInstagramCaption(res.caption, clientHandle);
+        setEditingVideo(prev => prev ? { ...prev, description: cleanCap || prev.description } : null);
+        if (cleanCap) {
+          setSyncedCaptions(prev => ({ ...prev, [editingVideo.id]: cleanCap }));
+        }
       }
       if (res.thumbnailUrl) {
         setEditingVideo(prev => prev ? { ...prev, thumbnail_url: res.thumbnailUrl || prev.thumbnail_url } : null);
@@ -774,6 +782,10 @@ export default function BatchflowBatches() {
 
   const handleSavePostedLink = async (skip = false) => {
     if (!postedTargetVideo) return;
+    const targetBatch = batchflowBatches.find(b => b.id === postedTargetVideo.batch_id) || selectedBatch;
+    const targetClient = batchflowClients.find(c => c.id === targetBatch?.client_id) || currentClient;
+    const clientHandle = targetClient?.instagram_id || undefined;
+
     const urlToSave = skip ? null : (postedVideoUrl.trim() ? cleanVideoUrl(postedVideoUrl.trim()) : null);
     const dateToSave = postedCustomDate.trim() || new Date().toISOString().slice(0, 10);
     const likesToSave = skip
@@ -782,9 +794,8 @@ export default function BatchflowBatches() {
     const viewsToSave = skip
       ? null
       : (formatMetricCount(postedViews.trim()) || (postedMetaResult?.viewsCount ? formatMetricCount(postedMetaResult.viewsCount) : null));
-    const captionToSave = skip
-      ? null
-      : (postedCaption.trim() || postedMetaResult?.caption || postedTargetVideo.description || null);
+    const rawCaption = postedCaption.trim() || postedMetaResult?.caption || postedTargetVideo.description || null;
+    const captionToSave = skip ? null : cleanInstagramCaption(rawCaption, clientHandle);
     const thumbToSave = skip
       ? null
       : (postedThumbnailUrl.trim() || postedMetaResult?.thumbnailUrl || null);
@@ -809,6 +820,12 @@ export default function BatchflowBatches() {
     }
     if (thumbToSave) {
       setSyncedThumbs(prev => ({ ...prev, [postedTargetVideo.id]: thumbToSave }));
+    }
+    if (likesToSave) {
+      setSyncedLikes(prev => ({ ...prev, [postedTargetVideo.id]: likesToSave }));
+    }
+    if (viewsToSave) {
+      setSyncedViews(prev => ({ ...prev, [postedTargetVideo.id]: viewsToSave }));
     }
 
     if (!skip && urlToSave) {
@@ -869,6 +886,7 @@ export default function BatchflowBatches() {
       // 2. Fetch live metrics, URL dates, thumbnails, captions
       const metaResult = await syncVideosMetadata(sortedForExport);
       setPngLikesMap(metaResult.likesMap);
+      setPngViewsMap(metaResult.viewsMap);
       setPngDatesMap(metaResult.datesMap);
 
       // Prefer base64 image data so html2canvas never suffers from CORS tainting
@@ -1340,7 +1358,8 @@ export default function BatchflowBatches() {
 
       // Title + Caption Snippet in () brackets
       const captionText = captionsMap?.get(v.id) || v.description || syncedCaptions[v.id] || cachedMeta?.caption;
-      const rawSnippet = getCaptionSnippet(captionText, 5);
+      const vHandle = client?.instagram_id || currentClient?.instagram_id;
+      const rawSnippet = getCaptionSnippet(captionText, 5, vHandle);
       const cleanSnippet = sanitizePdfText(rawSnippet).replace(/^["'“”‘’\s\-_.,]+/, '').trim();
       const cleanBaseTitle = sanitizePdfText(v.name || `Video #${v.script_number ?? index + 1}`);
 
@@ -1468,6 +1487,7 @@ export default function BatchflowBatches() {
 
   const syncVideosMetadata = async (videosToSync: BatchflowVideo[]): Promise<{
     likesMap: Map<string, string>;
+    viewsMap: Map<string, string>;
     datesMap: Map<string, string>;
     thumbsMap: Map<string, string>;
     thumbsBase64Map: Map<string, string>;
@@ -1475,6 +1495,7 @@ export default function BatchflowBatches() {
     updatedCount: number;
   }> => {
     const likesMap = new Map<string, string>();
+    const viewsMap = new Map<string, string>();
     const datesMap = new Map<string, string>();
     const thumbsMap = new Map<string, string>();
     const thumbsBase64Map = new Map<string, string>();
@@ -1485,14 +1506,29 @@ export default function BatchflowBatches() {
       videosToSync.map(async (v) => {
         // 1. Initial seeds from state or video model
         if (syncedThumbs[v.id]) thumbsMap.set(v.id, syncedThumbs[v.id]);
-        if (v.description) captionsMap.set(v.id, v.description);
-        else if (syncedCaptions[v.id]) captionsMap.set(v.id, syncedCaptions[v.id]);
 
-        const { likes: existingLikes } = extractVideoLikes(v);
+        const vBatch = batchflowBatches.find(b => b.id === v.batch_id);
+        const vClient = batchflowClients.find(c => c.id === vBatch?.client_id);
+        const vHandle = vClient?.instagram_id || currentClient?.instagram_id || undefined;
+
+        if (v.description) {
+          const initialClean = cleanInstagramCaption(v.description, vHandle) || v.description;
+          captionsMap.set(v.id, initialClean);
+        } else if (syncedCaptions[v.id]) {
+          captionsMap.set(v.id, syncedCaptions[v.id]);
+        }
+
+        const { likes: existingLikes, views: existingViews } = extractVideoLikes(v);
         if (v.likes != null && String(v.likes).trim() !== '') {
           likesMap.set(v.id, String(v.likes).trim());
         } else if (existingLikes) {
           likesMap.set(v.id, existingLikes);
+        }
+
+        if (v.views != null && String(v.views).trim() !== '') {
+          viewsMap.set(v.id, String(v.views).trim());
+        } else if (existingViews) {
+          viewsMap.set(v.id, existingViews);
         }
 
         if (v.posted_date) {
@@ -1526,10 +1562,14 @@ export default function BatchflowBatches() {
             thumbsMap.set(v.id, cached.thumbnailUrl);
           }
           if (cached.caption && !captionsMap.has(v.id)) {
-            captionsMap.set(v.id, cached.caption);
+            const cleanCachedCap = cleanInstagramCaption(cached.caption, vHandle);
+            if (cleanCachedCap) captionsMap.set(v.id, cleanCachedCap);
           }
           if (cached.likes && !likesMap.has(v.id)) {
             likesMap.set(v.id, cached.likes);
+          }
+          if (cached.views && !viewsMap.has(v.id)) {
+            viewsMap.set(v.id, cached.views);
           }
           if (cached.postedDate && !datesMap.has(v.id)) {
             datesMap.set(v.id, cached.postedDate.slice(0, 10));
@@ -1545,10 +1585,6 @@ export default function BatchflowBatches() {
               } catch {}
             }
           }
-
-          const vBatch = batchflowBatches.find(b => b.id === v.batch_id);
-          const vClient = batchflowClients.find(c => c.id === vBatch?.client_id);
-          const vHandle = vClient?.instagram_id || currentClient?.instagram_id || undefined;
 
           try {
             const metaPromise = fetchVideoMetadata(v.video_url, {
@@ -1575,7 +1611,16 @@ export default function BatchflowBatches() {
                 }
               }
 
-              // 2. Date update: ALWAYS prioritize URL / meta date
+              // 2. Live Views update: always refresh with latest live view count from the link
+              if (meta.viewsCount) {
+                const cleanV = String(meta.viewsCount).replace(/views?|plays?/gi, '').trim();
+                viewsMap.set(v.id, cleanV);
+                if (cleanV !== v.views) {
+                  updates.views = cleanV;
+                }
+              }
+
+              // 3. Date update: ALWAYS prioritize URL / meta date
               const effectiveDate = meta.postedDate || urlDate;
               if (effectiveDate) {
                 datesMap.set(v.id, effectiveDate.slice(0, 10));
@@ -1585,24 +1630,33 @@ export default function BatchflowBatches() {
                 }
               }
 
-              // 3. Thumbnail update
+              // 4. Thumbnail update
               if (meta.thumbnailUrl) {
                 thumbsMap.set(v.id, meta.thumbnailUrl);
               }
 
-              // 4. Caption update
+              // 5. Caption update: clean and update dirty existing description or set new caption
+              const currentCleanDesc = cleanInstagramCaption(v.description, vHandle);
+              if (v.description && currentCleanDesc && currentCleanDesc !== v.description) {
+                updates.description = currentCleanDesc;
+                captionsMap.set(v.id, currentCleanDesc);
+              }
               if (meta.caption) {
-                captionsMap.set(v.id, meta.caption);
-                if (!v.description) {
-                  updates.description = meta.caption;
+                const cleanCap = cleanInstagramCaption(meta.caption, vHandle);
+                if (cleanCap) {
+                  captionsMap.set(v.id, cleanCap);
+                  if (!v.description || v.description.trim() === '' || currentCleanDesc !== v.description || v.description === meta.caption) {
+                    updates.description = cleanCap;
+                  }
                 }
               }
 
-              if (meta.thumbnailUrl || meta.caption || meta.likesCount) {
+              if (meta.thumbnailUrl || meta.caption || meta.likesCount || meta.viewsCount) {
                 saveCachedVideoMeta(v.video_url, {
                   thumbnailUrl: meta.thumbnailUrl,
-                  caption: meta.caption,
+                  caption: meta.caption ? cleanInstagramCaption(meta.caption, vHandle) : undefined,
                   likes: meta.likesCount ? formatMetricCount(meta.likesCount) : null,
+                  views: meta.viewsCount ? formatMetricCount(meta.viewsCount) : null,
                 });
               }
 
@@ -1638,7 +1692,7 @@ export default function BatchflowBatches() {
       })
     );
 
-    // Update synced memory states so UI video cards reflect thumbnails & captions immediately
+    // Update synced memory states so UI video cards reflect thumbnails, captions, likes & views immediately
     const newThumbsObj: Record<string, string> = {};
     thumbsMap.forEach((val, key) => { newThumbsObj[key] = val; });
     setSyncedThumbs(prev => ({ ...prev, ...newThumbsObj }));
@@ -1647,7 +1701,15 @@ export default function BatchflowBatches() {
     captionsMap.forEach((val, key) => { newCaptionsObj[key] = val; });
     setSyncedCaptions(prev => ({ ...prev, ...newCaptionsObj }));
 
-    return { likesMap, datesMap, thumbsMap, thumbsBase64Map, captionsMap, updatedCount };
+    const newLikesObj: Record<string, string> = {};
+    likesMap.forEach((val, key) => { newLikesObj[key] = val; });
+    setSyncedLikes(prev => ({ ...prev, ...newLikesObj }));
+
+    const newViewsObj: Record<string, string> = {};
+    viewsMap.forEach((val, key) => { newViewsObj[key] = val; });
+    setSyncedViews(prev => ({ ...prev, ...newViewsObj }));
+
+    return { likesMap, viewsMap, datesMap, thumbsMap, thumbsBase64Map, captionsMap, updatedCount };
   };
 
   const handleSyncBatchLinks = async () => {
@@ -2737,7 +2799,10 @@ export default function BatchflowBatches() {
                             {(() => {
                               const cachedMeta = v.video_url ? getCachedVideoMeta(v.video_url) : null;
                               const captionText = syncedCaptions[v.id] || v.description || cachedMeta?.caption;
-                              const snippet = getCaptionSnippet(captionText, 5);
+                              const vBatch = batchflowBatches.find(b => b.id === v.batch_id);
+                              const vClient = batchflowClients.find(c => c.id === vBatch?.client_id) || currentClient;
+                              const vHandle = vClient?.instagram_id;
+                              const snippet = getCaptionSnippet(captionText, 5, vHandle);
                               if (!snippet) return null;
                               return (
                                 <Typography
@@ -2800,9 +2865,9 @@ export default function BatchflowBatches() {
                           </span>
                           {(() => {
                             const cached = v.video_url ? getCachedVideoMeta(v.video_url) : null;
-                            const rawViews = v.views != null && String(v.views).trim() !== '' ? String(v.views).trim() : cached?.views;
+                            const rawViews = syncedViews[v.id] || (v.views != null && String(v.views).trim() !== '' ? String(v.views).trim() : cached?.views);
                             const viewsVal = formatMetricCount(rawViews);
-                            const rawLikes = v.likes != null && String(v.likes).trim() !== '' ? String(v.likes).trim() : cached?.likes;
+                            const rawLikes = syncedLikes[v.id] || (v.likes != null && String(v.likes).trim() !== '' ? String(v.likes).trim() : cached?.likes);
                             const likesVal = formatMetricCount(rawLikes);
                             if (!viewsVal && !likesVal) return null;
                             return (
@@ -3376,9 +3441,13 @@ script 2
                 const scriptNum = typeof rawScriptNum === 'number'
                   ? Math.max(0, rawScriptNum)
                   : (rawScriptNum === '' ? 0 : Math.max(0, parseInt(String(rawScriptNum), 10) || 0));
+                const targetVideo = batchflowVideos.find(v => v.id === editingVideo.id);
+                const targetBatch = batchflowBatches.find(b => b.id === targetVideo?.batch_id) || selectedBatch;
+                const targetClient = batchflowClients.find(c => c.id === targetBatch?.client_id) || currentClient;
+                const clientHandle = targetClient?.instagram_id || undefined;
                 const likesToSave = editingVideo.likes != null && String(editingVideo.likes).trim() !== '' ? (formatMetricCount(editingVideo.likes) || null) : null;
                 const viewsToSave = editingVideo.views != null && String(editingVideo.views).trim() !== '' ? (formatMetricCount(editingVideo.views) || null) : null;
-                const descToSave = editingVideo.description?.trim() || null;
+                const descToSave = cleanInstagramCaption(editingVideo.description?.trim() || null, clientHandle);
                 const thumbToSave = editingVideo.thumbnail_url?.trim() || null;
 
                 await updateBatchflowVideo(editingVideo.id, {
@@ -3396,6 +3465,12 @@ script 2
                 }
                 if (thumbToSave) {
                   setSyncedThumbs(prev => ({ ...prev, [editingVideo.id]: thumbToSave }));
+                }
+                if (likesToSave) {
+                  setSyncedLikes(prev => ({ ...prev, [editingVideo.id]: likesToSave }));
+                }
+                if (viewsToSave) {
+                  setSyncedViews(prev => ({ ...prev, [editingVideo.id]: viewsToSave }));
                 }
 
                 if (clean) {
@@ -4126,10 +4201,14 @@ script 2
                 })();
                 const thumbUrl = pngThumbsMap.get(v.id) || syncedThumbs[v.id] || cachedB64 || cachedMeta?.thumbnailUrl || (v.video_url ? localStorage.getItem(`trackrr_thumb_${cleanVideoUrl(v.video_url)}`) : null);
                 const captionText = pngCaptionsMap.get(v.id) || v.description || syncedCaptions[v.id] || cachedMeta?.caption;
-                const snippet = getCaptionSnippet(captionText, 5);
+                const vBatch = batchflowBatches.find(b => b.id === v.batch_id) || selectedBatch;
+                const vClient = batchflowClients.find(c => c.id === vBatch?.client_id) || currentClient;
+                const vHandle = vClient?.instagram_id;
+                const snippet = getCaptionSnippet(captionText, 5, vHandle);
 
                 const vExtracted = extractVideoLikes(v);
                 const vLikes = pngLikesMap.get(v.id) || ((v.likes != null && String(v.likes).trim() !== '') ? String(v.likes).trim() : null) || vExtracted.likes || cachedMeta?.likes;
+                const vViews = pngViewsMap.get(v.id) || ((v.views != null && String(v.views).trim() !== '') ? String(v.views).trim() : null) || vExtracted.views || cachedMeta?.views;
 
                 const urlDate = pngDatesMap.get(v.id) || extractDateFromVideoUrl(v.video_url);
                 const effectiveDate = urlDate || (v.status === 'Posted' && v.posted_date ? v.posted_date.slice(0, 10) : null);
@@ -4204,10 +4283,17 @@ script 2
                       </Typography>
                     </Box>
 
-                    {/* Col 3: Likes in Soft Red */}
-                    <Typography sx={{ fontSize: '16.5px', fontWeight: 800, color: '#EF4444' }}>
-                      {vLikes || '-'}
-                    </Typography>
+                    {/* Col 3: Likes in Soft Red & Views in Sky Blue */}
+                    <Box>
+                      <Typography sx={{ fontSize: '16.5px', fontWeight: 800, color: '#EF4444' }}>
+                        {vLikes || '-'}
+                      </Typography>
+                      {vViews && (
+                        <Typography sx={{ fontSize: '12px', fontWeight: 700, color: '#0284C7', mt: 0.25 }}>
+                          {vViews} views
+                        </Typography>
+                      )}
+                    </Box>
 
                     {/* Col 4: SCRIPT NO. */}
                     <Typography sx={{ fontSize: '15px', fontWeight: 800, color: '#475569' }}>
