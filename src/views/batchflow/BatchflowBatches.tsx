@@ -24,6 +24,7 @@ import InstagramIcon from '@mui/icons-material/Instagram';
 import AutoAwesomeRoundedIcon from '@mui/icons-material/AutoAwesomeRounded';
 import SyncRoundedIcon from '@mui/icons-material/SyncRounded';
 import ArchiveRoundedIcon from '@mui/icons-material/ArchiveRounded';
+import FileUploadRoundedIcon from '@mui/icons-material/FileUploadRounded';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import { registerOkineFont } from '../../lib/okineFont';
@@ -40,6 +41,7 @@ import {
   extractDateFromVideoUrl,
   getCaptionSnippet,
   fetchImageBase64,
+  cropImageToSquareDataUrl,
   sanitizePdfText,
   type VideoMetadataResult,
 } from '../../lib/videoMetadata';
@@ -392,6 +394,8 @@ export default function BatchflowBatches() {
   const [postedCustomDate, setPostedCustomDate] = useState(new Date().toISOString().slice(0, 10));
   const [postedMetaLoading, setPostedMetaLoading] = useState(false);
   const [postedMetaResult, setPostedMetaResult] = useState<VideoMetadataResult | null>(null);
+  const postedFileRef = useRef<HTMLInputElement>(null);
+  const editFileRef = useRef<HTMLInputElement>(null);
 
   const [syncingPDF, setSyncingPDF] = useState(false);
   const [syncingAllPDF, setSyncingAllPDF] = useState(false);
@@ -3225,6 +3229,34 @@ script 2
               onChange={e => setEditingVideo(prev => prev ? { ...prev, thumbnail_url: e.target.value } : null)}
               helperText="Image displayed on video card, PDF, and PNG export"
             />
+            <input
+              type="file"
+              accept="image/*"
+              ref={editFileRef}
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onloadend = async () => {
+                  if (typeof reader.result === 'string') {
+                    const cropped = await cropImageToSquareDataUrl(reader.result, 200);
+                    setEditingVideo(prev => prev ? { ...prev, thumbnail_url: cropped } : null);
+                  }
+                };
+                reader.readAsDataURL(file);
+                e.target.value = '';
+              }}
+            />
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<FileUploadRoundedIcon sx={{ fontSize: 16 }} />}
+              onClick={() => editFileRef.current?.click()}
+              sx={{ whiteSpace: 'nowrap', textTransform: 'none', fontWeight: 600, fontSize: '0.75rem', height: 40, px: 1.5 }}
+            >
+              Upload
+            </Button>
           </Box>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
@@ -3575,6 +3607,34 @@ script 2
               onChange={(e) => setPostedThumbnailUrl(e.target.value)}
               helperText="Image displayed on video card, PDF, and PNG export"
             />
+            <input
+              type="file"
+              accept="image/*"
+              ref={postedFileRef}
+              style={{ display: 'none' }}
+              onChange={(e) => {
+                const file = e.target.files?.[0];
+                if (!file) return;
+                const reader = new FileReader();
+                reader.onloadend = async () => {
+                  if (typeof reader.result === 'string') {
+                    const cropped = await cropImageToSquareDataUrl(reader.result, 200);
+                    setPostedThumbnailUrl(cropped);
+                  }
+                };
+                reader.readAsDataURL(file);
+                e.target.value = '';
+              }}
+            />
+            <Button
+              size="small"
+              variant="outlined"
+              startIcon={<FileUploadRoundedIcon sx={{ fontSize: 16 }} />}
+              onClick={() => postedFileRef.current?.click()}
+              sx={{ whiteSpace: 'nowrap', textTransform: 'none', fontWeight: 600, fontSize: '0.75rem', height: 40, px: 1.5 }}
+            >
+              Upload
+            </Button>
           </Box>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2, justifyContent: 'space-between' }}>
