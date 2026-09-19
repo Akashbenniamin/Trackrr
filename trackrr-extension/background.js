@@ -117,17 +117,54 @@ async function convertImageToBase64(imageUrl) {
     const response = await fetch(imageUrl);
     if (!response.ok) return imageUrl;
     const blob = await response.blob();
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onloadend = () => {
-        resolve(typeof reader.result === 'string' ? reader.result : imageUrl);
-      };
-      reader.onerror = () => resolve(imageUrl);
-      reader.readAsDataURL(blob);
-    });
+    if (typeof FileReader !== 'undefined') {
+      return new Promise((resolve) => {
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          resolve(typeof reader.result === 'string' ? reader.result : imageUrl);
+        };
+        reader.onerror = () => resolve(imageUrl);
+        reader.readAsDataURL(blob);
+      });
+    }
+    const buffer = await blob.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    let binary = '';
+    for (let i = 0; i < bytes.byteLength; i++) {
+      binary += String.fromCharCode(bytes[i]);
+    }
+    const b64 = typeof btoa !== 'undefined' ? btoa(binary) : Buffer.from(binary, 'binary').toString('base64');
+    return 'data:' + (blob.type || 'image/jpeg') + ';base64,' + b64;
   } catch {
     return imageUrl;
   }
+}
+
+function shortcodeToMediaId(shortcode) {
+  if (!shortcode) return null;
+  const alphabet = 'ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_';
+  let id = BigInt(0);
+  for (let i = 0; i < shortcode.length; i++) {
+    const val = BigInt(alphabet.indexOf(shortcode[i]));
+    if (val === BigInt(-1)) return null;
+    id = id * BigInt(64) + val;
+  }
+  return id.toString();
+}
+
+function extractEmbedData(embedHtml) {
+  let media = null;
+  try {
+    const contextMatch = embedHtml.match(/"contextJSON"\s*:\s*"((?:\\.|[^"\\])*)"/);
+    if (contextMatch && contextMatch[1]) {
+      const rawJson = JSON.parse('"' + contextMatch[1] + '"');
+      const parsed = JSON.parse(rawJson);
+      media = parsed?.gql_data?.shortcode_media || parsed?.shortcode_media;
+    }
+  } catch (e) {
+    console.warn('Failed to parse contextJSON:', e);
+  }
+  return media;
 }
 
 async function fetchInstagramMetadata(rawUrl) {
@@ -136,6 +173,7 @@ async function fetchInstagramMetadata(rawUrl) {
     return { error: 'Invalid Instagram URL. Could not detect shortcode.' };
   }
 
+  const mediaId = shortcodeToMediaId(shortcode);
   const d = extractDateFromShortcode(shortcode);
   let postedDate = d ? d.toISOString().slice(0, 10) : null;
   let postedDateTime = d ? d.toISOString() : null;
@@ -146,134 +184,269 @@ async function fetchInstagramMetadata(rawUrl) {
   let commentsCount = null;
   let author = null;
 
-  // Strategy 1: Instagram internal web query with browser cookies
-  try {
-    const jsonUrl = 'https://www.instagram.com/p/' + shortcode + '/?__a=1&__d=dis';
-    const resp = await fetch(jsonUrl, {
-      credentials: 'include',
-      headers: {
-        'X-IG-App-ID': '936619743392459',
-        'X-Requested-With': 'XMLHttpRequest',
-        'Accept': '*/*'
-      }
-    });
+  // Strategy 1: High-fidelity Embed Captioned scraping (Instagram Embed API)
+  // Bypasses login walls and directly includes contextJSON with live video_view_count, likes, clean caption, author
+  const embedUrls = [
+    'https://www.instagram.com/p/' + shortcode + '/embed/captioned/?_fb_noscript=1',
+    'https://www.instagram.com/reel/' + shortcode + '/embed/captioned/?_fb_noscript=1'
+  ];
 
-    if (resp.ok) {
-      const contentType = resp.headers.get('content-type') || '';
-      if (contentType.includes('application/json')) {
-        const json = await resp.json();
-        const item = json?.items?.[0] || json?.graphql?.shortcode_media || json?.data?.xdt_shortcode_media || json?.data?.shortcode_media;
-        if (item) {
-          if (item.user?.username) author = item.user.username;
-          else if (item.owner?.username) author = item.owner.username;
+  for (const embedUrl of embedUrls) {
+    try {
+      const embedResp = await fetch(embedUrl, { credentials: 'include' });
+      if (!embedResp.ok) continue;
+      const html = await embedResp.text();
 
-          const rawText = item.caption?.text || item.edge_media_to_caption?.edges?.[0]?.node?.text;
-          if (rawText) caption = cleanInstagramCaption(rawText, author);
-
-          const rawLikes = item.like_count ?? item.edge_media_preview_like?.count ?? item.edge_liked_by?.count;
-          if (rawLikes !== undefined && rawLikes !== null) {
-            likesCount = formatMetricCount(rawLikes);
-          }
-
-          const rawViews = item.play_count ?? item.video_play_count ?? item.view_count ?? item.video_view_count ?? item.ig_play_count ?? item.clips_metadata?.video_play_count ?? item.clips_metadata?.play_count;
-          if (rawViews !== undefined && rawViews !== null) {
-            viewsCount = formatMetricCount(rawViews);
-          }
-
-          if (item.comment_count !== undefined) commentsCount = String(item.comment_count);
-          else if (item.edge_media_to_comment?.count !== undefined) commentsCount = String(item.edge_media_to_comment.count);
-
-          if (item.taken_at) {
-            const dt = new Date(item.taken_at * 1000);
-            postedDate = dt.toISOString().slice(0, 10);
-            postedDateTime = dt.toISOString();
-          } else if (item.taken_at_timestamp) {
-            const dt = new Date(item.taken_at_timestamp * 1000);
-            postedDate = dt.toISOString().slice(0, 10);
-            postedDateTime = dt.toISOString();
-          }
-
-          // Best image candidate
-          const candidates = item.image_versions2?.candidates || [];
-          if (candidates.length > 0) {
-            thumbnailUrl = candidates[0].url;
-          } else if (item.display_url) {
-            thumbnailUrl = item.display_url;
-          }
+      const media = extractEmbedData(html);
+      if (media) {
+        if (media.owner?.username) author = media.owner.username;
+        if (!viewsCount) {
+          const rawV = media.video_view_count ?? media.video_play_count;
+          if (rawV !== undefined && rawV !== null) viewsCount = formatMetricCount(rawV);
+        }
+        if (!likesCount && media.edge_liked_by?.count !== undefined && media.edge_liked_by?.count !== null) {
+          likesCount = formatMetricCount(media.edge_liked_by.count);
+        }
+        if (!commentsCount && media.edge_media_to_comment?.count !== undefined) {
+          commentsCount = String(media.edge_media_to_comment.count);
+        }
+        if (!thumbnailUrl && media.display_url) {
+          thumbnailUrl = media.display_url;
+        }
+        if (!caption) {
+          const capText = media.edge_media_to_caption?.edges?.[0]?.node?.text;
+          if (capText) caption = cleanInstagramCaption(capText, author);
         }
       }
+
+      // Regex fallbacks supporting escaped quotes / backslashes
+      if (!author) {
+        const authorMatch = html.match(/class="[^"]*UsernameText[^"]*"[^>]*>([^<]+)</i) ||
+                            html.match(/class="[^"]*CaptionUsername[^"]*"[^>]*>([^<]+)</i);
+        if (authorMatch && authorMatch[1]) author = authorMatch[1].trim();
+      }
+
+      if (!viewsCount) {
+        const vMatch = html.match(/(?:video_view_count|video_play_count|play_count|view_count|ig_play_count)[^0-9:]*:\s*\\*["']?(\d+)/i) ||
+                       html.match(/(?:^|[^\w])([0-9][0-9,.]*\s*[KkMmBb]?)\s*(?:views?|plays?|reels? plays?)\b/i);
+        if (vMatch && vMatch[1]) viewsCount = formatMetricCount(vMatch[1]);
+      }
+
+      if (!likesCount) {
+        const lMatch = html.match(/edge_liked_by[^0-9:]*:\s*\\*\{[^0-9:]*count[^0-9:]*:\s*\\*["']?(\d+)/i) ||
+                       html.match(/(?:like_count|edge_media_preview_like)[^0-9:]*:\s*\\*["']?(\d+)/i) ||
+                       html.match(/(?:^|[^\w])([0-9][0-9,.]*\s*[KkMmBb]?)\s*(?:likes|like)\b/i);
+        if (lMatch && lMatch[1]) likesCount = formatMetricCount(lMatch[1]);
+      }
+
+      if (!commentsCount) {
+        const cMatch = html.match(/edge_media_to_comment[^0-9:]*:\s*\\*\{[^0-9:]*count[^0-9:]*:\s*\\*["']?(\d+)/i) ||
+                       html.match(/comment_count[^0-9:]*:\s*\\*["']?(\d+)/i) ||
+                       html.match(/View all ([0-9,]+) comments/i);
+        if (cMatch && cMatch[1]) commentsCount = cMatch[1].replace(/,/g, '');
+      }
+
+      if (!thumbnailUrl) {
+        const imgMatch = html.match(/class="[^"]*EmbeddedMediaImage[^"]*"[^>]*src="([^"]+)"/i) ||
+                         html.match(/<img[^>]*src="([^"]+scontent[^"]+)"/i);
+        if (imgMatch && imgMatch[1]) thumbnailUrl = imgMatch[1].replace(/&amp;/g, '&');
+      }
+
+      if (!caption) {
+        const captionMatch = html.match(/class="[^"]*Caption[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
+        if (captionMatch && captionMatch[1]) caption = cleanInstagramCaption(captionMatch[1], author);
+      }
+
+      if (!postedDateTime) {
+        const timeMatch = html.match(/<time[^>]*datetime="([^"]+)"/i);
+        if (timeMatch && timeMatch[1]) {
+          postedDateTime = timeMatch[1];
+          postedDate = timeMatch[1].split('T')[0];
+        }
+      }
+
+      if (viewsCount && likesCount && caption && thumbnailUrl) break;
+    } catch (e) {
+      console.warn('Strategy 1 Embed error:', e);
     }
-  } catch (e) {
-    console.warn('Strategy 1 error:', e);
   }
 
-  // Strategy 2: Embed captioned HTML fallback (bypasses noscript redirect)
-  if (!thumbnailUrl || !caption || !likesCount || !viewsCount) {
+  // Strategy 2: Instagram GraphQL Query via PolarisPostRootQuery
+  if (!viewsCount || !likesCount || !caption || !thumbnailUrl) {
     try {
-      const embedUrl = 'https://www.instagram.com/p/' + shortcode + '/embed/captioned/?_fb_noscript=1';
-      const embedResp = await fetch(embedUrl, { credentials: 'include' });
-      if (embedResp.ok) {
-        const html = await embedResp.text();
+      let csrfToken = '';
+      try {
+        const cookie = await chrome.cookies.get({ url: 'https://www.instagram.com', name: 'csrftoken' });
+        if (cookie?.value) csrfToken = cookie.value;
+      } catch {}
 
-        // Extract author first so it can be passed to caption cleaner
-        if (!author) {
-          const authorMatch = html.match(/class="[^"]*UsernameText[^"]*"[^>]*>([^<]+)</i) ||
-                              html.match(/class="[^"]*CaptionUsername[^"]*"[^>]*>([^<]+)</i);
-          if (authorMatch && authorMatch[1]) {
-            author = authorMatch[1].trim();
+      const docIds = ['26130443479876713', '27128499623469141', '8845758582119845'];
+      for (const docId of docIds) {
+        try {
+          const params = new URLSearchParams({
+            av: '0',
+            __d: 'www',
+            __user: '0',
+            __a: '1',
+            __req: '1',
+            dpr: '1',
+            fb_api_caller_class: 'RelayModern',
+            fb_api_req_friendly_name: 'PolarisPostRootQuery',
+            variables: JSON.stringify({ shortcode }),
+            doc_id: docId,
+          });
+
+          const gResp = await fetch('https://www.instagram.com/graphql/query', {
+            method: 'POST',
+            credentials: 'include',
+            headers: {
+              'Content-Type': 'application/x-www-form-urlencoded',
+              'X-CSRFToken': csrfToken,
+              'X-IG-App-ID': '936619743392459',
+              'X-FB-Friendly-Name': 'PolarisPostRootQuery',
+              'X-Requested-With': 'XMLHttpRequest',
+            },
+            body: params.toString(),
+          });
+
+          if (gResp.ok) {
+            const gData = await gResp.json();
+            const item = gData?.data?.xdt_api__v1__media__shortcode__web_info?.items?.[0] ||
+                         gData?.data?.xdt_shortcode_media ||
+                         gData?.data?.shortcode_media;
+            if (item) {
+              if (!author) author = item.user?.username || item.owner?.username;
+              if (!viewsCount) {
+                const rawV = item.video_view_count ?? item.video_play_count ?? item.view_count ?? item.play_count;
+                if (rawV !== undefined && rawV !== null) viewsCount = formatMetricCount(rawV);
+              }
+              if (!likesCount) {
+                const rawL = item.like_count ?? item.edge_media_preview_like?.count ?? item.edge_liked_by?.count;
+                if (rawL !== undefined && rawL !== null) likesCount = formatMetricCount(rawL);
+              }
+              if (!commentsCount) {
+                const rawC = item.comment_count ?? item.edge_media_to_comment?.count;
+                if (rawC !== undefined) commentsCount = String(rawC);
+              }
+              if (!thumbnailUrl) {
+                const candidates = item.image_versions2?.candidates || [];
+                thumbnailUrl = candidates[0]?.url || item.display_url;
+              }
+              if (!caption) {
+                const rawCap = item.caption?.text || item.edge_media_to_caption?.edges?.[0]?.node?.text;
+                if (rawCap) caption = cleanInstagramCaption(rawCap, author);
+              }
+              if (item.taken_at || item.taken_at_timestamp) {
+                const ts = (item.taken_at || item.taken_at_timestamp) * 1000;
+                const dt = new Date(ts);
+                postedDate = dt.toISOString().slice(0, 10);
+                postedDateTime = dt.toISOString();
+              }
+              break;
+            }
           }
-        }
+        } catch {}
+      }
+    } catch (e) {
+      console.warn('Strategy 2 GraphQL error:', e);
+    }
+  }
 
-        // Extract thumbnail image from embed
-        if (!thumbnailUrl) {
-          const imgMatch = html.match(/class="[^"]*EmbeddedMediaImage[^"]*"[^>]*src="([^"]+)"/i) ||
-                           html.match(/<img[^>]*src="([^"]+scontent[^"]+)"/i);
-          if (imgMatch && imgMatch[1]) {
-            thumbnailUrl = imgMatch[1].replace(/&amp;/g, '&');
+  // Strategy 3: Internal web query (?__a=1&__d=dis or /api/v1/media/${mediaId}/info/)
+  if (!viewsCount || !likesCount || !caption || !thumbnailUrl) {
+    try {
+      const endpoints = [
+        'https://www.instagram.com/p/' + shortcode + '/?__a=1&__d=dis',
+        mediaId ? ('https://www.instagram.com/api/v1/media/' + mediaId + '/info/') : null
+      ].filter(Boolean);
+
+      for (const ep of endpoints) {
+        try {
+          const resp = await fetch(ep, {
+            credentials: 'include',
+            headers: {
+              'X-IG-App-ID': '936619743392459',
+              'X-Requested-With': 'XMLHttpRequest',
+              'Accept': '*/*'
+            }
+          });
+          if (resp.ok) {
+            const contentType = resp.headers.get('content-type') || '';
+            if (contentType.includes('application/json')) {
+              const json = await resp.json();
+              const item = json?.items?.[0] || json?.graphql?.shortcode_media || json?.data?.xdt_shortcode_media;
+              if (item) {
+                if (!author) author = item.user?.username || item.owner?.username;
+                if (!viewsCount) {
+                  const rawV = item.video_view_count ?? item.video_play_count ?? item.view_count ?? item.play_count ?? item.clips_metadata?.video_play_count ?? item.clips_metadata?.play_count;
+                  if (rawV !== undefined && rawV !== null) viewsCount = formatMetricCount(rawV);
+                }
+                if (!likesCount) {
+                  const rawL = item.like_count ?? item.edge_media_preview_like?.count ?? item.edge_liked_by?.count;
+                  if (rawL !== undefined && rawL !== null) likesCount = formatMetricCount(rawL);
+                }
+                if (!commentsCount) {
+                  const rawC = item.comment_count ?? item.edge_media_to_comment?.count;
+                  if (rawC !== undefined) commentsCount = String(rawC);
+                }
+                if (!thumbnailUrl) {
+                  const candidates = item.image_versions2?.candidates || [];
+                  thumbnailUrl = candidates[0]?.url || item.display_url;
+                }
+                if (!caption) {
+                  const rawCap = item.caption?.text || item.edge_media_to_caption?.edges?.[0]?.node?.text;
+                  if (rawCap) caption = cleanInstagramCaption(rawCap, author);
+                }
+                break;
+              }
+            }
           }
-        }
+        } catch {}
+      }
+    } catch (e) {
+      console.warn('Strategy 3 error:', e);
+    }
+  }
 
-        // Extract likes strictly requiring digits
-        if (!likesCount) {
-          const likeMatch = html.match(/(?:^|[^\w])([0-9][0-9,.]*\s*[KkMmBb]?)\s*(?:likes|like)\b/i) ||
-                            html.match(/"(?:like_count|edge_media_preview_like)":\s*(?:\{"count":\s*)?["']?(\d+)["']?/i);
-          if (likeMatch && likeMatch[1]) {
-            likesCount = formatMetricCount(likeMatch[1]);
-          }
+  // Strategy 4: Profile timeline query (web_profile_info) if author is known
+  if (!viewsCount && author) {
+    try {
+      const profUrl = 'https://www.instagram.com/api/v1/users/web_profile_info/?username=' + author;
+      const profResp = await fetch(profUrl, {
+        credentials: 'include',
+        headers: {
+          'X-IG-App-ID': '936619743392459',
+          'X-Requested-With': 'XMLHttpRequest',
+          'Accept': '*/*'
         }
+      });
+      if (profResp.ok) {
+        const profData = await profResp.json();
+        const user = profData?.data?.user;
+        const timelineEdges = user?.edge_owner_to_timeline_media?.edges || [];
+        const videoEdges = user?.edge_felix_video_timeline?.edges || [];
+        const allEdges = [...timelineEdges, ...videoEdges];
 
-        // Extract views from script tags or text
-        if (!viewsCount) {
-          const viewScriptMatch = html.match(/"(?:video_play_count|video_view_count|play_count|view_count|ig_play_count)":\s*["']?(\d+)["']?/i) ||
-                                  html.match(/(?:^|[^\w])([0-9][0-9,.]*\s*[KkMmBb]?)\s*(?:views?|plays?|reels? plays?)\b/i);
-          if (viewScriptMatch && viewScriptMatch[1]) {
-            viewsCount = formatMetricCount(viewScriptMatch[1]);
-          }
-        }
-
-        // Extract caption
-        if (!caption) {
-          const captionMatch = html.match(/class="[^"]*Caption[^"]*"[^>]*>([\s\S]*?)<\/div>/i);
-          if (captionMatch && captionMatch[1]) {
-            caption = cleanInstagramCaption(captionMatch[1], author);
-          }
-        }
-
-        // Extract time
-        if (!postedDateTime) {
-          const timeMatch = html.match(/<time[^>]*datetime="([^"]+)"/i);
-          if (timeMatch && timeMatch[1]) {
-            postedDateTime = timeMatch[1];
-            postedDate = timeMatch[1].split('T')[0];
+        const matchEdge = allEdges.find(e => e?.node?.shortcode === shortcode || e?.node?.id === mediaId);
+        if (matchEdge?.node) {
+          const node = matchEdge.node;
+          const rawV = node.video_view_count ?? node.video_play_count;
+          if (rawV !== undefined && rawV !== null) viewsCount = formatMetricCount(rawV);
+          if (!likesCount && node.edge_liked_by?.count !== undefined) likesCount = formatMetricCount(node.edge_liked_by.count);
+          if (!commentsCount && node.edge_media_to_comment?.count !== undefined) commentsCount = String(node.edge_media_to_comment.count);
+          if (!thumbnailUrl && node.display_url) thumbnailUrl = node.display_url;
+          if (!caption) {
+            const rawCap = node.edge_media_to_caption?.edges?.[0]?.node?.text;
+            if (rawCap) caption = cleanInstagramCaption(rawCap, author);
           }
         }
       }
     } catch (e) {
-      console.warn('Strategy 2 error:', e);
+      console.warn('Strategy 4 error:', e);
     }
   }
 
-  // Strategy 3: Standard page OpenGraph & JSON fallback
+  // Strategy 5: Standard page HTML & OpenGraph fallback
   if (!thumbnailUrl || !caption || !likesCount || !viewsCount) {
     try {
       const pageUrl = 'https://www.instagram.com/reel/' + shortcode + '/';
@@ -283,56 +456,44 @@ async function fetchInstagramMetadata(rawUrl) {
         if (!thumbnailUrl) {
           const ogImg = pageHtml.match(/<meta[^>]*property=["']og:image["'][^>]*content=["']([^"']+)["']/i) ||
                         pageHtml.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:image["']/i);
-          if (ogImg && ogImg[1]) {
-            thumbnailUrl = ogImg[1].replace(/&amp;/g, '&');
-          }
+          if (ogImg && ogImg[1]) thumbnailUrl = ogImg[1].replace(/&amp;/g, '&');
         }
-        if (!caption || !likesCount || !viewsCount) {
-          const ogDesc = pageHtml.match(/<meta[^>]*property=["']og:description["'][^>]*content=["']([^"']+)["']/i) ||
-                         pageHtml.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:description["']/i);
-          if (ogDesc && ogDesc[1]) {
-            const cleanDesc = ogDesc[1].replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim();
-            if (!likesCount) {
-              const descLikes = cleanDesc.match(/(?:^|[^\w])([0-9][0-9,.]*\s*[KkMmBb]?)\s*(?:likes|like)\b/i);
-              if (descLikes && descLikes[1]) {
-                likesCount = formatMetricCount(descLikes[1]);
-              }
-            }
-            if (!viewsCount) {
-              const descViews = cleanDesc.match(/(?:^|[^\w])([0-9][0-9,.]*\s*[KkMmBb]?)\s*(?:views?|plays?|reels? plays?)\b/i);
-              if (descViews && descViews[1]) {
-                viewsCount = formatMetricCount(descViews[1]);
-              }
-            }
-            if (!caption) {
-              const colonIdx = cleanDesc.indexOf(':');
-              const rawDescCap = colonIdx !== -1 ? cleanDesc.slice(colonIdx + 1).trim() : cleanDesc;
-              caption = cleanInstagramCaption(rawDescCap, author);
-            }
+
+        const ogDesc = pageHtml.match(/<meta[^>]*property=["']og:description["'][^>]*content=["']([^"']+)["']/i) ||
+                       pageHtml.match(/<meta[^>]*content=["']([^"']+)["'][^>]*property=["']og:description["']/i);
+        if (ogDesc && ogDesc[1]) {
+          const cleanDesc = ogDesc[1].replace(/&quot;/g, '"').replace(/&#39;/g, "'").trim();
+          if (!likesCount) {
+            const descLikes = cleanDesc.match(/(?:^|[^\w])([0-9][0-9,.]*\s*[KkMmBb]?)\s*(?:likes|like)\b/i);
+            if (descLikes && descLikes[1]) likesCount = formatMetricCount(descLikes[1]);
+          }
+          if (!viewsCount) {
+            const descViews = cleanDesc.match(/(?:^|[^\w])([0-9][0-9,.]*\s*[KkMmBb]?)\s*(?:views?|plays?|reels? plays?)\b/i);
+            if (descViews && descViews[1]) viewsCount = formatMetricCount(descViews[1]);
+          }
+          if (!caption) {
+            const colonIdx = cleanDesc.indexOf(':');
+            const rawDescCap = colonIdx !== -1 ? cleanDesc.slice(colonIdx + 1).trim() : cleanDesc;
+            caption = cleanInstagramCaption(rawDescCap, author);
           }
         }
 
-        // Script JSON checks
         if (!viewsCount) {
-          const pageViewMatch = pageHtml.match(/"(?:video_play_count|video_view_count|play_count|view_count|ig_play_count)":\s*["']?(\d+)["']?/i);
-          if (pageViewMatch && pageViewMatch[1]) {
-            viewsCount = formatMetricCount(pageViewMatch[1]);
-          }
+          const pageViewMatch = pageHtml.match(/(?:video_view_count|video_play_count|play_count|view_count|ig_play_count)[^0-9:]*:\s*\\*["']?(\d+)/i);
+          if (pageViewMatch && pageViewMatch[1]) viewsCount = formatMetricCount(pageViewMatch[1]);
         }
         if (!likesCount) {
-          const pageLikeMatch = pageHtml.match(/"(?:like_count|edge_media_preview_like)":\s*\{"count":\s*(\d+)/i) ||
-                                pageHtml.match(/"like_count":\s*(\d+)/i);
-          if (pageLikeMatch && pageLikeMatch[1]) {
-            likesCount = formatMetricCount(pageLikeMatch[1]);
-          }
+          const pageLikeMatch = pageHtml.match(/edge_liked_by[^0-9:]*:\s*\\*\{[^0-9:]*count[^0-9:]*:\s*\\*["']?(\d+)/i) ||
+                                pageHtml.match(/(?:like_count|edge_media_preview_like)[^0-9:]*:\s*\\*["']?(\d+)/i);
+          if (pageLikeMatch && pageLikeMatch[1]) likesCount = formatMetricCount(pageLikeMatch[1]);
         }
       }
     } catch (e) {
-      console.warn('Strategy 3 error:', e);
+      console.warn('Strategy 5 error:', e);
     }
   }
 
-  // Ensure caption is cleaned
+  // Final caption cleanup
   if (caption) {
     caption = cleanInstagramCaption(caption, author);
   }
@@ -347,6 +508,7 @@ async function fetchInstagramMetadata(rawUrl) {
     success: true,
     provider: 'instagram',
     shortcode: shortcode,
+    mediaId: mediaId,
     postedDate: postedDate,
     postedDateTime: postedDateTime,
     likesCount: likesCount,
