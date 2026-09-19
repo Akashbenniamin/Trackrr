@@ -1,4 +1,4 @@
-import { useState, useRef } from 'react';
+import { useState, useRef, useEffect } from 'react';
 import {
   Box, Card, Typography, Button, TextField, Chip, IconButton,
   Dialog, DialogTitle, DialogContent, DialogActions,
@@ -406,7 +406,9 @@ export default function BatchflowBatches() {
   const [syncingPDF, setSyncingPDF] = useState(false);
   const [syncingAllPDF, setSyncingAllPDF] = useState(false);
   const [manualSyncing, setManualSyncing] = useState(false);
+  const [syncingVideoId, setSyncingVideoId] = useState<string | null>(null);
   const [syncSnackbar, setSyncSnackbar] = useState<string | null>(null);
+  const autoSyncedBatchIdsRef = useRef<Set<string>>(new Set());
 
   // PNG Export states
   const [isExportingPNG, setIsExportingPNG] = useState(false);
@@ -1735,6 +1737,116 @@ export default function BatchflowBatches() {
     }
   };
 
+  const handleSyncSingleVideo = async (v: BatchflowVideo, e?: React.MouseEvent) => {
+    if (e) {
+      e.stopPropagation();
+      e.preventDefault();
+    }
+    if (!v.video_url) return;
+    setSyncingVideoId(v.id);
+    try {
+      const { updatedCount } = await syncVideosMetadata([v]);
+      setSyncSnackbar(
+        updatedCount > 0
+          ? `Refreshed live metrics & info for ${v.name || 'video'}!`
+          : `Metadata for ${v.name || 'video'} is already up to date!`
+      );
+    } catch {
+      setSyncSnackbar('Failed to sync video metadata.');
+    } finally {
+      setSyncingVideoId(null);
+    }
+  };
+
+  // Listen for live metadata broadcast from Trackrr Chrome Extension
+  useEffect(() => {
+    const handleBroadcast = async (event: MessageEvent) => {
+      if (!event.data || event.data.type !== 'TRACKRR_METADATA_BROADCAST') return;
+      const meta = event.data.data as (VideoMetadataResult & { url?: string; shortcode?: string });
+      if (!meta) return;
+
+      const targetUrl = meta.url;
+      const targetSc = meta.shortcode || (targetUrl ? extractInstagramShortcode(targetUrl) : null);
+
+      const matchedVideos = batchflowVideos.filter(v => {
+        if (!v.video_url) return false;
+        if (targetUrl && cleanVideoUrl(v.video_url) === cleanVideoUrl(targetUrl)) return true;
+        if (targetSc && extractInstagramShortcode(v.video_url)?.toLowerCase() === targetSc.toLowerCase()) return true;
+        return false;
+      });
+
+      if (matchedVideos.length === 0) return;
+
+      for (const vid of matchedVideos) {
+        const updates: Partial<BatchflowVideo> = {};
+        if (meta.viewsCount) {
+          const cleanV = String(meta.viewsCount).replace(/views?|plays?/gi, '').trim();
+          updates.views = cleanV;
+          setSyncedViews(prev => ({ ...prev, [vid.id]: cleanV }));
+        }
+        if (meta.likesCount) {
+          const cleanL = String(meta.likesCount).replace(/likes?/i, '').trim();
+          updates.likes = cleanL;
+          setSyncedLikes(prev => ({ ...prev, [vid.id]: cleanL }));
+        }
+        if (meta.postedDate) {
+          const d = meta.postedDate.includes('T') ? meta.postedDate : `${meta.postedDate}T12:00:00.000Z`;
+          updates.posted_date = d;
+        }
+        if (meta.thumbnailUrl) {
+          const thumbUrl = meta.thumbnailUrl;
+          setSyncedThumbs(prev => ({ ...prev, [vid.id]: thumbUrl }));
+        }
+        if (meta.caption) {
+          const vBatch = batchflowBatches.find(b => b.id === vid.batch_id);
+          const vClient = batchflowClients.find(c => c.id === vBatch?.client_id);
+          const cleanCap = cleanInstagramCaption(meta.caption, vClient?.instagram_id);
+          if (cleanCap) {
+            setSyncedCaptions(prev => ({ ...prev, [vid.id]: cleanCap }));
+            if (!vid.description || vid.description.trim() === '') {
+              updates.description = cleanCap;
+            }
+          }
+        }
+
+        if (vid.video_url) {
+          saveCachedVideoMeta(vid.video_url, {
+            thumbnailUrl: meta.thumbnailUrl,
+            caption: meta.caption || undefined,
+            likes: meta.likesCount ? formatMetricCount(meta.likesCount) : null,
+            views: meta.viewsCount ? formatMetricCount(meta.viewsCount) : null,
+            postedDate: meta.postedDate || undefined,
+          });
+        }
+
+        if (Object.keys(updates).length > 0) {
+          await updateBatchflowVideo(vid.id, updates).catch(() => {});
+        }
+      }
+
+      setSyncSnackbar(`Extension synced live metrics for ${matchedVideos.map(m => m.name).join(', ')}!`);
+    };
+
+    window.addEventListener('message', handleBroadcast);
+    return () => window.removeEventListener('message', handleBroadcast);
+  }, [batchflowVideos, batchflowBatches, batchflowClients, updateBatchflowVideo]);
+
+  // Auto-sync missing views & metrics in background when batch is opened
+  useEffect(() => {
+    if (!selectedBatchId || autoSyncedBatchIdsRef.current.has(selectedBatchId)) return;
+    const vidsNeedingSync = currentBatchVideos.filter(v =>
+      v.video_url && (!v.views || String(v.views).trim() === '' || !syncedViews[v.id])
+    );
+
+    if (vidsNeedingSync.length > 0) {
+      autoSyncedBatchIdsRef.current.add(selectedBatchId);
+      const timer = setTimeout(() => {
+        syncVideosMetadata(vidsNeedingSync).catch(() => {});
+      }, 600);
+      return () => clearTimeout(timer);
+    }
+  }, [selectedBatchId, currentBatchVideos, syncedViews]);
+
   const handleExportPDF = async () => {
     if (!selectedBatch) return;
     setSyncingPDF(true);
@@ -2823,29 +2935,55 @@ export default function BatchflowBatches() {
                           {v.video_url && (() => {
                             const isIg = v.video_url.toLowerCase().includes('instagram.com') || v.video_url.toLowerCase().includes('instagr.am');
                             return (
-                              <Tooltip title={`Open ${isIg ? 'Instagram' : 'Video'}: ${v.video_url}`}>
-                                <IconButton
-                                  size="small"
-                                  onClick={(e) => {
-                                    e.stopPropagation();
-                                    window.open(v.video_url!, '_blank', 'noopener,noreferrer');
-                                  }}
-                                  onDoubleClick={(e) => e.stopPropagation()}
-                                  sx={{
-                                    p: 0.35,
-                                    color: isIg ? '#E1306C' : '#38BDF8',
-                                    bgcolor: isIg ? 'rgba(225, 48, 108, 0.12)' : 'rgba(56, 189, 248, 0.12)',
-                                    border: '1px solid',
-                                    borderColor: isIg ? 'rgba(225, 48, 108, 0.3)' : 'rgba(56, 189, 248, 0.3)',
-                                    borderRadius: 1,
-                                    '&:hover': {
-                                      bgcolor: isIg ? 'rgba(225, 48, 108, 0.25)' : 'rgba(56, 189, 248, 0.25)',
-                                    },
-                                  }}
-                                >
-                                  {isIg ? <InstagramIcon sx={{ fontSize: 13 }} /> : <OpenInNewRoundedIcon sx={{ fontSize: 13 }} />}
-                                </IconButton>
-                              </Tooltip>
+                              <Box sx={{ display: 'inline-flex', alignItems: 'center', gap: 0.5 }}>
+                                <Tooltip title={`Open ${isIg ? 'Instagram' : 'Video'}: ${v.video_url}`}>
+                                  <IconButton
+                                    size="small"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      window.open(v.video_url!, '_blank', 'noopener,noreferrer');
+                                    }}
+                                    onDoubleClick={(e) => e.stopPropagation()}
+                                    sx={{
+                                      p: 0.35,
+                                      color: isIg ? '#E1306C' : '#38BDF8',
+                                      bgcolor: isIg ? 'rgba(225, 48, 108, 0.12)' : 'rgba(56, 189, 248, 0.12)',
+                                      border: '1px solid',
+                                      borderColor: isIg ? 'rgba(225, 48, 108, 0.3)' : 'rgba(56, 189, 248, 0.3)',
+                                      borderRadius: 1,
+                                      '&:hover': {
+                                        bgcolor: isIg ? 'rgba(225, 48, 108, 0.25)' : 'rgba(56, 189, 248, 0.25)',
+                                      },
+                                    }}
+                                  >
+                                    {isIg ? <InstagramIcon sx={{ fontSize: 13 }} /> : <OpenInNewRoundedIcon sx={{ fontSize: 13 }} />}
+                                  </IconButton>
+                                </Tooltip>
+                                <Tooltip title="Sync live metrics & caption for this video">
+                                  <IconButton
+                                    size="small"
+                                    disabled={syncingVideoId === v.id}
+                                    onClick={(e) => handleSyncSingleVideo(v, e)}
+                                    onDoubleClick={(e) => e.stopPropagation()}
+                                    sx={{
+                                      p: 0.35,
+                                      color: '#818CF8',
+                                      bgcolor: 'rgba(129, 140, 248, 0.12)',
+                                      border: '1px solid rgba(129, 140, 248, 0.3)',
+                                      borderRadius: 1,
+                                      '&:hover': {
+                                        bgcolor: 'rgba(129, 140, 248, 0.25)',
+                                      },
+                                    }}
+                                  >
+                                    {syncingVideoId === v.id ? (
+                                      <CircularProgress size={13} sx={{ color: '#818CF8' }} />
+                                    ) : (
+                                      <SyncRoundedIcon sx={{ fontSize: 13 }} />
+                                    )}
+                                  </IconButton>
+                                </Tooltip>
+                              </Box>
                             );
                           })()}
                         </Box>
@@ -2865,9 +3003,10 @@ export default function BatchflowBatches() {
                           </span>
                           {(() => {
                             const cached = v.video_url ? getCachedVideoMeta(v.video_url) : null;
-                            const rawViews = syncedViews[v.id] || (v.views != null && String(v.views).trim() !== '' ? String(v.views).trim() : cached?.views);
+                            const { likes: modelLikes, views: modelViews } = extractVideoLikes(v);
+                            const rawViews = syncedViews[v.id] || (v.views != null && String(v.views).trim() !== '' ? String(v.views).trim() : (cached?.views || modelViews));
                             const viewsVal = formatMetricCount(rawViews);
-                            const rawLikes = syncedLikes[v.id] || (v.likes != null && String(v.likes).trim() !== '' ? String(v.likes).trim() : cached?.likes);
+                            const rawLikes = syncedLikes[v.id] || (v.likes != null && String(v.likes).trim() !== '' ? String(v.likes).trim() : (cached?.likes || modelLikes));
                             const likesVal = formatMetricCount(rawLikes);
                             if (!viewsVal && !likesVal) return null;
                             return (

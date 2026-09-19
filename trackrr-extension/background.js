@@ -504,9 +504,10 @@ async function fetchInstagramMetadata(rawUrl) {
     base64Thumbnail = await convertImageToBase64(thumbnailUrl);
   }
 
-  return {
+  const finalResult = {
     success: true,
     provider: 'instagram',
+    url: rawUrl,
     shortcode: shortcode,
     mediaId: mediaId,
     postedDate: postedDate,
@@ -519,6 +520,29 @@ async function fetchInstagramMetadata(rawUrl) {
     thumbnailUrl: base64Thumbnail || thumbnailUrl,
     source: 'chrome_extension'
   };
+
+  // Broadcast to open Trackrr tabs so cards live-update in real time
+  broadcastMetadataToTabs(finalResult);
+
+  return finalResult;
+}
+
+function broadcastMetadataToTabs(res) {
+  if (!res || !res.shortcode) return;
+  try {
+    chrome.tabs.query({}, (tabs) => {
+      if (!tabs) return;
+      for (const tab of tabs) {
+        if (!tab.id) continue;
+        try {
+          chrome.tabs.sendMessage(tab.id, {
+            action: 'TRACKRR_METADATA_BROADCAST',
+            data: res
+          }).catch(() => {});
+        } catch {}
+      }
+    });
+  } catch {}
 }
 
 // Message Router
@@ -530,5 +554,11 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
       sendResponse({ error: err.message || 'Failed to fetch Instagram metadata' });
     });
     return true; // Keep channel open for async sendResponse
+  }
+
+  if (request.action === 'BROADCAST_METADATA') {
+    broadcastMetadataToTabs(request.data);
+    sendResponse({ success: true });
+    return false;
   }
 });
