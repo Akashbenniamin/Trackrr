@@ -1029,6 +1029,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     storage.setSettings(updated);
     setSettings(updated);
 
+    // Keep localStorage Meta credentials in sync immediately for videoMetadata utilities
+    if (updated.meta_app_id && updated.meta_client_token) {
+      try { localStorage.setItem('trackrr_meta_access_token', `${updated.meta_app_id.trim()}|${updated.meta_client_token.trim()}`); } catch {}
+    } else if (data.meta_app_id === '' || data.meta_client_token === '') {
+      try { localStorage.removeItem('trackrr_meta_access_token'); } catch {}
+    }
+
+    if (updated.meta_user_token) {
+      try { localStorage.setItem('trackrr_meta_user_token', updated.meta_user_token.trim()); } catch {}
+    } else if (data.meta_user_token === '') {
+      try { localStorage.removeItem('trackrr_meta_user_token'); } catch {}
+    }
+
+    if (updated.meta_ig_user_id) {
+      try { localStorage.setItem('trackrr_meta_ig_user_id', updated.meta_ig_user_id.trim()); } catch {}
+    } else if (data.meta_ig_user_id === '') {
+      try { localStorage.removeItem('trackrr_meta_ig_user_id'); } catch {}
+    }
+
     if (isCloudActive && isOnline && user) {
       try {
         const payload: any = {

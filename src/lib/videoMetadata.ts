@@ -573,6 +573,8 @@ export async function resolveInstagramBusinessAccountId(userToken: string): Prom
   if (!token) return null;
 
   try {
+    let lastError: string | undefined;
+
     // 1. Try /me/accounts with instagram_business_account (standard Facebook Page linked to Instagram)
     const pageUrl = `https://graph.facebook.com/v19.0/me/accounts?fields=name,instagram_business_account{id,username}&access_token=${encodeURIComponent(token)}`;
     const pageResp = await fetch(pageUrl);
@@ -585,6 +587,11 @@ export async function resolveInstagramBusinessAccountId(userToken: string): Prom
             username: page.instagram_business_account.username || page.name,
           };
         }
+      }
+    } else {
+      const errData = await pageResp.json().catch(() => ({}));
+      if (errData?.error?.message) {
+        lastError = errData.error.message;
       }
     }
 
@@ -599,6 +606,11 @@ export async function resolveInstagramBusinessAccountId(userToken: string): Prom
           username: meData.instagram_business_account.username,
         };
       }
+    } else if (!lastError) {
+      const errData = await meResp.json().catch(() => ({}));
+      if (errData?.error?.message) {
+        lastError = errData.error.message;
+      }
     }
 
     // 3. Try /me on graph.instagram.com for direct Instagram Login
@@ -612,6 +624,15 @@ export async function resolveInstagramBusinessAccountId(userToken: string): Prom
           username: igData.username,
         };
       }
+    } else if (!lastError) {
+      const errData = await igResp.json().catch(() => ({}));
+      if (errData?.error?.message) {
+        lastError = errData.error.message;
+      }
+    }
+
+    if (lastError) {
+      return { id: '', error: lastError };
     }
   } catch (err: any) {
     console.warn('Could not auto-resolve Instagram Account ID:', err);
@@ -713,13 +734,16 @@ export async function queryMetaBusinessDiscovery(
 
         if (match) {
           const matchThumb = match.thumbnail_url || match.media_url || null;
-          if (matchThumb) {
-            try { localStorage.setItem(`trackrr_thumb_${cleanUrl}`, matchThumb); } catch {}
-          }
+          const matchLikes = match.like_count !== undefined ? formatMetricCount(match.like_count) : null;
+          saveCachedVideoMeta(cleanUrl, {
+            thumbnailUrl: matchThumb,
+            caption: match.caption,
+            likes: matchLikes,
+          });
           return {
             matched: true,
             viewsCount: match.view_count !== undefined && match.view_count !== null ? formatMetricCount(match.view_count) : null,
-            likesCount: match.like_count !== undefined ? formatMetricCount(match.like_count) : null,
+            likesCount: matchLikes,
             commentsCount: match.comments_count !== undefined ? String(match.comments_count) : null,
             postedDate: match.timestamp ? match.timestamp.split('T')[0] : null,
             postedDateTime: match.timestamp || null,
@@ -821,14 +845,14 @@ export async function fetchVideoMetadata(
     const applyBdResult = (res: { viewsCount: string | null; likesCount: string | null; commentsCount: string | null; postedDate: string | null; postedDateTime: string | null; caption: string | null; thumbnailUrl?: string | null }) => {
       usedOfficialMetaApi = true;
       if (res.viewsCount) viewsCount = res.viewsCount;
-      if (!likesCount && res.likesCount) likesCount = res.likesCount;
-      if (!commentsCount && res.commentsCount) commentsCount = res.commentsCount;
-      if (!postedDate && res.postedDate) {
+      if (res.likesCount) likesCount = res.likesCount;
+      if (res.commentsCount) commentsCount = res.commentsCount;
+      if (res.postedDate) {
         postedDate = res.postedDate;
         postedDateTime = res.postedDateTime;
       }
-      if (!caption && res.caption) caption = res.caption;
-      if (!thumbnailUrl && res.thumbnailUrl) thumbnailUrl = res.thumbnailUrl;
+      if (res.caption) caption = res.caption;
+      if (res.thumbnailUrl) thumbnailUrl = res.thumbnailUrl;
     };
 
     // A. Meta Official oEmbed API (uses App ID | Client Token from Meta Dev Account)
@@ -847,6 +871,13 @@ export async function fetchVideoMetadata(
           caption = data.title || undefined;
           rawHtml = data.html;
           mediaId = data.media_id || null;
+
+          if (data.thumbnail_url || data.title) {
+            saveCachedVideoMeta(cleanUrl, {
+              thumbnailUrl: data.thumbnail_url,
+              caption: data.title,
+            });
+          }
 
           if (data.html) {
             const timeMatch = data.html.match(/<time[^>]*datetime="([^"]+)"/i);

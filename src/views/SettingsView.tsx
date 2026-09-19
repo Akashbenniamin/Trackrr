@@ -1,9 +1,10 @@
-import React, { useState, useRef } from 'react';
+import React, { useState, useRef, useEffect } from 'react';
 import {
   Box, Card, Typography, Button, Select, MenuItem, Divider, Fade,
   Dialog, DialogTitle, DialogContent, DialogActions, TextField,
   Avatar, IconButton, Alert, List, ListItem,
   ListItemAvatar, ListItemText, Chip, Snackbar, ButtonBase,
+  CircularProgress, InputAdornment, Accordion, AccordionSummary, AccordionDetails,
 } from '@mui/material';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import DeleteOutlineRoundedIcon from '@mui/icons-material/DeleteOutlineRounded';
@@ -26,9 +27,22 @@ import StorageRoundedIcon from '@mui/icons-material/StorageRounded';
 import DataObjectRoundedIcon from '@mui/icons-material/DataObjectRounded';
 import MovieCreationRoundedIcon from '@mui/icons-material/MovieCreationRounded';
 import WorkOutlineRoundedIcon from '@mui/icons-material/WorkOutlineRounded';
+import InstagramIcon from '@mui/icons-material/Instagram';
+import VisibilityRoundedIcon from '@mui/icons-material/VisibilityRounded';
+import VisibilityOffRoundedIcon from '@mui/icons-material/VisibilityOffRounded';
+import SyncRoundedIcon from '@mui/icons-material/SyncRounded';
+import FavoriteRoundedIcon from '@mui/icons-material/FavoriteRounded';
+import CalendarTodayRoundedIcon from '@mui/icons-material/CalendarTodayRounded';
+import ExpandMoreRoundedIcon from '@mui/icons-material/ExpandMoreRounded';
+import HelpOutlineRoundedIcon from '@mui/icons-material/HelpOutlineRounded';
 import { useApp } from '../contexts/AppContext';
 import { useAuth } from '../contexts/AuthContext';
 import { storage } from '../lib/storage';
+import {
+  fetchVideoMetadata,
+  resolveInstagramBusinessAccountId,
+  type VideoMetadataResult,
+} from '../lib/videoMetadata';
 import type { WorkspaceType, ThemeStyle } from '../types';
 
 const WS_COLORS = ['#818CF8', '#34D399', '#F59E0B', '#F87171', '#A78BFA', '#60A5FA', '#FB7185', '#4ADE80'];
@@ -235,6 +249,110 @@ export default function SettingsView() {
   const [toastMessage, setToastMessage] = useState<string | null>(null);
 
   const isBatchflow = activeWorkspace?.type === 'batchflow';
+
+  // Meta / Instagram API Credentials State
+  const [metaAppId, setMetaAppId] = useState(settings.meta_app_id || '');
+  const [metaClientToken, setMetaClientToken] = useState(settings.meta_client_token || '');
+  const [metaUserToken, setMetaUserToken] = useState(settings.meta_user_token || '');
+  const [metaIgUserId, setMetaIgUserId] = useState(settings.meta_ig_user_id || '');
+  const [showTokens, setShowTokens] = useState(false);
+  const [detectingIgId, setDetectingIgId] = useState(false);
+
+  // Keep state in sync if settings update from cloud
+  useEffect(() => {
+    if (settings.meta_app_id !== undefined) setMetaAppId(settings.meta_app_id || '');
+    if (settings.meta_client_token !== undefined) setMetaClientToken(settings.meta_client_token || '');
+    if (settings.meta_user_token !== undefined) setMetaUserToken(settings.meta_user_token || '');
+    if (settings.meta_ig_user_id !== undefined) setMetaIgUserId(settings.meta_ig_user_id || '');
+  }, [settings.meta_app_id, settings.meta_client_token, settings.meta_user_token, settings.meta_ig_user_id]);
+
+  // Test Link Fetch State
+  const [metaTestUrl, setMetaTestUrl] = useState('');
+  const [metaTestHandle, setMetaTestHandle] = useState('');
+  const [metaTesting, setMetaTesting] = useState(false);
+  const [metaTestResult, setMetaTestResult] = useState<VideoMetadataResult | null>(null);
+
+  const handleSaveMetaCredentials = async () => {
+    const cleanAppId = metaAppId.trim();
+    const cleanClientToken = metaClientToken.trim();
+    const cleanUserToken = metaUserToken.trim();
+    const cleanIgUserId = metaIgUserId.trim();
+
+    await updateSettings({
+      meta_app_id: cleanAppId,
+      meta_client_token: cleanClientToken,
+      meta_user_token: cleanUserToken,
+      meta_ig_user_id: cleanIgUserId,
+    });
+
+    setToastMessage('Meta & Instagram API credentials saved successfully!');
+  };
+
+  const handleClearMetaCredentials = async () => {
+    setMetaAppId('');
+    setMetaClientToken('');
+    setMetaUserToken('');
+    setMetaIgUserId('');
+
+    await updateSettings({
+      meta_app_id: '',
+      meta_client_token: '',
+      meta_user_token: '',
+      meta_ig_user_id: '',
+    });
+
+    setToastMessage('Meta & Instagram credentials cleared.');
+  };
+
+  const handleAutoDetectIgId = async () => {
+    const token = metaUserToken.trim() || settings.meta_user_token?.trim();
+    if (!token) {
+      setToastMessage('Please paste your Meta User Access Token first.');
+      return;
+    }
+
+    setDetectingIgId(true);
+    try {
+      const res = await resolveInstagramBusinessAccountId(token);
+      if (res?.id) {
+        setMetaIgUserId(res.id);
+        await updateSettings({ meta_ig_user_id: res.id });
+        setToastMessage(`Connected to Instagram: @${res.username || 'business'} (ID: ${res.id})! Saved.`);
+      } else {
+        alert(res?.error || 'Could not find a linked Instagram Business/Creator Account. Make sure your Facebook Page is linked to your Instagram Professional Account and the token includes instagram_basic and pages_show_list permissions.');
+      }
+    } catch (err: any) {
+      alert(`Auto-detection error: ${err?.message || 'Network error'}`);
+    } finally {
+      setDetectingIgId(false);
+    }
+  };
+
+  const handleTestMetaApi = async () => {
+    const raw = metaTestUrl.trim();
+    if (!raw) return;
+
+    setMetaTesting(true);
+    setMetaTestResult(null);
+
+    try {
+      const res = await fetchVideoMetadata(raw, {
+        metaAppId: metaAppId.trim() || settings.meta_app_id,
+        metaClientToken: metaClientToken.trim() || settings.meta_client_token,
+        metaUserToken: metaUserToken.trim() || settings.meta_user_token,
+        metaIgUserId: metaIgUserId.trim() || settings.meta_ig_user_id,
+        clientHandle: metaTestHandle.trim() || undefined,
+      });
+      setMetaTestResult(res);
+    } catch (err: any) {
+      setMetaTestResult({
+        provider: 'other',
+        error: err?.message || 'Failed to fetch video metadata',
+      });
+    } finally {
+      setMetaTesting(false);
+    }
+  };
 
   const handleSaveWs = async () => {
     if (!editWs?.name.trim()) return;
@@ -785,6 +903,356 @@ export default function SettingsView() {
               onChange={handleFileSelect}
             />
           </Box>
+        </Card>
+
+        {/* Meta & Instagram Auto-Fetch Configuration */}
+        <Card sx={{ p: 2.5, mb: 2.5 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', mb: 1, flexWrap: 'wrap', gap: 1 }}>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+              <Box
+                sx={{
+                  width: 38,
+                  height: 38,
+                  borderRadius: 2,
+                  display: 'flex',
+                  alignItems: 'center',
+                  justifyContent: 'center',
+                  background: 'linear-gradient(45deg, #f09433 0%, #e6683c 25%, #dc2743 50%, #cc2366 75%, #bc1888 100%)',
+                  color: '#fff',
+                  boxShadow: '0 4px 12px rgba(220, 39, 67, 0.3)',
+                }}
+              >
+                <InstagramIcon sx={{ fontSize: 22 }} />
+              </Box>
+              <Box>
+                <Typography variant="h6" sx={{ fontWeight: 800, lineHeight: 1.2 }}>
+                  Meta & Instagram Auto-Fetch
+                </Typography>
+                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+                  Auto-extract HD thumbnails, publication dates, live likes, and captions from Reels
+                </Typography>
+              </Box>
+            </Box>
+
+            {/* Status Chip */}
+            {metaUserToken ? (
+              <Chip
+                label="Full Access: Business Discovery Active"
+                color="success"
+                size="small"
+                icon={<CheckCircleRoundedIcon sx={{ fontSize: '14px !important' }} />}
+                sx={{ fontWeight: 700, fontSize: '0.72rem' }}
+              />
+            ) : (metaAppId && metaClientToken) ? (
+              <Chip
+                label="Basic Access: oEmbed App Token Active"
+                color="primary"
+                size="small"
+                icon={<CheckCircleRoundedIcon sx={{ fontSize: '14px !important' }} />}
+                sx={{ fontWeight: 700, fontSize: '0.72rem' }}
+              />
+            ) : (
+              <Chip
+                label="Not Configured (Manual / Snowflake Only)"
+                variant="outlined"
+                size="small"
+                sx={{ fontWeight: 600, fontSize: '0.72rem', color: 'text.secondary' }}
+              />
+            )}
+          </Box>
+
+          <Alert severity="info" sx={{ my: 2, fontSize: '0.8rem', lineHeight: 1.5 }}>
+            <strong>Why Meta credentials?</strong> Instagram strictly blocks third-party scrapers with bot-protection errors.
+            Connecting your official Meta credentials enables BatchFlow to reliably fetch live reel metrics (likes, HD thumbnails, captions, and dates) directly via Meta's Graph and oEmbed APIs.
+          </Alert>
+
+          {/* Credentials Inputs */}
+          <Box sx={{ display: 'flex', flexDirection: 'column', gap: 2, mb: 2.5 }}>
+            <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', md: '1fr 1fr' }, gap: 2 }}>
+              {/* Meta App ID */}
+              <TextField
+                label="Meta App ID"
+                size="small"
+                fullWidth
+                placeholder="e.g. 123456789012345"
+                value={metaAppId}
+                onChange={e => setMetaAppId(e.target.value)}
+                helperText="Found in developers.facebook.com app dashboard (Permanent)"
+              />
+
+              {/* Meta Client Token */}
+              <TextField
+                label="Meta Client Token"
+                size="small"
+                fullWidth
+                type={showTokens ? 'text' : 'password'}
+                placeholder="e.g. a1b2c3d4e5f6..."
+                value={metaClientToken}
+                onChange={e => setMetaClientToken(e.target.value)}
+                helperText="Found in App Settings > Advanced > Client Token"
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton size="small" onClick={() => setShowTokens(!showTokens)}>
+                        {showTokens ? <VisibilityOffRoundedIcon sx={{ fontSize: 16 }} /> : <VisibilityRoundedIcon sx={{ fontSize: 16 }} />}
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                }}
+              />
+
+              {/* Meta User Access Token */}
+              <TextField
+                label="Meta User Access Token (Long-Lived)"
+                size="small"
+                fullWidth
+                type={showTokens ? 'text' : 'password'}
+                placeholder="e.g. EAA..."
+                value={metaUserToken}
+                onChange={e => setMetaUserToken(e.target.value)}
+                helperText="User token with instagram_basic & pages_show_list permissions"
+                InputProps={{
+                  endAdornment: (
+                    <InputAdornment position="end">
+                      <IconButton size="small" onClick={() => setShowTokens(!showTokens)}>
+                        {showTokens ? <VisibilityOffRoundedIcon sx={{ fontSize: 16 }} /> : <VisibilityRoundedIcon sx={{ fontSize: 16 }} />}
+                      </IconButton>
+                    </InputAdornment>
+                  ),
+                }}
+              />
+
+              {/* Connected Instagram Business Account ID */}
+              <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.75 }}>
+                <TextField
+                  label="Instagram Account ID (Business / Creator)"
+                  size="small"
+                  fullWidth
+                  placeholder="e.g. 178414..."
+                  value={metaIgUserId}
+                  onChange={e => setMetaIgUserId(e.target.value)}
+                  helperText="Your linked Instagram ID (starts with 178414...)"
+                />
+                <Button
+                  size="small"
+                  variant="text"
+                  startIcon={detectingIgId ? <CircularProgress size={13} /> : <SyncRoundedIcon sx={{ fontSize: 14 }} />}
+                  onClick={handleAutoDetectIgId}
+                  disabled={detectingIgId || !metaUserToken.trim()}
+                  sx={{
+                    alignSelf: 'flex-start',
+                    fontSize: '0.73rem',
+                    textTransform: 'none',
+                    fontWeight: 700,
+                    py: 0.25,
+                    px: 0.75,
+                    color: '#E1306C',
+                  }}
+                >
+                  {detectingIgId ? 'Auto-detecting ID…' : '⚡ Auto-Detect ID from User Token'}
+                </Button>
+              </Box>
+            </Box>
+
+            {/* Save & Clear Buttons */}
+            <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', alignItems: 'center', mt: 0.5 }}>
+              <Button
+                variant="contained"
+                onClick={handleSaveMetaCredentials}
+                sx={{
+                  background: 'linear-gradient(45deg, #f09433, #dc2743, #bc1888)',
+                  '&:hover': { background: 'linear-gradient(45deg, #e6683c, #cc2366, #9c126e)' },
+                  fontWeight: 700,
+                  textTransform: 'none',
+                  px: 3,
+                }}
+              >
+                Save Meta Credentials
+              </Button>
+              {(metaAppId || metaClientToken || metaUserToken || metaIgUserId) && (
+                <Button
+                  variant="outlined"
+                  color="inherit"
+                  onClick={handleClearMetaCredentials}
+                  sx={{ textTransform: 'none', borderColor: 'divider', color: 'text.secondary' }}
+                >
+                  Clear Credentials
+                </Button>
+              )}
+            </Box>
+          </Box>
+
+          {/* Test Link Fetch Section */}
+          <Box sx={{ p: 2, bgcolor: 'action.hover', borderRadius: 2, border: '1px solid', borderColor: 'divider', mb: 2 }}>
+            <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.5 }}>
+              Test Video Metadata Extraction
+            </Typography>
+            <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mb: 1.5 }}>
+              Paste any Instagram Reel URL and test thumbnail, date, likes, and caption retrieval in real-time.
+            </Typography>
+
+            <Box sx={{ display: 'flex', flexDirection: { xs: 'column', sm: 'row' }, gap: 1.5 }}>
+              <TextField
+                size="small"
+                fullWidth
+                placeholder="https://www.instagram.com/reel/... or https://youtube.com/..."
+                value={metaTestUrl}
+                onChange={e => setMetaTestUrl(e.target.value)}
+                sx={{ flex: 2 }}
+              />
+              <TextField
+                size="small"
+                placeholder="Creator handle e.g. leoholidays.in (Optional)"
+                value={metaTestHandle}
+                onChange={e => setMetaTestHandle(e.target.value)}
+                sx={{ flex: 1 }}
+              />
+              <Button
+                variant="outlined"
+                onClick={handleTestMetaApi}
+                disabled={metaTesting || !metaTestUrl.trim()}
+                sx={{ textTransform: 'none', fontWeight: 700, whiteSpace: 'nowrap', minWidth: 120 }}
+              >
+                {metaTesting ? <CircularProgress size={18} /> : 'Test Fetch'}
+              </Button>
+            </Box>
+
+            {metaTestResult && (
+              <Box sx={{ mt: 2, p: 2, borderRadius: 2, bgcolor: 'background.paper', border: '1px solid', borderColor: 'divider' }}>
+                {metaTestResult.error && !metaTestResult.postedDate && !metaTestResult.thumbnailUrl ? (
+                  <Alert severity="warning" sx={{ fontSize: '0.82rem' }}>
+                    {metaTestResult.error}
+                  </Alert>
+                ) : (
+                  <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', flexWrap: 'wrap', gap: 1 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <CheckCircleRoundedIcon sx={{ color: '#10B981', fontSize: 18 }} />
+                        <Typography variant="body2" sx={{ fontWeight: 800, color: '#10B981' }}>
+                          Metadata Fetched Successfully
+                        </Typography>
+                      </Box>
+                      <Chip
+                        label={
+                          metaTestResult.usedOfficialMetaApi && metaTestResult.likesCount
+                            ? 'Official Meta Business Discovery (HD Thumbnail + Likes + Caption)'
+                            : metaTestResult.usedOfficialMetaApi
+                            ? 'Official Meta oEmbed API'
+                            : 'Fallback Resolver / Snowflake'
+                        }
+                        size="small"
+                        color={metaTestResult.usedOfficialMetaApi ? 'success' : 'default'}
+                        sx={{ height: 22, fontSize: '0.68rem', fontWeight: 700 }}
+                      />
+                    </Box>
+
+                    {/* Result Content Row with Thumbnail Preview */}
+                    <Box sx={{ display: 'flex', gap: 2, alignItems: 'flex-start' }}>
+                      {metaTestResult.thumbnailUrl && (
+                        <Box
+                          component="img"
+                          src={metaTestResult.thumbnailUrl}
+                          alt="preview"
+                          sx={{
+                            width: 64,
+                            height: 64,
+                            borderRadius: 1.5,
+                            objectFit: 'cover',
+                            border: '1px solid rgba(255,255,255,0.15)',
+                            flexShrink: 0,
+                          }}
+                        />
+                      )}
+                      <Box sx={{ display: 'flex', flexDirection: 'column', gap: 0.5, minWidth: 0, flex: 1 }}>
+                        {metaTestResult.title && (
+                          <Typography variant="body2" sx={{ fontWeight: 700, fontSize: '0.88rem' }}>
+                            {metaTestResult.title}
+                          </Typography>
+                        )}
+                        {metaTestResult.caption && metaTestResult.caption !== metaTestResult.title && (
+                          <Typography variant="caption" sx={{ color: 'text.secondary', display: '-webkit-box', WebkitLineClamp: 2, WebkitBoxOrient: 'vertical', overflow: 'hidden' }}>
+                            {metaTestResult.caption}
+                          </Typography>
+                        )}
+                        <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap', alignItems: 'center', mt: 0.5 }}>
+                          {metaTestResult.postedDate && (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: 'text.secondary' }}>
+                              <CalendarTodayRoundedIcon sx={{ fontSize: 14 }} />
+                              <Typography variant="caption" sx={{ fontWeight: 600 }}>
+                                Date: {metaTestResult.postedDate}
+                              </Typography>
+                            </Box>
+                          )}
+                          {metaTestResult.likesCount && (
+                            <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, color: '#E1306C' }}>
+                              <FavoriteRoundedIcon sx={{ fontSize: 14 }} />
+                              <Typography variant="caption" sx={{ fontWeight: 700 }}>
+                                {metaTestResult.likesCount} likes
+                              </Typography>
+                            </Box>
+                          )}
+                          {(metaTestResult.author || metaTestResult.creatorHandle) && (
+                            <Typography variant="caption" sx={{ color: 'primary.light', fontWeight: 600 }}>
+                              @{metaTestResult.author || metaTestResult.creatorHandle}
+                            </Typography>
+                          )}
+                        </Box>
+                      </Box>
+                    </Box>
+
+                    {metaTestResult.metaApiError && (
+                      <Alert severity="info" sx={{ mt: 1, py: 0.5, fontSize: '0.78rem' }}>
+                        Meta Notice: {metaTestResult.metaApiError}
+                      </Alert>
+                    )}
+                  </Box>
+                )}
+              </Box>
+            )}
+          </Box>
+
+          {/* Quick Setup Instructions Accordion */}
+          <Accordion
+            sx={{
+              bgcolor: 'action.hover',
+              backgroundImage: 'none',
+              border: '1px solid',
+              borderColor: 'divider',
+              borderRadius: '8px !important',
+              '&:before': { display: 'none' },
+            }}
+          >
+            <AccordionSummary expandIcon={<ExpandMoreRoundedIcon sx={{ fontSize: 18 }} />}>
+              <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                <HelpOutlineRoundedIcon sx={{ fontSize: 16, color: 'primary.main' }} />
+                <Typography variant="body2" sx={{ fontWeight: 700 }}>
+                  Quick Step-by-Step Setup Guide (Free)
+                </Typography>
+              </Box>
+            </AccordionSummary>
+            <AccordionDetails sx={{ pt: 0, fontSize: '0.8rem', lineHeight: 1.6 }}>
+              <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.5 }}>
+                1. Basic oEmbed App Credentials (Dates & Post Info, Never Expires):
+              </Typography>
+              <ol style={{ margin: '0 0 12px 0', paddingLeft: 20 }}>
+                <li>Visit <a href="https://developers.facebook.com" target="_blank" rel="noopener noreferrer" style={{ color: '#38BDF8', fontWeight: 600 }}>developers.facebook.com</a> and click <strong>Create App</strong> (Type: <em>Other &gt; Business</em>).</li>
+                <li>In <em>Add Products</em>, add <strong>oEmbed</strong>.</li>
+                <li>Go to <strong>App Settings &gt; Basic</strong> to copy your <strong>App ID</strong>.</li>
+                <li>Under <strong>App Settings &gt; Advanced</strong>, copy your <strong>Client Token</strong>.</li>
+              </ol>
+
+              <Typography variant="body2" sx={{ fontWeight: 700, mb: 0.5 }}>
+                2. User Access Token (Unlocks Live Likes, Captions & HD Thumbnails via Business Discovery):
+              </Typography>
+              <ol style={{ margin: 0, paddingLeft: 20 }}>
+                <li>In Meta Developer Portal, go to <strong>Tools &gt; Graph API Explorer</strong>.</li>
+                <li>Select your App, add permissions <code>instagram_basic</code> and <code>pages_show_list</code>, and click <strong>Generate Access Token</strong>.</li>
+                <li>Paste the token into the <strong>Meta User Access Token</strong> field above.</li>
+                <li>Click <strong>⚡ Auto-Detect ID from User Token</strong> to automatically find and link your Instagram Creator Account ID!</li>
+                <li>Click <strong>Save Meta Credentials</strong>.</li>
+              </ol>
+            </AccordionDetails>
+          </Accordion>
         </Card>
 
         {/* Supabase Cloud Database Setup */}
