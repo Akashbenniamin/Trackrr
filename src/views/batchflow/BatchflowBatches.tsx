@@ -3324,7 +3324,7 @@ export default function BatchflowBatches() {
                     </Box>
 
                     {/* Status Toggle Button & Actions */}
-                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }} onDoubleClick={(e) => e.stopPropagation()}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, flexShrink: 0 }} onDoubleClick={(e) => e.stopPropagation()}>
                       <Tooltip title="Click to cycle status: Pending -> Edited -> Posted">
                         <Button
                           size="small"
@@ -3339,13 +3339,18 @@ export default function BatchflowBatches() {
                             fontWeight: 800,
                             fontSize: '0.72rem',
                             letterSpacing: '0.05em',
-                            px: 1.5,
+                            width: 80,
+                            minWidth: 80,
+                            px: 1,
                             py: 0.4,
                             borderRadius: 1,
                             bgcolor: st.bg,
                             color: st.text,
                             border: `1px solid ${st.border}`,
                             '&:hover': { bgcolor: st.bg, opacity: 0.9 },
+                            flexShrink: 0,
+                            justifyContent: 'center',
+                            textAlign: 'center',
                           }}
                         >
                           {v.status}
@@ -3353,8 +3358,8 @@ export default function BatchflowBatches() {
                       </Tooltip>
 
                       {canEdit && (
-                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }} onDoubleClick={(e) => e.stopPropagation()}>
-                          {v.script_number > 0 && (
+                        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5, flexShrink: 0 }} onDoubleClick={(e) => e.stopPropagation()}>
+                          {v.script_number > 0 ? (
                             <Tooltip title={`View Script #${v.script_number}`}>
                               <IconButton
                                 size="small"
@@ -3369,6 +3374,15 @@ export default function BatchflowBatches() {
                                 <DescriptionRoundedIcon sx={{ fontSize: 16 }} />
                               </IconButton>
                             </Tooltip>
+                          ) : (
+                            <IconButton
+                              size="small"
+                              tabIndex={-1}
+                              aria-hidden="true"
+                              sx={{ visibility: 'hidden', pointerEvents: 'none' }}
+                            >
+                              <DescriptionRoundedIcon sx={{ fontSize: 16 }} />
+                            </IconButton>
                           )}
                           <IconButton
                             size="small"
