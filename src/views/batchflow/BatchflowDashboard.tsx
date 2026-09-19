@@ -11,9 +11,9 @@ import CheckCircleRoundedIcon from '@mui/icons-material/CheckCircleRounded';
 import { BarChart, Bar, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, Cell } from 'recharts';
 import { useApp } from '../../contexts/AppContext';
 
-function StatCard({ label, value, icon, color, subLabel, progress, onClick }: {
+function StatCard({ label, value, icon, color, progress, onClick }: {
   label: string; value: string | number; icon: React.ReactNode; color: string;
-  subLabel?: string; progress?: number; onClick?: () => void;
+  progress?: number; onClick?: () => void;
 }) {
   return (
     <ButtonBase onClick={onClick} sx={{ borderRadius: 2.5, display: 'block', width: '100%', height: '100%', textAlign: 'left' }}>
@@ -51,21 +51,16 @@ function StatCard({ label, value, icon, color, subLabel, progress, onClick }: {
                 sx={{
                   fontFamily: '"MADEOkineSans", "Roboto", sans-serif',
                   fontWeight: 800,
-                  fontSize: { xs: '1.7rem', sm: '2.1rem' },
+                  fontSize: { xs: '2.2rem', sm: '2.6rem' },
                   letterSpacing: '-0.02em',
                   color,
-                  mt: 0.3,
-                  mb: 0.2,
-                  lineHeight: 1.05,
+                  mt: 0.5,
+                  mb: 0,
+                  lineHeight: 1,
                 }}
               >
                 {value}
               </Typography>
-              {subLabel && (
-                <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', fontSize: '0.72rem', fontWeight: 500 }}>
-                  {subLabel}
-                </Typography>
-              )}
             </Box>
             <Avatar
               sx={{
@@ -172,7 +167,6 @@ export default function BatchflowDashboard({ onNavigate }: { onNavigate?: (view:
             value={displayClientCount}
             icon={<PeopleRoundedIcon fontSize="small" />}
             color="#818CF8"
-            subLabel={timeRange === 'this_month' ? 'active this mo' : 'in pipeline'}
             onClick={() => onNavigate?.('clients')}
           />
         </Box>
@@ -182,7 +176,6 @@ export default function BatchflowDashboard({ onNavigate }: { onNavigate?: (view:
             value={displayBatches.length}
             icon={<LayersRoundedIcon fontSize="small" />}
             color="#A78BFA"
-            subLabel={timeRange === 'this_month' ? 'this month' : 'in progress'}
             onClick={() => onNavigate?.('batches')}
           />
         </Box>
@@ -192,7 +185,6 @@ export default function BatchflowDashboard({ onNavigate }: { onNavigate?: (view:
             value={pendingCount}
             icon={<PendingRoundedIcon fontSize="small" />}
             color="#F59E0B"
-            subLabel="waiting edit"
             onClick={() => onNavigate?.('batches')}
           />
         </Box>
@@ -202,7 +194,6 @@ export default function BatchflowDashboard({ onNavigate }: { onNavigate?: (view:
             value={editedCount}
             icon={<MovieCreationRoundedIcon fontSize="small" />}
             color="#3B82F6"
-            subLabel="ready to post"
             onClick={() => onNavigate?.('batches')}
           />
         </Box>
@@ -212,7 +203,6 @@ export default function BatchflowDashboard({ onNavigate }: { onNavigate?: (view:
             value={postedCount}
             icon={<CheckCircleRoundedIcon fontSize="small" />}
             color="#10B981"
-            subLabel="published"
             onClick={() => onNavigate?.('batches')}
           />
         </Box>

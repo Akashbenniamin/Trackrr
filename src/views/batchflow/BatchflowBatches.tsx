@@ -4,6 +4,7 @@ import {
   Dialog, DialogTitle, DialogContent, DialogActions,
   Select, MenuItem, InputLabel, FormControl, Divider, Tooltip,
   Paper, Alert, LinearProgress, Menu, CircularProgress, Snackbar,
+  useTheme, useMediaQuery,
 } from '@mui/material';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import EditRoundedIcon from '@mui/icons-material/EditRounded';
@@ -28,6 +29,8 @@ import FileUploadRoundedIcon from '@mui/icons-material/FileUploadRounded';
 import FavoriteRoundedIcon from '@mui/icons-material/FavoriteRounded';
 import VisibilityRoundedIcon from '@mui/icons-material/VisibilityRounded';
 import AddPhotoAlternateRoundedIcon from '@mui/icons-material/AddPhotoAlternateRounded';
+import ArrowUpwardRoundedIcon from '@mui/icons-material/ArrowUpwardRounded';
+import ArrowDownwardRoundedIcon from '@mui/icons-material/ArrowDownwardRounded';
 import html2canvas from 'html2canvas';
 import { jsPDF } from 'jspdf';
 import { registerOkineFont } from '../../lib/okineFont';
@@ -309,6 +312,100 @@ export default function BatchflowBatches() {
     'script_asc'
   );
 
+  const theme = useTheme();
+  const isMobile = useMediaQuery(theme.breakpoints.down('md'));
+
+  // Mobile floating script modal state
+  const [mobileScriptModal, setMobileScriptModal] = useState<{
+    open: boolean;
+    video: BatchflowVideo | null;
+    text: string;
+  }>({
+    open: false,
+    video: null,
+    text: '',
+  });
+  const [copiedMobileScript, setCopiedMobileScript] = useState(false);
+
+  // Script text extractor for an individual video
+  const getVideoScriptText = (batchScript?: string, scriptNum?: number | null): string => {
+    if (!batchScript || !scriptNum) return '';
+    const sections = batchScript.split(/(?=script\s*[-\s]?\s*\d+)/gi).filter(s => s.trim().length > 0);
+    for (const s of sections) {
+      const lines = s.trim().split('\n');
+      const firstLine = lines[0] || '';
+      const match = firstLine.match(/^script\s*[-\s]?\s*(\d+)/i);
+      if (match && parseInt(match[1], 10) === scriptNum) {
+        return s.trim();
+      }
+    }
+    return batchScript.trim();
+  };
+
+  // Hybrid sort helpers
+  const getSortBase = (order: BatchVideoSortOption): string => {
+    if (order.startsWith('script')) return 'script';
+    if (order.startsWith('date')) return 'date';
+    if (order.startsWith('likes')) return 'likes';
+    if (order.startsWith('name')) return 'name';
+    if (order === 'status_posted') return 'status_posted';
+    if (order === 'status_pending') return 'status_pending';
+    if (order === 'status_edited') return 'status_edited';
+    return 'script';
+  };
+
+  const isSortDesc = (order: BatchVideoSortOption): boolean => {
+    return order === 'script_desc' || order === 'date_desc' || order === 'likes_desc' || order === 'name_desc' || order === 'status_posted';
+  };
+
+  const toggleSortDirection = () => {
+    setSortOrder(prev => {
+      switch (prev) {
+        case 'script_asc': return 'script_desc';
+        case 'script_desc': return 'script_asc';
+        case 'date_desc': return 'date_asc';
+        case 'date_asc': return 'date_desc';
+        case 'likes_desc': return 'likes_asc';
+        case 'likes_asc': return 'likes_desc';
+        case 'name_asc': return 'name_desc';
+        case 'name_desc': return 'name_asc';
+        case 'status_posted': return 'status_pending';
+        case 'status_pending': return 'status_posted';
+        case 'status_edited': return 'status_posted';
+        default: return 'script_asc';
+      }
+    });
+  };
+
+  const handleBaseSortChange = (newBase: string) => {
+    const currentDesc = isSortDesc(sortOrder);
+    switch (newBase) {
+      case 'script':
+        setSortOrder(currentDesc ? 'script_desc' : 'script_asc');
+        break;
+      case 'date':
+        setSortOrder(currentDesc ? 'date_desc' : 'date_asc');
+        break;
+      case 'likes':
+        setSortOrder(currentDesc ? 'likes_desc' : 'likes_asc');
+        break;
+      case 'name':
+        setSortOrder(currentDesc ? 'name_desc' : 'name_asc');
+        break;
+      case 'status_posted':
+        setSortOrder('status_posted');
+        break;
+      case 'status_pending':
+        setSortOrder('status_pending');
+        break;
+      case 'status_edited':
+        setSortOrder('status_edited');
+        break;
+      default:
+        setSortOrder('script_asc');
+    }
+  };
+
   // Dialog states
   const [newBatchOpen, setNewBatchOpen] = useState(false);
   const [newBatchForm, setNewBatchForm] = useState({
@@ -401,7 +498,6 @@ export default function BatchflowBatches() {
   const [postedMetaLoading, setPostedMetaLoading] = useState(false);
   const [postedMetaResult, setPostedMetaResult] = useState<VideoMetadataResult | null>(null);
   const postedFileRef = useRef<HTMLInputElement>(null);
-  const editFileRef = useRef<HTMLInputElement>(null);
 
   const [syncingPDF, setSyncingPDF] = useState(false);
   const [syncingAllPDF, setSyncingAllPDF] = useState(false);
@@ -733,6 +829,13 @@ export default function BatchflowBatches() {
       if (order === 'status_posted') {
         const diff = (statusPriorityPosted[a.status] || 99) - (statusPriorityPosted[b.status] || 99);
         if (diff !== 0) return diff;
+        if (a.status === 'Posted' && b.status === 'Posted') {
+          const dA = getVideoEffectiveDate(a);
+          const dB = getVideoEffectiveDate(b);
+          if (dA && dB) return dA.localeCompare(dB); // Oldest posted video on top
+          if (dA) return -1;
+          if (dB) return 1;
+        }
         return (a.script_number ?? 0) - (b.script_number ?? 0);
       }
       if (order === 'name_asc') return a.name.localeCompare(b.name, undefined, { numeric: true });
@@ -775,6 +878,10 @@ export default function BatchflowBatches() {
     const order: BatchflowVideoStatus[] = ['Pending', 'Edited', 'Posted'];
     const curIdx = order.indexOf(v.status);
     const nextStatus = order[(curIdx + 1) % order.length];
+    if (v.status === 'Posted' && nextStatus === 'Pending') {
+      const ok = window.confirm(`Are you sure you want to change "${v.name}" from Posted to Pending?`);
+      if (!ok) return;
+    }
     if (nextStatus === 'Posted') {
       openPostedDialogForVideo(v);
       return;
@@ -1054,7 +1161,8 @@ export default function BatchflowBatches() {
     likesMap?: Map<string, string>,
     datesMap?: Map<string, string>,
     thumbsBase64Map?: Map<string, string>,
-    captionsMap?: Map<string, string>
+    captionsMap?: Map<string, string>,
+    viewsMap?: Map<string, string>
   ) => {
     const pageWidth = 210;
     const margin = 14;
@@ -1246,6 +1354,20 @@ export default function BatchflowBatches() {
     // --- Table Section: Aligned Headers & Columns ---
     let curY = 70;
 
+    const formatStackedDate = (dateStr?: string | null): [string, string] | null => {
+      if (!dateStr) return null;
+      try {
+        const d = new Date(dateStr);
+        if (isNaN(d.getTime())) return null;
+        const day = d.getDate();
+        const month = d.toLocaleDateString('en-US', { month: 'short' });
+        const year = d.getFullYear();
+        return [`${day} ${month}`, `${year}`];
+      } catch {
+        return null;
+      }
+    };
+
     const drawTableHeader = (yPos: number) => {
       const hHeight = 11.0;
       doc.setFillColor(30, 41, 59); // #1E293B
@@ -1254,12 +1376,11 @@ export default function BatchflowBatches() {
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(8.5);
       doc.setTextColor(241, 245, 249); // #F1F5F9
-      doc.text('SL NO.', margin + 3.5, yPos + 7.2);
-      doc.text('VIDEO TITLE', margin + 29.0, yPos + 7.2);
-      doc.text('LIKES', margin + 90.0, yPos + 7.2);
-      doc.text('SCRIPT NO.', margin + 105.0, yPos + 7.2);
-      doc.text('STATUS', margin + 131.5, yPos + 7.2, { align: 'center' });
-      doc.text('PIPELINE DATE', margin + 146.5, yPos + 7.2);
+      doc.text('VIDEO TITLE', margin + 23.0, yPos + 7.2);
+      doc.text('METRICS', margin + 100.0, yPos + 7.2);
+      doc.text('SCRIPT', margin + 128.0, yPos + 7.2, { align: 'center' });
+      doc.text('STATUS', margin + 148.0, yPos + 7.2, { align: 'center' });
+      doc.text('DATE', margin + 165.0, yPos + 7.2);
     };
 
     drawTableHeader(curY);
@@ -1281,20 +1402,9 @@ export default function BatchflowBatches() {
       doc.setLineWidth(0.3);
       doc.rect(margin, curY, contentWidth, rowHeight, 'FD');
 
-      // Left status accent strip (prominent 2.5mm card accent)
-      const statusColor = v.status === 'Posted' ? [16, 185, 129] : v.status === 'Edited' ? [59, 130, 246] : [245, 158, 11];
-      doc.setFillColor(statusColor[0], statusColor[1], statusColor[2]);
-      doc.rect(margin, curY, 2.5, rowHeight, 'F');
-
-      // Col 1: SL NO. (Large & bold)
-      doc.setFont('helvetica', 'bold');
-      doc.setFontSize(11);
-      doc.setTextColor(100, 116, 139);
-      doc.text(String(index + 1), margin + 3.5, curY + 14.5);
-
-      // Col 2: Thumbnail & Video Title
+      // Thumbnail (Starts cleanly at left margin + 3.0mm, SL NO & leftmost colored strip removed)
       const cachedMeta = v.video_url ? getCachedVideoMeta(v.video_url) : null;
-      const thumbX = margin + 10.0;
+      const thumbX = margin + 3.0;
       const thumbSize = 16.5;
       const thumbY = curY + 3.75;
       let base64Img: string | null | undefined = thumbsBase64Map?.get(v.id);
@@ -1358,20 +1468,20 @@ export default function BatchflowBatches() {
         doc.text(`#${v.script_number || index + 1}`, thumbX + thumbSize / 2, thumbY + 10.2, { align: 'center' });
       }
 
-      // Title + Caption Snippet in () brackets
+      // Title + Caption Snippet
       const captionText = captionsMap?.get(v.id) || v.description || syncedCaptions[v.id] || cachedMeta?.caption;
       const vHandle = client?.instagram_id || currentClient?.instagram_id;
       const rawSnippet = getCaptionSnippet(captionText, 5, vHandle);
       const cleanSnippet = sanitizePdfText(rawSnippet).replace(/^["'“”‘’\s\-_.,]+/, '').trim();
       const cleanBaseTitle = sanitizePdfText(v.name || `Video #${v.script_number ?? index + 1}`);
 
-      const titleStartX = margin + 29.0;
-      const maxColWidth = 58.0;
+      const titleStartX = margin + 23.0;
+      const maxColWidth = 73.0;
 
       if (cleanSnippet) {
-        // Line 1: Bold Title
+        // Line 1: Bold Title (Enlarged by ~5pts for prominent readability)
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(10.5);
+        doc.setFontSize(15.5);
         doc.setTextColor(15, 23, 42);
         let displayTitle = cleanBaseTitle;
         if (doc.getTextWidth(displayTitle) > maxColWidth) {
@@ -1380,12 +1490,12 @@ export default function BatchflowBatches() {
           }
           displayTitle += '...';
         }
-        doc.text(displayTitle, titleStartX, curY + 11.2);
+        doc.text(displayTitle, titleStartX, curY + 11.0);
 
-        // Line 2: Italic Caption Snippet
-        doc.setFont('helvetica', 'italic');
-        doc.setFontSize(8.0);
-        doc.setTextColor(100, 116, 139);
+        // Line 2: Caption Snippet (Thicker bold-italic in darker slate #334155, 9.5pt)
+        doc.setFont('helvetica', 'bolditalic');
+        doc.setFontSize(9.5);
+        doc.setTextColor(51, 65, 85); // #334155
         let displaySnippet = `(${cleanSnippet})`;
         if (doc.getTextWidth(displaySnippet) > maxColWidth) {
           while (displaySnippet.length > 2 && doc.getTextWidth(displaySnippet.slice(0, -1) + '...)') > maxColWidth) {
@@ -1393,11 +1503,11 @@ export default function BatchflowBatches() {
           }
           displaySnippet = displaySnippet.slice(0, -1).trim() + '...)';
         }
-        doc.text(displaySnippet, titleStartX, curY + 17.5);
+        doc.text(displaySnippet, titleStartX, curY + 18.0);
       } else {
-        // Vertically centered single-line title
+        // Vertically centered single-line title (Enlarged by ~5pts)
         doc.setFont('helvetica', 'bold');
-        doc.setFontSize(11);
+        doc.setFontSize(15.5);
         doc.setTextColor(15, 23, 42);
         let displayTitle = cleanBaseTitle;
         if (doc.getTextWidth(displayTitle) > maxColWidth) {
@@ -1415,32 +1525,37 @@ export default function BatchflowBatches() {
 
       const vExtracted = extractVideoLikes(v);
 
-      // Col 3: Likes (Soft red)
+      // Metrics Column: Likes & Views (Red likes line 1, Blue views line 2)
       const vLikes = (likesMap?.get(v.id) && likesMap.get(v.id)?.trim() !== '')
         ? likesMap.get(v.id)!.trim()
         : ((v.likes != null && String(v.likes).trim() !== '') ? String(v.likes).trim() : (vExtracted.likes || cachedMeta?.likes));
-      if (vLikes) {
-        doc.setFont('helvetica', 'bold');
-        doc.setFontSize(11.5);
-        doc.setTextColor(239, 68, 68); // Soft red (#EF4444)
-        doc.text(vLikes, margin + 90.0, curY + 14.5);
-      } else {
-        doc.setFont('helvetica', 'normal');
-        doc.setFontSize(11);
-        doc.setTextColor(148, 163, 184);
-        doc.text('-', margin + 90.0, curY + 14.5);
-      }
 
-      // Col 4: SCRIPT NO.
+      const vViews = (viewsMap?.get(v.id) && viewsMap.get(v.id)?.trim() !== '')
+        ? viewsMap.get(v.id)!.trim()
+        : ((v.views != null && String(v.views).trim() !== '') ? String(v.views).trim() : (syncedViews[v.id] || cachedMeta?.views));
+
+      // Line 1: Likes (Soft red #EF4444)
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.setTextColor(239, 68, 68);
+      doc.text(vLikes ? `${vLikes} likes` : '- likes', margin + 100.0, curY + 10.5);
+
+      // Line 2: Views (Sky blue #0284C7)
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(9.5);
+      doc.setTextColor(2, 132, 199);
+      doc.text(vViews ? `${vViews} views` : '- views', margin + 100.0, curY + 16.8);
+
+      // SCRIPT NO. Column
       doc.setFont('helvetica', 'bold');
       doc.setFontSize(11);
       doc.setTextColor(71, 85, 105);
-      doc.text(v.script_number === 0 ? '-' : String(v.script_number ?? '-'), margin + 105.0, curY + 14.5);
+      doc.text(v.script_number === 0 ? '-' : String(v.script_number ?? '-'), margin + 128.0, curY + 14.5, { align: 'center' });
 
-      // Col 5: Status Pill (Clickable if video_url exists)
-      const pillW = 23.0;
+      // Status Pill (Clickable if video_url exists)
+      const pillW = 22.0;
       const pillH = 8.5;
-      const pillX = margin + 120.0;
+      const pillX = margin + 137.0;
       const pillY = curY + (rowHeight - pillH) / 2;
 
       if (v.status === 'Posted') {
@@ -1472,16 +1587,34 @@ export default function BatchflowBatches() {
         doc.text('PENDING', pillX + pillW / 2, pillY + 5.8, { align: 'center' });
       }
 
-      // Col 6: Date / Details (PRIORITIZE URL DATE!)
-      doc.setFont('helvetica', 'normal');
-      doc.setFontSize(9.5);
-      doc.setTextColor(100, 116, 139);
-      const urlDate = datesMap?.get(v.id) || extractDateFromVideoUrl(v.video_url);
-      const effectiveDate = urlDate || (v.status === 'Posted' && v.posted_date ? v.posted_date.slice(0, 10) : null);
-      const dateText = effectiveDate ? new Date(effectiveDate).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) :
-                       v.status === 'Edited' && v.edited_date ? new Date(v.edited_date).toLocaleDateString(undefined, { month: 'short', day: 'numeric', year: 'numeric' }) :
-                       batch.shoot_date ? `Shoot: ${batch.shoot_date}` : '-';
-      doc.text(dateText, margin + 146.5, curY + 14.5);
+      // Date Column: Stacked 2-line date ONLY for Posted & Edited (Pending shows dash)
+      if (v.status === 'Posted' || v.status === 'Edited') {
+        const urlDate = datesMap?.get(v.id) || extractDateFromVideoUrl(v.video_url);
+        const rawDate = urlDate || (v.status === 'Posted' && v.posted_date ? v.posted_date.slice(0, 10) : (v.status === 'Edited' && v.edited_date ? v.edited_date.slice(0, 10) : null));
+        const stacked = formatStackedDate(rawDate);
+        if (stacked) {
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(9.0);
+          doc.setTextColor(30, 41, 59);
+          doc.text(stacked[0], margin + 165.0, curY + 10.5);
+
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(8.5);
+          doc.setTextColor(100, 116, 139);
+          doc.text(stacked[1], margin + 165.0, curY + 16.5);
+        } else {
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(10.0);
+          doc.setTextColor(148, 163, 184);
+          doc.text('-', margin + 165.0, curY + 14.5);
+        }
+      } else {
+        // Pending: remove date completely
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(10.0);
+        doc.setTextColor(148, 163, 184);
+        doc.text('-', margin + 165.0, curY + 14.5);
+      }
 
       curY += rowHeight;
     });
@@ -1856,7 +1989,7 @@ export default function BatchflowBatches() {
       const sortedForExport = sortBatchVideos(currentBatchVideos, sortOrder);
 
       // 2. Automatically refresh live stats, URL dates, thumbnails, captions
-      const { likesMap, datesMap, thumbsBase64Map, captionsMap } = await syncVideosMetadata(sortedForExport);
+      const { likesMap, viewsMap, datesMap, thumbsBase64Map, captionsMap } = await syncVideosMetadata(sortedForExport);
 
       const batchPageHeight = calcBatchPageHeight(sortedForExport.length);
 
@@ -1874,7 +2007,8 @@ export default function BatchflowBatches() {
         likesMap,
         datesMap,
         thumbsBase64Map,
-        captionsMap
+        captionsMap,
+        viewsMap
       );
 
       const margin = 14;
@@ -1908,7 +2042,7 @@ export default function BatchflowBatches() {
 
     try {
       const allActiveVideos = batchflowVideos.filter(v => activeBatches.some(b => b.id === v.batch_id));
-      const { likesMap, datesMap, thumbsBase64Map, captionsMap } = await syncVideosMetadata(allActiveVideos);
+      const { likesMap, viewsMap, datesMap, thumbsBase64Map, captionsMap } = await syncVideosMetadata(allActiveVideos);
 
       const firstBatch = activeBatches[0];
       const firstBatchVideos = firstBatch
@@ -1929,7 +2063,7 @@ export default function BatchflowBatches() {
         if (idx > 0) {
           doc.addPage([210, bHeight], 'portrait');
         }
-        renderBatchReport(doc, b, client, bVids, likesMap, datesMap, thumbsBase64Map, captionsMap);
+        renderBatchReport(doc, b, client, bVids, likesMap, datesMap, thumbsBase64Map, captionsMap, viewsMap);
       });
 
       const margin = 14;
@@ -1978,14 +2112,111 @@ export default function BatchflowBatches() {
           overflow: 'hidden',
         }}
       >
-        {/* Column 1: Batches Selector (Compact Left Column) */}
+        {/* Mobile-Only Batches Dropdown Selector at Top */}
+        <Box
+          sx={{
+            display: { xs: 'flex', md: 'none' },
+            alignItems: 'center',
+            gap: 1,
+            width: '100%',
+            flexShrink: 0,
+            p: 1.25,
+            borderRadius: 1.25,
+            bgcolor: 'background.paper',
+            border: '1px solid rgba(255,255,255,0.08)',
+          }}
+        >
+          <FormControl fullWidth size="small">
+            <InputLabel id="mobile-batch-select-label" sx={{ fontSize: '0.82rem', fontWeight: 600 }}>
+              Select Batch ({activeBatches.length})
+            </InputLabel>
+            <Select
+              labelId="mobile-batch-select-label"
+              label={`Select Batch (${activeBatches.length})`}
+              value={selectedBatch?.id || ''}
+              onChange={e => setSelectedBatchId(e.target.value)}
+              sx={{
+                fontSize: '0.85rem',
+                fontWeight: 700,
+                height: 40,
+                borderRadius: 1,
+              }}
+            >
+              {activeBatches.map(b => {
+                const client = activeClients.find(c => c.id === b.client_id);
+                const bVids = batchflowVideos.filter(v => v.batch_id === b.id);
+                const posted = bVids.filter(v => v.status === 'Posted').length;
+                return (
+                  <MenuItem key={b.id} value={b.id}>
+                    <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', width: '100%', gap: 1 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Box
+                          sx={{
+                            width: 8,
+                            height: 8,
+                            borderRadius: '50%',
+                            bgcolor: getClientPrimaryColor(client?.color),
+                            flexShrink: 0,
+                          }}
+                        />
+                        <Typography variant="body2" sx={{ fontWeight: 700, fontSize: '0.85rem' }}>
+                          {b.name}
+                        </Typography>
+                        {client && (
+                          <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.72rem' }}>
+                            ({client.name})
+                          </Typography>
+                        )}
+                      </Box>
+                      <Chip
+                        label={`${posted}/${bVids.length}`}
+                        size="small"
+                        sx={{ height: 20, fontSize: '0.65rem', fontWeight: 800 }}
+                      />
+                    </Box>
+                  </MenuItem>
+                );
+              })}
+            </Select>
+          </FormControl>
+
+          {canEdit && (
+            <IconButton
+              size="small"
+              onClick={() => {
+                setNewBatchForm({
+                  clientId: activeClients[0]?.id || '',
+                  name: '',
+                  shootDate: new Date().toISOString().slice(0, 10),
+                  videoCount: 10,
+                  namingMethod: 'ClientName',
+                  script: '',
+                });
+                setNewBatchOpen(true);
+              }}
+              sx={{
+                bgcolor: 'primary.main',
+                color: '#fff',
+                borderRadius: 1,
+                width: 40,
+                height: 40,
+                flexShrink: 0,
+                '&:hover': { bgcolor: 'primary.dark' },
+              }}
+            >
+              <AddRoundedIcon sx={{ fontSize: 20 }} />
+            </IconButton>
+          )}
+        </Box>
+
+        {/* Column 1: Batches Selector (Desktop Only) */}
         <Box
           sx={{
             width: { xs: '100%', md: 260, lg: 280 },
             flexShrink: 0,
             height: '100%',
             minHeight: 0,
-            display: 'flex',
+            display: { xs: 'none', md: 'flex' },
             flexDirection: 'column',
           }}
         >
@@ -2701,24 +2932,80 @@ export default function BatchflowBatches() {
               </Box>
 
               <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
-                <Select
-                  value={sortOrder}
-                  onChange={e => setSortOrder(e.target.value as BatchVideoSortOption)}
-                  size="small"
-                  sx={{ fontSize: '0.72rem', height: 28, borderRadius: 1, minWidth: 155 }}
+                {/* Modern Hybrid Sort Control */}
+                <Box
+                  sx={{
+                    display: 'flex',
+                    alignItems: 'center',
+                    bgcolor: 'rgba(255,255,255,0.04)',
+                    border: '1px solid rgba(255,255,255,0.12)',
+                    borderRadius: 1.25,
+                    height: 28,
+                    px: 0.5,
+                    transition: 'all 0.2s',
+                    '&:hover': {
+                      borderColor: 'rgba(255,255,255,0.22)',
+                      bgcolor: 'rgba(255,255,255,0.07)',
+                    },
+                  }}
                 >
-                  <MenuItem value="script_asc">Script # (1 → 10)</MenuItem>
-                  <MenuItem value="script_desc">Script # (10 → 1)</MenuItem>
-                  <MenuItem value="date_desc">Date (Newest First)</MenuItem>
-                  <MenuItem value="date_asc">Date (Oldest First)</MenuItem>
-                  <MenuItem value="likes_desc">Likes (Most First)</MenuItem>
-                  <MenuItem value="likes_asc">Likes (Fewest First)</MenuItem>
-                  <MenuItem value="status_pending">Status: Pending First</MenuItem>
-                  <MenuItem value="status_edited">Status: Edited First</MenuItem>
-                  <MenuItem value="status_posted">Status: Posted First</MenuItem>
-                  <MenuItem value="name_asc">Name (A → Z)</MenuItem>
-                  <MenuItem value="name_desc">Name (Z → A)</MenuItem>
-                </Select>
+                  <Select
+                    value={getSortBase(sortOrder)}
+                    onChange={e => handleBaseSortChange(e.target.value)}
+                    size="small"
+                    variant="standard"
+                    disableUnderline
+                    sx={{
+                      fontSize: '0.74rem',
+                      fontWeight: 700,
+                      color: 'text.primary',
+                      '& .MuiSelect-select': {
+                        py: 0.35,
+                        pl: 0.75,
+                        pr: '18px !important',
+                      },
+                      '& .MuiSvgIcon-root': {
+                        fontSize: 15,
+                        color: 'text.secondary',
+                        right: 0,
+                      },
+                    }}
+                  >
+                    <MenuItem value="script" sx={{ fontSize: '0.78rem', fontWeight: 600 }}>Script #</MenuItem>
+                    <MenuItem value="date" sx={{ fontSize: '0.78rem', fontWeight: 600 }}>Date</MenuItem>
+                    <MenuItem value="likes" sx={{ fontSize: '0.78rem', fontWeight: 600 }}>Likes</MenuItem>
+                    <MenuItem value="status_posted" sx={{ fontSize: '0.78rem', fontWeight: 600 }}>Status: Posted First</MenuItem>
+                    <MenuItem value="status_pending" sx={{ fontSize: '0.78rem', fontWeight: 600 }}>Status: Pending First</MenuItem>
+                    <MenuItem value="status_edited" sx={{ fontSize: '0.78rem', fontWeight: 600 }}>Status: Edited First</MenuItem>
+                    <MenuItem value="name" sx={{ fontSize: '0.78rem', fontWeight: 600 }}>Name</MenuItem>
+                  </Select>
+
+                  <Divider orientation="vertical" flexItem sx={{ my: 0.6, borderColor: 'rgba(255,255,255,0.12)' }} />
+
+                  <Tooltip title={isSortDesc(sortOrder) ? 'Descending (Click for Ascending)' : 'Ascending (Click for Descending)'}>
+                    <IconButton
+                      size="small"
+                      onClick={toggleSortDirection}
+                      sx={{
+                        width: 22,
+                        height: 22,
+                        ml: 0.25,
+                        borderRadius: 1,
+                        color: isSortDesc(sortOrder) ? 'primary.light' : 'text.secondary',
+                        '&:hover': {
+                          bgcolor: 'rgba(255,255,255,0.1)',
+                          color: 'text.primary',
+                        },
+                      }}
+                    >
+                      {isSortDesc(sortOrder) ? (
+                        <ArrowDownwardRoundedIcon sx={{ fontSize: 15 }} />
+                      ) : (
+                        <ArrowUpwardRoundedIcon sx={{ fontSize: 15 }} />
+                      )}
+                    </IconButton>
+                  </Tooltip>
+                </Box>
 
                 {canEdit && selectedBatch && (
                   <Button
@@ -2795,12 +3082,17 @@ export default function BatchflowBatches() {
                   >
                     {/* Video Info */}
                     <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.5, minWidth: 160, flex: 1 }}>
-                      <Tooltip title={v.script_number > 0 ? `Jump to Script #${v.script_number}` : 'No script attached (#0)'}>
+                      <Tooltip title={v.script_number > 0 ? (isMobile ? `View Script #${v.script_number}` : `Jump to Script #${v.script_number}`) : 'No script attached (#0)'}>
                         <Box
                           onClick={(e) => {
                             e.stopPropagation();
                             if (v.script_number > 0) {
-                              handleJumpToScript(v.script_number);
+                              if (isMobile) {
+                                const sText = getVideoScriptText(selectedBatch?.script, v.script_number);
+                                setMobileScriptModal({ open: true, video: v, text: sText });
+                              } else {
+                                handleJumpToScript(v.script_number);
+                              }
                             }
                           }}
                           onDoubleClick={(e) => e.stopPropagation()}
@@ -3062,6 +3354,22 @@ export default function BatchflowBatches() {
 
                       {canEdit && (
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }} onDoubleClick={(e) => e.stopPropagation()}>
+                          {v.script_number > 0 && (
+                            <Tooltip title={`View Script #${v.script_number}`}>
+                              <IconButton
+                                size="small"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  const sText = getVideoScriptText(selectedBatch?.script, v.script_number);
+                                  setMobileScriptModal({ open: true, video: v, text: sText });
+                                }}
+                                onDoubleClick={(e) => e.stopPropagation()}
+                                sx={{ color: 'text.secondary', '&:hover': { color: 'primary.light' } }}
+                              >
+                                <DescriptionRoundedIcon sx={{ fontSize: 16 }} />
+                              </IconButton>
+                            </Tooltip>
+                          )}
                           <IconButton
                             size="small"
                             onClick={(e) => {
@@ -3394,10 +3702,9 @@ script 2
               } : null);
             }}
             slotProps={{ htmlInput: { min: 0 } }}
-            helperText="Set to 0 if this video has no script"
           />
           <TextField
-            label="Description (Optional)"
+            label="Description"
             placeholder="Key hook, notes, or talking points..."
             fullWidth
             size="small"
@@ -3406,7 +3713,7 @@ script 2
           />
           <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
             <TextField
-              label="Video URL (Optional)"
+              label="Video URL"
               placeholder="https://instagram.com/... or https://youtube.com/..."
               fullWidth
               size="small"
@@ -3448,12 +3755,12 @@ script 2
           {editingMetaResult && (
             <Box sx={{ p: 1.25, borderRadius: 1.5, bgcolor: 'action.hover', border: '1px solid', borderColor: 'divider', display: 'flex', flexDirection: 'column', gap: 0.75 }}>
               {editingMetaResult.postedDate ? (
-                <Typography variant="caption" sx={{ fontWeight: 700, color: '#10B981', display: 'flex', alignItems: 'center', gap: 0.5 }}>
+                <Typography variant="caption" sx={{ fontWeight: 700, color: '#10B981', display: 'flex', alignItems: 'center', gap: 0.5, fontSize: '0.72rem' }}>
                   <CheckCircleRoundedIcon sx={{ fontSize: 15 }} />
                   Detected Date: {editingMetaResult.postedDate} ({editingMetaResult.usedOfficialMetaApi ? 'Official Meta API' : 'Fallback'})
                 </Typography>
               ) : (
-                <Typography variant="caption" sx={{ color: '#F59E0B' }}>
+                <Typography variant="caption" sx={{ color: '#F59E0B', fontSize: '0.72rem' }}>
                   {editingMetaResult.error || 'No date found for this URL.'}
                 </Typography>
               )}
@@ -3485,86 +3792,12 @@ script 2
             size="small"
             value={editingVideo?.posted_date || ''}
             onChange={e => setEditingVideo(prev => prev ? { ...prev, posted_date: e.target.value } : null)}
-            slotProps={{ inputLabel: { shrink: true } }}
+            slotProps={{
+              inputLabel: { shrink: true },
+              formHelperText: { sx: { fontSize: '0.68rem', opacity: 0.7 } }
+            }}
             helperText="Date shown on video card & PDF export"
           />
-
-          <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr' }, gap: 1.5 }}>
-            <TextField
-              label="Views Count (e.g. 45K)"
-              placeholder="e.g. 45K"
-              fullWidth
-              size="small"
-              value={editingVideo?.views != null ? String(editingVideo.views) : ''}
-              onChange={e => setEditingVideo(prev => prev ? { ...prev, views: e.target.value } : null)}
-              helperText="Reels view/play count"
-            />
-            <TextField
-              label="Likes Count (e.g. 122 or 1.2K)"
-              placeholder="e.g. 122 or 1.2K"
-              fullWidth
-              size="small"
-              value={editingVideo?.likes != null ? String(editingVideo.likes) : ''}
-              onChange={e => setEditingVideo(prev => prev ? { ...prev, likes: e.target.value } : null)}
-              helperText="Appears in red on video card"
-            />
-          </Box>
-
-          <Box sx={{ display: 'flex', gap: 1.5, alignItems: 'center' }}>
-            {editingVideo?.thumbnail_url ? (
-              <Box
-                component="img"
-                src={editingVideo.thumbnail_url}
-                alt="Thumbnail preview"
-                sx={{
-                  width: 44,
-                  height: 44,
-                  borderRadius: 1.5,
-                  objectFit: 'cover',
-                  border: '1px solid',
-                  borderColor: 'divider',
-                  flexShrink: 0,
-                }}
-              />
-            ) : null}
-            <TextField
-              label="Thumbnail URL (Optional)"
-              placeholder="https://..."
-              fullWidth
-              size="small"
-              value={editingVideo?.thumbnail_url || ''}
-              onChange={e => setEditingVideo(prev => prev ? { ...prev, thumbnail_url: e.target.value } : null)}
-              helperText="Image displayed on video card, PDF, and PNG export"
-            />
-            <input
-              type="file"
-              accept="image/*"
-              ref={editFileRef}
-              style={{ display: 'none' }}
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (!file) return;
-                const reader = new FileReader();
-                reader.onloadend = async () => {
-                  if (typeof reader.result === 'string') {
-                    const cropped = await cropImageToSquareDataUrl(reader.result, 200);
-                    setEditingVideo(prev => prev ? { ...prev, thumbnail_url: cropped } : null);
-                  }
-                };
-                reader.readAsDataURL(file);
-                e.target.value = '';
-              }}
-            />
-            <Button
-              size="small"
-              variant="outlined"
-              startIcon={<FileUploadRoundedIcon sx={{ fontSize: 16 }} />}
-              onClick={() => editFileRef.current?.click()}
-              sx={{ whiteSpace: 'nowrap', textTransform: 'none', fontWeight: 600, fontSize: '0.75rem', height: 40, px: 1.5 }}
-            >
-              Upload
-            </Button>
-          </Box>
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
           <Button onClick={() => setEditVideoOpen(false)}>Cancel</Button>
@@ -3640,6 +3873,113 @@ script 2
             }}
           >
             Save
+          </Button>
+        </DialogActions>
+      </Dialog>
+
+      {/* Floating Video Script Viewer Dialog (Mobile & Quick-View) */}
+      <Dialog
+        open={mobileScriptModal.open}
+        onClose={() => setMobileScriptModal(prev => ({ ...prev, open: false }))}
+        maxWidth="sm"
+        fullWidth
+        slotProps={{
+          paper: {
+            sx: {
+              borderRadius: 2,
+              bgcolor: 'background.paper',
+              backgroundImage: 'none',
+              boxShadow: '0 20px 40px rgba(0,0,0,0.5)',
+              border: '1px solid rgba(255,255,255,0.1)',
+            },
+          },
+        }}
+      >
+        <DialogTitle sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', pb: 1.5, pt: 2, px: 2.5 }}>
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1.25 }}>
+            <Box
+              sx={{
+                width: 32,
+                height: 32,
+                borderRadius: 1,
+                bgcolor: 'rgba(129, 140, 248, 0.15)',
+                color: '#818CF8',
+                display: 'flex',
+                alignItems: 'center',
+                justifyContent: 'center',
+                fontWeight: 800,
+                fontSize: '0.85rem',
+              }}
+            >
+              #{mobileScriptModal.video?.script_number}
+            </Box>
+            <Box>
+              <Typography variant="subtitle1" sx={{ fontWeight: 800, lineHeight: 1.2 }}>
+                Script #{mobileScriptModal.video?.script_number}
+              </Typography>
+              <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block' }}>
+                {mobileScriptModal.video?.name}
+              </Typography>
+            </Box>
+          </Box>
+          <Button
+            variant="contained"
+            size="small"
+            startIcon={copiedMobileScript ? <CheckRoundedIcon sx={{ fontSize: 16 }} /> : <ContentCopyRoundedIcon sx={{ fontSize: 16 }} />}
+            onClick={() => {
+              if (mobileScriptModal.text) {
+                navigator.clipboard.writeText(mobileScriptModal.text);
+                setCopiedMobileScript(true);
+                setTimeout(() => setCopiedMobileScript(false), 2000);
+              }
+            }}
+            disabled={!mobileScriptModal.text}
+            sx={{
+              textTransform: 'none',
+              fontWeight: 700,
+              fontSize: '0.78rem',
+              borderRadius: 1.5,
+              bgcolor: copiedMobileScript ? '#10B981' : 'primary.main',
+              '&:hover': {
+                bgcolor: copiedMobileScript ? '#059669' : 'primary.dark',
+              },
+            }}
+          >
+            {copiedMobileScript ? 'Copied!' : 'Copy Script'}
+          </Button>
+        </DialogTitle>
+
+        <DialogContent dividers sx={{ maxHeight: '60vh', overflowY: 'auto', px: 2.5, py: 2 }}>
+          {mobileScriptModal.text ? (
+            <Typography
+              component="pre"
+              sx={{
+                fontFamily: 'inherit',
+                fontSize: '0.88rem',
+                whiteSpace: 'pre-wrap',
+                wordBreak: 'break-word',
+                lineHeight: 1.6,
+                color: 'text.primary',
+                m: 0,
+              }}
+            >
+              {mobileScriptModal.text}
+            </Typography>
+          ) : (
+            <Box sx={{ py: 4, textAlign: 'center' }}>
+              <Typography variant="body2" sx={{ color: 'text.secondary', fontStyle: 'italic' }}>
+                No script found for Script #{mobileScriptModal.video?.script_number} in this batch's master script.
+              </Typography>
+            </Box>
+          )}
+        </DialogContent>
+
+        <DialogActions sx={{ px: 2.5, py: 1.5 }}>
+          <Button
+            onClick={() => setMobileScriptModal(prev => ({ ...prev, open: false }))}
+            sx={{ textTransform: 'none', fontWeight: 600 }}
+          >
+            Close
           </Button>
         </DialogActions>
       </Dialog>
