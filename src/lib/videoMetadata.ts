@@ -274,7 +274,7 @@ export async function fetchImageBase64(url?: string | null): Promise<string | nu
 
   const tryFetchToDataUrl = async (targetUrl: string): Promise<string | null> => {
     try {
-      const resp = await fetch(targetUrl, { mode: 'cors' });
+      const resp = await fetch(targetUrl, { mode: 'cors', credentials: 'omit' });
       if (!resp.ok) return null;
       const blob = await resp.blob();
       const rawData = await new Promise<string | null>((resolve) => {
@@ -1263,7 +1263,10 @@ export async function fetchVideoMetadata(
 
       for (const embedUrl of embedUrls) {
         try {
-          const embedResp = await fetch(embedUrl);
+          const embedResp = await fetch(embedUrl, {
+            credentials: 'omit',
+            cache: 'no-store',
+          });
           if (!embedResp.ok) continue;
           const embedHtml = await embedResp.text();
 

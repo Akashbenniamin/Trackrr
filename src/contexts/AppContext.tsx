@@ -344,20 +344,23 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               const cloudBIds = new Set(bfB.map(b => b.id));
               const cloudVIds = new Set(bfV.map(v => v.id));
 
-              // Deep merge items to preserve local attributes (video_url, views, description)
-              // if cloud returned rows without those columns or if schema has not migrated yet
+              // Deep merge items using timestamps to ensure local edits are never overwritten by stale cloud data
               const mergedC = [
                 ...bfC.map(cc => {
                   const lc = localC.find(l => l.id === cc.id);
                   if (!lc) return cc;
+                  const isLocalNewer = !cc.updated_at || (lc.updated_at && new Date(lc.updated_at).getTime() >= new Date(cc.updated_at).getTime());
                   return {
-                    ...lc,
                     ...cc,
-                    name: lc.name || cc.name,
+                    ...lc,
+                    id: cc.id,
+                    workspace_id: cc.workspace_id || lc.workspace_id || active.id,
+                    name: isLocalNewer ? (lc.name || cc.name) : (cc.name || lc.name),
                     color: lc.color || cc.color || '#818CF8',
                     instagram_id: (lc.instagram_id !== undefined && lc.instagram_id !== null && lc.instagram_id !== '')
                       ? lc.instagram_id
                       : (cc.instagram_id || ''),
+                    updated_at: lc.updated_at || cc.updated_at || lc.created_at || cc.created_at,
                   };
                 }),
                 ...localC.filter(c => !cloudCIds.has(c.id)),
@@ -367,13 +370,18 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 ...bfB.map(cb => {
                   const lb = localB.find(l => l.id === cb.id);
                   if (!lb) return cb;
+                  const isLocalNewer = !cb.updated_at || (lb.updated_at && new Date(lb.updated_at).getTime() >= new Date(cb.updated_at).getTime());
                   return {
-                    ...lb,
                     ...cb,
-                    name: lb.name || cb.name,
+                    ...lb,
+                    id: cb.id,
+                    workspace_id: cb.workspace_id || lb.workspace_id || active.id,
+                    name: isLocalNewer ? (lb.name || cb.name) : (cb.name || lb.name),
+                    shoot_date: isLocalNewer ? (lb.shoot_date || cb.shoot_date) : (cb.shoot_date || lb.shoot_date),
                     script: (lb.script !== undefined && lb.script !== null && lb.script !== '')
                       ? lb.script
                       : (cb.script || ''),
+                    updated_at: lb.updated_at || cb.updated_at || lb.created_at || cb.created_at,
                   };
                 }),
                 ...localB.filter(b => !cloudBIds.has(b.id)),
@@ -383,28 +391,52 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
                 ...bfV.map(cv => {
                   const lv = localV.find(l => l.id === cv.id);
                   if (!lv) return cv;
+
+                  // Check timestamps to determine if local version has newer edits
+                  const isLocalNewer = !cv.updated_at || (lv.updated_at && new Date(lv.updated_at).getTime() >= new Date(cv.updated_at).getTime());
+
+                  const resolvedStatus = isLocalNewer ? (lv.status || cv.status) : (cv.status || lv.status);
+                  const resolvedUrl = (lv.video_url !== undefined && lv.video_url !== null && lv.video_url !== '')
+                    ? lv.video_url
+                    : (cv.video_url || null);
+                  const resolvedViews = (lv.views !== undefined && lv.views !== null && String(lv.views).trim() !== '')
+                    ? lv.views
+                    : (cv.views || null);
+                  const resolvedLikes = (lv.likes !== undefined && lv.likes !== null && String(lv.likes).trim() !== '')
+                    ? lv.likes
+                    : (cv.likes || null);
+                  const resolvedDesc = (lv.description !== undefined && lv.description !== null && lv.description !== '')
+                    ? lv.description
+                    : (cv.description || null);
+                  const resolvedPostedDate = isLocalNewer
+                    ? (lv.posted_date !== undefined ? lv.posted_date : cv.posted_date)
+                    : (cv.posted_date || lv.posted_date || null);
+                  const resolvedEditedDate = isLocalNewer
+                    ? (lv.edited_date !== undefined ? lv.edited_date : cv.edited_date)
+                    : (cv.edited_date || lv.edited_date || null);
+                  const resolvedWaitingDate = isLocalNewer
+                    ? (lv.waiting_date !== undefined ? lv.waiting_date : cv.waiting_date)
+                    : (cv.waiting_date || lv.waiting_date || null);
+
                   return {
-                    ...lv,
                     ...cv,
-                    name: lv.name || cv.name || 'New Video',
+                    ...lv,
+                    id: cv.id,
+                    workspace_id: cv.workspace_id || lv.workspace_id || active.id,
+                    batch_id: cv.batch_id || lv.batch_id,
+                    name: isLocalNewer ? (lv.name || cv.name) : (cv.name || lv.name),
                     script_number: (lv.script_number !== undefined && lv.script_number !== null)
                       ? lv.script_number
                       : ((cv.script_number !== undefined && cv.script_number !== null) ? cv.script_number : 1),
-                    video_url: (lv.video_url !== undefined && lv.video_url !== null && lv.video_url !== '')
-                      ? lv.video_url
-                      : (cv.video_url || null),
-                    views: (lv.views !== undefined && lv.views !== null && String(lv.views).trim() !== '')
-                      ? lv.views
-                      : (cv.views || null),
-                    likes: (lv.likes !== undefined && lv.likes !== null && String(lv.likes).trim() !== '')
-                      ? lv.likes
-                      : (cv.likes || null),
-                    description: (lv.description !== undefined && lv.description !== null && lv.description !== '')
-                      ? lv.description
-                      : (cv.description || null),
-                    posted_date: cv.posted_date || lv.posted_date || null,
-                    edited_date: cv.edited_date || lv.edited_date || null,
-                    waiting_date: cv.waiting_date || lv.waiting_date || null,
+                    status: resolvedStatus,
+                    video_url: resolvedUrl,
+                    views: resolvedViews,
+                    likes: resolvedLikes,
+                    description: resolvedDesc,
+                    posted_date: resolvedPostedDate,
+                    edited_date: resolvedEditedDate,
+                    waiting_date: resolvedWaitingDate,
+                    updated_at: lv.updated_at || cv.updated_at || lv.created_at || cv.created_at,
                   };
                 }),
                 ...localV.filter(v => !cloudVIds.has(v.id)),
@@ -423,18 +455,49 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
               storage.setBatchflowBatches([...otherB, ...mergedB]);
               storage.setBatchflowVideos([...otherV, ...mergedV]);
 
-              // If any video in cloud was out of sync (e.g. script_number mismatch due to prior schema errors), sync back to cloud in background
-              const outOfSyncVideos = mergedV.filter(v => {
+              // If local had changes that differ from cloud (status, video_url, views, likes, description, etc.),
+              // sync them back to Supabase in the background
+              const videosNeedingSync = mergedV.filter(v => {
                 const cv = bfV.find(c => c.id === v.id);
-                return cv && v.script_number !== cv.script_number;
+                if (!cv) return true;
+                return (
+                  v.status !== cv.status ||
+                  v.video_url !== cv.video_url ||
+                  v.views !== cv.views ||
+                  v.likes !== cv.likes ||
+                  v.description !== cv.description ||
+                  v.script_number !== cv.script_number ||
+                  v.name !== cv.name ||
+                  v.posted_date !== cv.posted_date
+                );
               });
-              if (outOfSyncVideos.length > 0) {
+
+              if (videosNeedingSync.length > 0) {
                 (async () => {
-                  for (const ov of outOfSyncVideos) {
+                  for (const sv of videosNeedingSync) {
                     try {
-                      await supabase.from('batchflow_videos').update({ script_number: ov.script_number }).eq('id', ov.id);
+                      await supabase.from('batchflow_videos').upsert({
+                        id: sv.id,
+                        workspace_id: sv.workspace_id,
+                        user_id: user?.id,
+                        batch_id: sv.batch_id,
+                        name: sv.name,
+                        script_number: sv.script_number,
+                        status: sv.status,
+                        video_url: sv.video_url,
+                        views: sv.views,
+                        likes: sv.likes,
+                        description: sv.description,
+                        posted_date: sv.posted_date,
+                        edited_date: sv.edited_date,
+                        waiting_date: sv.waiting_date,
+                        created_at: sv.created_at,
+                      }, { onConflict: 'id' });
                     } catch {
-                      // ignore background sync errors
+                      try {
+                        const { video_url, views, likes, description, updated_at, ...baseData } = sv as any;
+                        await supabase.from('batchflow_videos').upsert(baseData, { onConflict: 'id' });
+                      } catch {}
                     }
                   }
                 })();
@@ -555,7 +618,25 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         setLoading(true);
       }
       try {
-        storage.initStorage();
+        if (!user) {
+          // If no user is logged in: wipe all memory state and do NOT load or initialize storage
+          setWorkspaces([]);
+          setActiveWorkspace(null);
+          setClients([]);
+          setTasks([]);
+          setPayments([]);
+          setSalaryRates([]);
+          setDiscounts([]);
+          setBatchflowClients([]);
+          setBatchflowBatches([]);
+          setBatchflowVideos([]);
+          setWorkspaceMembers([]);
+          setPendingInvites([]);
+          setWorkspaceInvites([]);
+          return;
+        }
+
+        storage.initStorage(true);
         loadLocalCache();
         await fetchAll();
       } finally {
@@ -1093,49 +1174,54 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       instagram_id: data.instagram_id,
       archived: 0,
       created_at: now,
+      updated_at: now,
     };
 
+    // 1. Immediately save locally & update UI first
+    const all = storage.getBatchflowClients();
+    storage.setBatchflowClients([...all, newClient]);
+    setBatchflowClients(prev => [...prev, newClient]);
+
+    // 2. Sync to Supabase in background
     if (isCloudActive) {
       try {
-        const { data: cloudC, error } = await supabase
-          .from('batchflow_clients')
-          .insert([newClient])
-          .select()
-          .single();
-        if (!error && cloudC) {
-          const syncedC = cloudC as BatchflowClient;
-          setBatchflowClients(prev => [...prev, syncedC]);
-          const all = storage.getBatchflowClients();
-          storage.setBatchflowClients([...all.filter(c => c.id !== syncedC.id), syncedC]);
-          return syncedC;
-        }
+        await supabase.from('batchflow_clients').insert([newClient]);
       } catch (err) {
         console.warn('Could not insert into batchflow_clients in cloud:', err);
       }
     }
 
-    const all = storage.getBatchflowClients();
-    storage.setBatchflowClients([...all, newClient]);
-    setBatchflowClients(prev => [...prev, newClient]);
     return newClient;
   }, [assertCanEdit, activeWorkspace, isCloudActive, user]);
 
   const updateBatchflowClient = useCallback(async (id: string, data: Partial<BatchflowClient>) => {
     assertCanEdit();
+    const now = new Date().toISOString();
+    const updates: Partial<BatchflowClient> = { ...data, updated_at: now };
+
+    // 1. Immediately save locally & update UI first
+    const all = storage.getBatchflowClients();
+    storage.setBatchflowClients(all.map(c => c.id === id ? { ...c, ...updates } : c));
+    setBatchflowClients(prev => prev.map(c => c.id === id ? { ...c, ...updates } : c));
+
+    // 2. Sync to Supabase in background
     if (isCloudActive) {
       try {
-        await supabase.from('batchflow_clients').update(data).eq('id', id);
+        await supabase.from('batchflow_clients').update(updates).eq('id', id);
       } catch (err) {
         console.warn('Could not update batchflow_clients in cloud:', err);
       }
     }
-    const all = storage.getBatchflowClients();
-    storage.setBatchflowClients(all.map(c => c.id === id ? { ...c, ...data } : c));
-    setBatchflowClients(prev => prev.map(c => c.id === id ? { ...c, ...data } : c));
   }, [assertCanEdit, isCloudActive]);
 
   const deleteBatchflowClient = useCallback(async (id: string) => {
     assertCanEdit();
+    // 1. Immediately remove locally
+    const all = storage.getBatchflowClients();
+    storage.setBatchflowClients(all.filter(c => c.id !== id));
+    setBatchflowClients(prev => prev.filter(c => c.id !== id));
+
+    // 2. Sync to Supabase in background
     if (isCloudActive) {
       try {
         await supabase.from('batchflow_clients').delete().eq('id', id);
@@ -1143,9 +1229,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         console.warn('Could not delete batchflow_clients in cloud:', err);
       }
     }
-    const all = storage.getBatchflowClients();
-    storage.setBatchflowClients(all.filter(c => c.id !== id));
-    setBatchflowClients(prev => prev.filter(c => c.id !== id));
   }, [assertCanEdit, isCloudActive]);
 
   // BatchFlow: Batches
@@ -1172,6 +1255,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       script: data.script || '',
       archived: 0,
       created_at: now,
+      updated_at: now,
     };
 
     // Auto-generate videos
@@ -1210,24 +1294,11 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         status: 'Pending',
         waiting_date: now,
         created_at: now,
+        updated_at: now,
       });
     }
 
-    if (isCloudActive) {
-      try {
-        await supabase.from('batchflow_batches').insert([newBatch]);
-        if (generatedVideos.length) {
-          const { error: vErr } = await supabase.from('batchflow_videos').insert(generatedVideos);
-          if (vErr && isSchemaColumnError(vErr)) {
-            const baseGenerated = generatedVideos.map(({ video_url, views, description, ...rest }: any) => rest);
-            await supabase.from('batchflow_videos').insert(baseGenerated);
-          }
-        }
-      } catch (err) {
-        console.warn('Could not insert batchflow cloud records:', err);
-      }
-    }
-
+    // 1. Immediately save locally & update UI first (guarantees zero data loss)
     const allB = storage.getBatchflowBatches();
     storage.setBatchflowBatches([...allB, newBatch]);
     setBatchflowBatches(prev => [newBatch, ...prev]);
@@ -1236,25 +1307,57 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     storage.setBatchflowVideos([...allV, ...generatedVideos]);
     setBatchflowVideos(prev => [...prev, ...generatedVideos]);
 
+    // 2. Sync to Supabase in background
+    if (isCloudActive) {
+      try {
+        await supabase.from('batchflow_batches').insert([newBatch]);
+        if (generatedVideos.length) {
+          const { error: vErr } = await supabase.from('batchflow_videos').insert(generatedVideos);
+          if (vErr && isSchemaColumnError(vErr)) {
+            const baseGenerated = generatedVideos.map(({ video_url, views, likes, description, ...rest }: any) => rest);
+            await supabase.from('batchflow_videos').insert(baseGenerated);
+          }
+        }
+      } catch (err) {
+        console.warn('Could not insert batchflow cloud records:', err);
+      }
+    }
+
     return newBatch;
   }, [assertCanEdit, activeWorkspace, user, batchflowClients, batchflowVideos, batchflowBatches, isCloudActive]);
 
   const updateBatchflowBatch = useCallback(async (id: string, data: Partial<BatchflowBatch>) => {
     assertCanEdit();
+    const now = new Date().toISOString();
+    const updates: Partial<BatchflowBatch> = { ...data, updated_at: now };
+
+    // 1. Immediately save locally & update UI first
+    const all = storage.getBatchflowBatches();
+    storage.setBatchflowBatches(all.map(b => b.id === id ? { ...b, ...updates } : b));
+    setBatchflowBatches(prev => prev.map(b => b.id === id ? { ...b, ...updates } : b));
+
+    // 2. Sync to Supabase in background
     if (isCloudActive) {
       try {
-        await supabase.from('batchflow_batches').update(data).eq('id', id);
+        await supabase.from('batchflow_batches').update(updates).eq('id', id);
       } catch (err) {
         console.warn('Could not update batchflow_batches:', err);
       }
     }
-    const all = storage.getBatchflowBatches();
-    storage.setBatchflowBatches(all.map(b => b.id === id ? { ...b, ...data } : b));
-    setBatchflowBatches(prev => prev.map(b => b.id === id ? { ...b, ...data } : b));
   }, [assertCanEdit, isCloudActive]);
 
   const deleteBatchflowBatch = useCallback(async (id: string) => {
     assertCanEdit();
+    // 1. Immediately remove locally
+    const allB = storage.getBatchflowBatches();
+    storage.setBatchflowBatches(allB.filter(b => b.id !== id));
+    setBatchflowBatches(prev => prev.filter(b => b.id !== id));
+
+    const allV = storage.getBatchflowVideos();
+    storage.setBatchflowVideos(allV.filter(v => v.batch_id !== id));
+    setBatchflowVideos(prev => prev.filter(v => v.batch_id !== id));
+
+    // 2. Sync to Supabase in background
     if (isCloudActive) {
       try {
         await supabase.from('batchflow_batches').delete().eq('id', id);
@@ -1263,13 +1366,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         console.warn('Could not delete batchflow_batches:', err);
       }
     }
-    const allB = storage.getBatchflowBatches();
-    storage.setBatchflowBatches(allB.filter(b => b.id !== id));
-    setBatchflowBatches(prev => prev.filter(b => b.id !== id));
-
-    const allV = storage.getBatchflowVideos();
-    storage.setBatchflowVideos(allV.filter(v => v.batch_id !== id));
-    setBatchflowVideos(prev => prev.filter(v => v.batch_id !== id));
   }, [assertCanEdit, isCloudActive]);
 
   // BatchFlow: Videos
@@ -1288,85 +1384,62 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       status: data.status || 'Pending',
       video_url: data.video_url !== undefined ? data.video_url : null,
       views: data.views !== undefined ? data.views : null,
+      likes: data.likes !== undefined ? data.likes : null,
       waiting_date: now,
       created_at: now,
+      updated_at: now,
     };
 
-    if (isCloudActive) {
-      try {
-        const { data: cloudV, error } = await supabase
-          .from('batchflow_videos')
-          .insert([newVideo])
-          .select()
-          .single();
-        if (!error && cloudV) {
-          const completeVideo: BatchflowVideo = {
-            ...newVideo,
-            ...(cloudV as BatchflowVideo),
-            video_url: (cloudV as any).video_url ?? newVideo.video_url,
-            views: (cloudV as any).views ?? newVideo.views,
-            description: (cloudV as any).description ?? newVideo.description,
-          };
-          const all = storage.getBatchflowVideos();
-          storage.setBatchflowVideos([...all, completeVideo]);
-          setBatchflowVideos(prev => [...prev, completeVideo]);
-          return completeVideo;
-        } else if (error && isSchemaColumnError(error)) {
-          // Schema column missing in remote DB, retry insert with base columns
-          const { video_url, views, likes, description, ...baseVideo } = newVideo;
-          const { data: cloudVBase } = await supabase
-            .from('batchflow_videos')
-            .insert([baseVideo])
-            .select()
-            .single();
-          const savedVideo: BatchflowVideo = {
-            ...newVideo,
-            ...((cloudVBase as any) || {}),
-            video_url: newVideo.video_url,
-            views: newVideo.views,
-            likes: newVideo.likes,
-            description: newVideo.description,
-          };
-          const all = storage.getBatchflowVideos();
-          storage.setBatchflowVideos([...all, savedVideo]);
-          setBatchflowVideos(prev => [...prev, savedVideo]);
-          return savedVideo;
-        }
-      } catch (err) {
-        console.warn('Could not insert batchflow_videos:', err);
-      }
-    }
-
+    // 1. Immediately save locally & update UI first (guarantees zero data loss)
     const all = storage.getBatchflowVideos();
     storage.setBatchflowVideos([...all, newVideo]);
     setBatchflowVideos(prev => [...prev, newVideo]);
+
+    // 2. Sync to Supabase in background
+    if (isCloudActive) {
+      try {
+        const { error } = await supabase.from('batchflow_videos').insert([newVideo]);
+        if (error && isSchemaColumnError(error)) {
+          const { video_url, views, likes, description, updated_at, ...baseVideo } = newVideo;
+          await supabase.from('batchflow_videos').insert([baseVideo]);
+        }
+      } catch (err) {
+        console.warn('Could not insert batchflow_videos to cloud:', err);
+      }
+    }
+
     return newVideo;
   }, [assertCanEdit, activeWorkspace, user, isCloudActive]);
 
   const updateBatchflowVideo = useCallback(async (id: string, data: Partial<BatchflowVideo>) => {
     assertCanEdit();
+    const now = new Date().toISOString();
+    const updates: Partial<BatchflowVideo> = {
+      ...data,
+      updated_at: now,
+    };
+
+    // 1. Immediately save locally & update UI first (guarantees zero data loss on immediate refresh)
+    const all = storage.getBatchflowVideos();
+    storage.setBatchflowVideos(all.map(v => v.id === id ? { ...v, ...updates } : v));
+    setBatchflowVideos(prev => prev.map(v => v.id === id ? { ...v, ...updates } : v));
+
+    // 2. Sync to Supabase in background
     if (isCloudActive) {
       try {
-        const { error } = await supabase.from('batchflow_videos').update(data).eq('id', id);
+        const { error } = await supabase.from('batchflow_videos').update(updates).eq('id', id);
         if (error) {
-          console.warn('Could not update batchflow_videos with full fields, retrying with base fields:', error);
           if (isSchemaColumnError(error)) {
-            const { video_url, views, likes, description, ...baseData } = data;
+            const { video_url, views, likes, description, updated_at, ...baseData } = updates;
             if (Object.keys(baseData).length > 0) {
-              const { error: retryErr } = await supabase.from('batchflow_videos').update(baseData).eq('id', id);
-              if (retryErr) {
-                console.warn('Could not update batchflow_videos with base fields:', retryErr);
-              }
+              await supabase.from('batchflow_videos').update(baseData).eq('id', id);
             }
           }
         }
       } catch (err) {
-        console.warn('Could not update batchflow_videos:', err);
+        console.warn('Could not update batchflow_videos in cloud:', err);
       }
     }
-    const all = storage.getBatchflowVideos();
-    storage.setBatchflowVideos(all.map(v => v.id === id ? { ...v, ...data } : v));
-    setBatchflowVideos(prev => prev.map(v => v.id === id ? { ...v, ...data } : v));
   }, [assertCanEdit, isCloudActive]);
 
   const updateBatchflowVideoStatus = useCallback(async (
@@ -1379,7 +1452,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
   ) => {
     assertCanEdit();
     const now = new Date().toISOString();
-    const updates: Partial<BatchflowVideo> = { status };
+    const updates: Partial<BatchflowVideo> = {
+      status,
+      updated_at: now,
+    };
     if (status === 'Pending') updates.waiting_date = now;
     if (status === 'Edited') updates.edited_date = now;
     if (status === 'Posted') {
@@ -1405,18 +1481,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
+    // 1. Immediately save locally & update UI first (guarantees zero data loss on immediate refresh)
+    const all = storage.getBatchflowVideos();
+    storage.setBatchflowVideos(all.map(v => v.id === id ? { ...v, ...updates } : v));
+    setBatchflowVideos(prev => prev.map(v => v.id === id ? { ...v, ...updates } : v));
+
+    // 2. Sync to Supabase in background
     if (isCloudActive) {
       try {
         const { error } = await supabase.from('batchflow_videos').update(updates).eq('id', id);
         if (error) {
-          console.warn('Could not update status in batchflow_videos with full fields, retrying with base fields:', error);
           if (isSchemaColumnError(error)) {
-            const { video_url, views, likes, description, ...baseUpdates } = updates;
+            const { video_url, views, likes, description, updated_at, ...baseUpdates } = updates;
             if (Object.keys(baseUpdates).length > 0) {
-              const { error: retryErr } = await supabase.from('batchflow_videos').update(baseUpdates).eq('id', id);
-              if (retryErr) {
-                console.warn('Could not update status with base fields:', retryErr);
-              }
+              await supabase.from('batchflow_videos').update(baseUpdates).eq('id', id);
             }
           }
         }
@@ -1424,13 +1502,16 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         console.warn('Could not update status in batchflow_videos:', err);
       }
     }
-    const all = storage.getBatchflowVideos();
-    storage.setBatchflowVideos(all.map(v => v.id === id ? { ...v, ...updates } : v));
-    setBatchflowVideos(prev => prev.map(v => v.id === id ? { ...v, ...updates } : v));
   }, [assertCanEdit, isCloudActive]);
 
   const deleteBatchflowVideo = useCallback(async (id: string) => {
     assertCanEdit();
+    // 1. Immediately remove locally & update UI first
+    const all = storage.getBatchflowVideos();
+    storage.setBatchflowVideos(all.filter(v => v.id !== id));
+    setBatchflowVideos(prev => prev.filter(v => v.id !== id));
+
+    // 2. Sync to Supabase in background
     if (isCloudActive) {
       try {
         await supabase.from('batchflow_videos').delete().eq('id', id);
@@ -1438,9 +1519,6 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         console.warn('Could not delete batchflow_videos:', err);
       }
     }
-    const all = storage.getBatchflowVideos();
-    storage.setBatchflowVideos(all.filter(v => v.id !== id));
-    setBatchflowVideos(prev => prev.filter(v => v.id !== id));
   }, [assertCanEdit, isCloudActive]);
 
   // Unified Backup Data Import

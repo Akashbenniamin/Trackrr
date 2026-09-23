@@ -1,6 +1,7 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import type { User, Session } from '@supabase/supabase-js';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
+import { storage } from '../lib/storage';
 
 interface AuthContextType {
   user: User | null;
@@ -88,11 +89,17 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
   };
 
   const signOut = async () => {
-    if (configured) {
-      await supabase.auth.signOut();
+    try {
+      if (configured) {
+        await supabase.auth.signOut();
+      }
+    } catch (err) {
+      console.warn('Error during supabase signOut:', err);
+    } finally {
+      storage.clearAllUserData();
+      setUser(null);
+      setSession(null);
     }
-    setUser(null);
-    setSession(null);
   };
 
   return (

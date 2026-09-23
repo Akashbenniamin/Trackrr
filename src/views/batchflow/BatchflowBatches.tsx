@@ -302,8 +302,10 @@ export default function BatchflowBatches() {
 
   const activeClients = batchflowClients.filter(c => !c.archived);
   const activeBatches = batchflowBatches.filter(b => !b.archived);
-
-  const [selectedBatchId, setSelectedBatchId] = useState<string | null>(activeBatches[0]?.id || null);
+  const [selectedBatchId, setSelectedBatchId] = usePersistedState<string | null>(
+    'trackrr_selected_batch_id',
+    null
+  );
   const selectedBatch = activeBatches.find(b => b.id === selectedBatchId) || activeBatches[0] || null;
   const currentClient = selectedBatch ? activeClients.find(c => c.id === selectedBatch.client_id) || null : null;
 
@@ -3198,7 +3200,16 @@ export default function BatchflowBatches() {
 
                       <Box sx={{ minWidth: 0, flex: 1 }}>
                         <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.75, flexWrap: 'wrap' }}>
-                          <Typography variant="body2" noWrap sx={{ fontWeight: 700 }}>
+                          <Typography
+                            variant="body2"
+                            noWrap
+                            sx={{
+                              fontWeight: 700,
+                              fontSize: '0.82rem',
+                              letterSpacing: '-0.01em',
+                              fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+                            }}
+                          >
                             {v.name}
                             {(() => {
                               const cachedMeta = v.video_url ? getCachedVideoMeta(v.video_url) : null;
@@ -3214,7 +3225,7 @@ export default function BatchflowBatches() {
                                   sx={{
                                     color: 'text.secondary',
                                     fontWeight: 500,
-                                    fontSize: '0.78rem',
+                                    fontSize: '0.72rem',
                                     ml: 0.75,
                                     fontStyle: 'italic',
                                   }}

@@ -109,6 +109,7 @@ export interface BatchflowClient {
   instagram_id?: string;
   archived: number;
   created_at: string;
+  updated_at?: string;
 }
 
 export interface BatchflowBatch {
@@ -121,6 +122,7 @@ export interface BatchflowBatch {
   script?: string;
   archived: number;
   created_at: string;
+  updated_at?: string;
 }
 
 export type BatchflowVideoStatus = 'Pending' | 'Edited' | 'Posted';
@@ -141,6 +143,7 @@ export interface BatchflowVideo {
   views?: string | number | null;
   likes?: string | number | null;
   created_at: string;
+  updated_at?: string;
 }
 
 export type ThemeStyle = 'default' | 'soft' | 'dark' | 'smooth' | 'light' | 'warm-light' | 'cool-light' | 'frosted-glass';

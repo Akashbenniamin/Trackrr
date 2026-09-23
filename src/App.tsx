@@ -4,9 +4,10 @@ import CssBaseline from '@mui/material/CssBaseline';
 import { Box, CircularProgress, Fab, useMediaQuery, useTheme } from '@mui/material';
 import AddRoundedIcon from '@mui/icons-material/AddRounded';
 import { getAppTheme } from './theme';
-import { AuthProvider } from './contexts/AuthContext';
+import { AuthProvider, useAuth } from './contexts/AuthContext';
 import { AppProvider, useApp } from './contexts/AppContext';
 import Layout from './components/Layout';
+import AuthView from './views/AuthView';
 import Dashboard from './views/Dashboard';
 import TaskBoard from './views/TaskBoard';
 import AnalyticsView from './views/AnalyticsView';
@@ -102,6 +103,7 @@ function AppContent() {
 }
 
 function ThemedApp() {
+  const { user, loading: authLoading } = useAuth();
   const { settings } = useApp();
   const currentMuiTheme = useMemo(() => {
     return getAppTheme(settings.theme_style || 'default', settings.theme_color || 'auto');
@@ -110,7 +112,16 @@ function ThemedApp() {
   return (
     <ThemeProvider theme={currentMuiTheme}>
       <CssBaseline />
-      <AppContent />
+      {authLoading ? (
+        <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'center', minHeight: '100vh', flexDirection: 'column', gap: 2, bgcolor: '#090D16' }}>
+          <CircularProgress color="primary" />
+          <Box sx={{ color: 'text.secondary', fontSize: '0.9rem' }}>Verifying session…</Box>
+        </Box>
+      ) : !user ? (
+        <AuthView />
+      ) : (
+        <AppContent />
+      )}
     </ThemeProvider>
   );
 }

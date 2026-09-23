@@ -121,7 +121,49 @@ export const storage = {
     return map[wsId];
   },
 
-  initStorage: () => {
+  clearAllUserData: () => {
+    try {
+      localStorage.removeItem(STORAGE_KEYS.WORKSPACES);
+      localStorage.removeItem(STORAGE_KEYS.CLIENTS);
+      localStorage.removeItem(STORAGE_KEYS.TASKS);
+      localStorage.removeItem(STORAGE_KEYS.PAYMENTS);
+      localStorage.removeItem(STORAGE_KEYS.SALARY_RATES);
+      localStorage.removeItem(STORAGE_KEYS.DISCOUNTS);
+      localStorage.removeItem(STORAGE_KEYS.BF_CLIENTS);
+      localStorage.removeItem(STORAGE_KEYS.BF_BATCHES);
+      localStorage.removeItem(STORAGE_KEYS.BF_VIDEOS);
+      localStorage.removeItem(STORAGE_KEYS.ACTIVE_WS);
+      localStorage.removeItem(STORAGE_KEYS.WS_TYPES);
+      localStorage.removeItem('trackrr_selected_batch_id');
+      localStorage.removeItem('trackrr_current_view');
+      localStorage.removeItem('trackrr_meta_access_token');
+      localStorage.removeItem('trackrr_meta_user_token');
+      localStorage.removeItem('trackrr_meta_ig_user_id');
+
+      // Remove cached thumbnails, captions, metrics, and shortcode keys
+      const keysToRemove: string[] = [];
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (k && (
+          k.startsWith('trackrr_thumb_') ||
+          k.startsWith('trackrr_meta_') ||
+          k.startsWith('trackrr_views_') ||
+          k.startsWith('trackrr_likes_') ||
+          k.startsWith('trackrr_caption_')
+        )) {
+          keysToRemove.push(k);
+        }
+      }
+      for (const k of keysToRemove) {
+        localStorage.removeItem(k);
+      }
+    } catch (err) {
+      console.error('Error clearing user data from localStorage:', err);
+    }
+  },
+
+  initStorage: (isUserLoggedIn = false) => {
+    if (!isUserLoggedIn) return;
     const existingWs = storage.getWorkspaces();
     if (existingWs.length === 0) {
       const defaultWsId = generateId();
