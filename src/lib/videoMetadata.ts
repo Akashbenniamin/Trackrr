@@ -193,7 +193,7 @@ export function getCaptionSnippet(caption?: string | null, maxWords = 5, author?
 /**
  * Center-crops any image data URL to a 1:1 square canvas to eliminate stretching in PDF exports.
  */
-export function cropImageToSquareDataUrl(dataUrl: string, size = 200): Promise<string> {
+export function cropImageToSquareDataUrl(dataUrl: string, size = 140): Promise<string> {
   if (typeof window === 'undefined' || typeof document === 'undefined') {
     return Promise.resolve(dataUrl);
   }
@@ -227,7 +227,7 @@ export function cropImageToSquareDataUrl(dataUrl: string, size = 200): Promise<s
           sHeight = w;
         }
         ctx.drawImage(img, sx, sy, sWidth, sHeight, 0, 0, size, size);
-        resolve(canvas.toDataURL('image/jpeg', 0.9));
+        resolve(canvas.toDataURL('image/jpeg', 0.75));
       } catch {
         resolve(dataUrl);
       }

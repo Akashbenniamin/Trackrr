@@ -37,6 +37,33 @@ export const defaultSettings: AppSettings = {
   show_completed: true,
 };
 
+export function evictThumbnailCacheIfNeeded(forceAll = false): void {
+  try {
+    const thumbKeys: string[] = [];
+    for (let i = 0; i < localStorage.length; i++) {
+      const k = localStorage.key(i);
+      if (k && k.startsWith('trackrr_thumb_b64_')) {
+        if (forceAll) {
+          thumbKeys.push(k);
+        } else {
+          const val = localStorage.getItem(k);
+          if (val && val.length > 35000) {
+            thumbKeys.push(k);
+          }
+        }
+      }
+    }
+    for (const k of thumbKeys) {
+      localStorage.removeItem(k);
+    }
+  } catch {}
+}
+
+// Immediately clean up any oversized base64 thumbnails clogging localStorage quota on startup
+if (typeof window !== 'undefined') {
+  evictThumbnailCacheIfNeeded(false);
+}
+
 function getItem<T>(key: string, fallback: T): T {
   try {
     const raw = localStorage.getItem(key);
@@ -49,10 +76,17 @@ function getItem<T>(key: string, fallback: T): T {
 }
 
 function setItem<T>(key: string, value: T): void {
+  const serialized = JSON.stringify(value);
   try {
-    localStorage.setItem(key, JSON.stringify(value));
+    localStorage.setItem(key, serialized);
   } catch (err) {
-    console.error(`Error saving ${key} to localStorage:`, err);
+    // Evict cached base64 thumbnails and retry saving critical app data
+    evictThumbnailCacheIfNeeded(true);
+    try {
+      localStorage.setItem(key, serialized);
+    } catch (retryErr) {
+      console.error(`Error saving ${key} to localStorage after cache eviction:`, retryErr);
+    }
   }
 }
 

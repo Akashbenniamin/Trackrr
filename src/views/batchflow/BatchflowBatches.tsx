@@ -716,12 +716,17 @@ export default function BatchflowBatches() {
 
   const handleSaveEditBatch = async () => {
     if (!editingBatch || !editingBatch.name.trim()) return;
-    await updateBatchflowBatch(editingBatch.id, {
-      name: editingBatch.name.trim(),
-      shoot_date: editingBatch.shoot_date,
-      client_id: editingBatch.client_id,
-    });
-    setEditBatchOpen(false);
+    try {
+      await updateBatchflowBatch(editingBatch.id, {
+        name: editingBatch.name.trim(),
+        shoot_date: editingBatch.shoot_date,
+        client_id: editingBatch.client_id,
+      });
+      setEditBatchOpen(false);
+      setSyncSnackbar('Saved batch changes to database!');
+    } catch {
+      setSyncSnackbar('Failed to save batch changes.');
+    }
   };
 
   const handleArchiveBatch = async (batchId: string, batchName: string) => {
@@ -762,6 +767,7 @@ export default function BatchflowBatches() {
   const [postedMetaResult, setPostedMetaResult] = useState<VideoMetadataResult | null>(null);
   const postedFileRef = useRef<HTMLInputElement>(null);
 
+  const [savingVideoData, setSavingVideoData] = useState(false);
   const [syncingPDF, setSyncingPDF] = useState(false);
   const [syncingAllPDF, setSyncingAllPDF] = useState(false);
   const [manualSyncing, setManualSyncing] = useState(false);
@@ -1149,87 +1155,93 @@ export default function BatchflowBatches() {
       openPostedDialogForVideo(v);
       return;
     }
-    await updateBatchflowVideoStatus(v.id, nextStatus);
+    try {
+      await updateBatchflowVideoStatus(v.id, nextStatus);
+      setSyncSnackbar(`Saved! "${v.name}" marked as ${nextStatus}.`);
+    } catch {
+      setSyncSnackbar(`Failed to save status for "${v.name}".`);
+    }
   };
 
   const handleSavePostedLink = async (skip = false) => {
-    if (!postedTargetVideo) return;
-    const targetBatch = batchflowBatches.find(b => b.id === postedTargetVideo.batch_id) || selectedBatch;
-    const targetClient = batchflowClients.find(c => c.id === targetBatch?.client_id) || currentClient;
-    const clientHandle = targetClient?.instagram_id || undefined;
+    if (!postedTargetVideo || savingVideoData) return;
+    setSavingVideoData(true);
+    try {
+      const targetBatch = batchflowBatches.find(b => b.id === postedTargetVideo.batch_id) || selectedBatch;
+      const targetClient = batchflowClients.find(c => c.id === targetBatch?.client_id) || currentClient;
+      const clientHandle = targetClient?.instagram_id || undefined;
 
-    const urlToSave = skip ? null : (postedVideoUrl.trim() ? cleanVideoUrl(postedVideoUrl.trim()) : null);
-    const dateToSave = postedCustomDate.trim() || new Date().toISOString().slice(0, 10);
-    const likesToSave = skip
-      ? null
-      : (formatMetricCount(postedLikes.trim()) || (postedMetaResult?.likesCount ? formatMetricCount(postedMetaResult.likesCount) : null));
-    const viewsToSave = skip
-      ? null
-      : (formatMetricCount(postedViews.trim()) || (postedMetaResult?.viewsCount ? formatMetricCount(postedMetaResult.viewsCount) : null));
-    const rawCaption = postedCaption.trim() || postedMetaResult?.caption || postedTargetVideo.description || null;
-    const captionToSave = skip ? null : cleanInstagramCaption(rawCaption, clientHandle);
-    const thumbToSave = skip
-      ? null
-      : (postedThumbnailUrl.trim() || postedMetaResult?.thumbnailUrl || null);
+      const urlToSave = skip ? null : (postedVideoUrl.trim() ? cleanVideoUrl(postedVideoUrl.trim()) : null);
+      const dateToSave = postedCustomDate.trim() || new Date().toISOString().slice(0, 10);
+      const formattedPostedDate = dateToSave.includes('T') ? dateToSave : `${dateToSave}T12:00:00.000Z`;
+      const likesToSave = skip
+        ? null
+        : (formatMetricCount(postedLikes.trim()) || (postedMetaResult?.likesCount ? formatMetricCount(postedMetaResult.likesCount) : null));
+      const viewsToSave = skip
+        ? null
+        : (formatMetricCount(postedViews.trim()) || (postedMetaResult?.viewsCount ? formatMetricCount(postedMetaResult.viewsCount) : null));
+      const rawCaption = postedCaption.trim() || postedMetaResult?.caption || postedTargetVideo.description || null;
+      const captionToSave = skip ? null : cleanInstagramCaption(rawCaption, clientHandle);
+      const thumbToSave = skip
+        ? null
+        : (postedThumbnailUrl.trim() || postedMetaResult?.thumbnailUrl || null);
 
-    if (postedTargetVideo.status !== 'Posted') {
-      await updateBatchflowVideoStatus(postedTargetVideo.id, 'Posted', urlToSave, dateToSave, viewsToSave, likesToSave);
-      if (captionToSave) {
-        await updateBatchflowVideo(postedTargetVideo.id, { description: captionToSave }).catch(() => {});
-      }
-    } else {
       await updateBatchflowVideo(postedTargetVideo.id, {
+        status: 'Posted',
         video_url: skip ? null : urlToSave,
-        posted_date: dateToSave.includes('T') ? dateToSave : `${dateToSave}T12:00:00.000Z`,
+        posted_date: formattedPostedDate,
         views: viewsToSave,
         likes: likesToSave,
         ...(captionToSave ? { description: captionToSave } : {}),
       });
-    }
 
-    if (captionToSave) {
-      setSyncedCaptions(prev => ({ ...prev, [postedTargetVideo.id]: captionToSave }));
-    }
-    if (thumbToSave) {
-      setSyncedThumbs(prev => ({ ...prev, [postedTargetVideo.id]: thumbToSave }));
-    }
-    if (likesToSave) {
-      setSyncedLikes(prev => ({ ...prev, [postedTargetVideo.id]: likesToSave }));
-    }
-    if (viewsToSave) {
-      setSyncedViews(prev => ({ ...prev, [postedTargetVideo.id]: viewsToSave }));
-    }
-
-    if (!skip && urlToSave) {
-      saveCachedVideoMeta(urlToSave, {
-        thumbnailUrl: thumbToSave,
-        caption: captionToSave,
-        likes: likesToSave,
-        views: viewsToSave,
-      });
-
-      if (thumbToSave) {
-        const shortcode = extractInstagramShortcode(urlToSave);
-        fetchImageBase64(thumbToSave).then((b64) => {
-          if (b64) {
-            try {
-              localStorage.setItem(`trackrr_thumb_b64_${postedTargetVideo.id}`, b64);
-              if (shortcode) {
-                localStorage.setItem(`trackrr_thumb_b64_sc_${shortcode.toLowerCase()}`, b64);
-              }
-            } catch {}
-          }
-        }).catch(() => {});
+      if (captionToSave) {
+        setSyncedCaptions(prev => ({ ...prev, [postedTargetVideo.id]: captionToSave }));
       }
-    }
+      if (thumbToSave) {
+        setSyncedThumbs(prev => ({ ...prev, [postedTargetVideo.id]: thumbToSave }));
+      }
+      if (likesToSave) {
+        setSyncedLikes(prev => ({ ...prev, [postedTargetVideo.id]: likesToSave }));
+      }
+      if (viewsToSave) {
+        setSyncedViews(prev => ({ ...prev, [postedTargetVideo.id]: viewsToSave }));
+      }
 
-    setPostedLinkDialogOpen(false);
-    setPostedTargetVideo(null);
-    setPostedVideoUrl('');
-    setPostedLikes('');
-    setPostedCaption('');
-    setPostedThumbnailUrl('');
-    setPostedMetaResult(null);
+      if (!skip && urlToSave) {
+        saveCachedVideoMeta(urlToSave, {
+          thumbnailUrl: thumbToSave,
+          caption: captionToSave,
+          likes: likesToSave,
+          views: viewsToSave,
+          postedDate: dateToSave,
+        });
+
+        if (thumbToSave) {
+          const targetId = postedTargetVideo.id;
+          fetchImageBase64(thumbToSave).then((b64) => {
+            if (b64) {
+              try {
+                localStorage.setItem(`trackrr_thumb_b64_${targetId}`, b64);
+              } catch {}
+            }
+          }).catch(() => {});
+        }
+      }
+
+      setPostedLinkDialogOpen(false);
+      setPostedTargetVideo(null);
+      setPostedVideoUrl('');
+      setPostedLikes('');
+      setPostedCaption('');
+      setPostedThumbnailUrl('');
+      setPostedMetaResult(null);
+      setSyncSnackbar('Saved to database!');
+    } catch {
+      setSyncSnackbar('Failed to save to database. Please try again.');
+    } finally {
+      setSavingVideoData(false);
+    }
   };
 
   const handleCancelPostedLink = () => {
@@ -1243,9 +1255,17 @@ export default function BatchflowBatches() {
   };
 
   const handleSaveScript = async () => {
-    if (!selectedBatch) return;
-    await updateBatchflowBatch(selectedBatch.id, { script: scriptDraft });
-    setScriptEditOpen(false);
+    if (!selectedBatch || savingVideoData) return;
+    setSavingVideoData(true);
+    try {
+      await updateBatchflowBatch(selectedBatch.id, { script: scriptDraft });
+      setScriptEditOpen(false);
+      setSyncSnackbar('Saved script to database!');
+    } catch {
+      setSyncSnackbar('Failed to save script to database.');
+    } finally {
+      setSavingVideoData(false);
+    }
   };
 
   const handleExportPNG = async () => {
@@ -4094,79 +4114,86 @@ script 2
           />
         </DialogContent>
         <DialogActions sx={{ px: 3, pb: 2 }}>
-          <Button onClick={() => setEditVideoOpen(false)}>Cancel</Button>
+          <Button onClick={() => setEditVideoOpen(false)} disabled={savingVideoData}>Cancel</Button>
           <Button
             variant="contained"
+            disabled={savingVideoData}
             onClick={async () => {
-              if (editingVideo) {
-                const clean = editingVideo.video_url?.trim() ? cleanVideoUrl(editingVideo.video_url.trim()) : null;
-                const dateVal = editingVideo.posted_date?.trim()
-                  ? (editingVideo.posted_date.includes('T') ? editingVideo.posted_date : `${editingVideo.posted_date}T12:00:00.000Z`)
-                  : undefined;
-                const rawScriptNum = editingVideo.script_number;
-                const scriptNum = typeof rawScriptNum === 'number'
-                  ? Math.max(0, rawScriptNum)
-                  : (rawScriptNum === '' ? 0 : Math.max(0, parseInt(String(rawScriptNum), 10) || 0));
-                const targetVideo = batchflowVideos.find(v => v.id === editingVideo.id);
-                const targetBatch = batchflowBatches.find(b => b.id === targetVideo?.batch_id) || selectedBatch;
-                const targetClient = batchflowClients.find(c => c.id === targetBatch?.client_id) || currentClient;
-                const clientHandle = targetClient?.instagram_id || undefined;
-                const likesToSave = editingVideo.likes != null && String(editingVideo.likes).trim() !== '' ? (formatMetricCount(editingVideo.likes) || null) : null;
-                const viewsToSave = editingVideo.views != null && String(editingVideo.views).trim() !== '' ? (formatMetricCount(editingVideo.views) || null) : null;
-                const descToSave = cleanInstagramCaption(editingVideo.description?.trim() || null, clientHandle);
-                const thumbToSave = editingVideo.thumbnail_url?.trim() || null;
+              if (editingVideo && !savingVideoData) {
+                setSavingVideoData(true);
+                try {
+                  const clean = editingVideo.video_url?.trim() ? cleanVideoUrl(editingVideo.video_url.trim()) : null;
+                  const dateVal = editingVideo.posted_date?.trim()
+                    ? (editingVideo.posted_date.includes('T') ? editingVideo.posted_date : `${editingVideo.posted_date}T12:00:00.000Z`)
+                    : undefined;
+                  const rawScriptNum = editingVideo.script_number;
+                  const scriptNum = typeof rawScriptNum === 'number'
+                    ? Math.max(0, rawScriptNum)
+                    : (rawScriptNum === '' ? 0 : Math.max(0, parseInt(String(rawScriptNum), 10) || 0));
+                  const targetVideo = batchflowVideos.find(v => v.id === editingVideo.id);
+                  const targetBatch = batchflowBatches.find(b => b.id === targetVideo?.batch_id) || selectedBatch;
+                  const targetClient = batchflowClients.find(c => c.id === targetBatch?.client_id) || currentClient;
+                  const clientHandle = targetClient?.instagram_id || undefined;
+                  const likesToSave = editingVideo.likes != null && String(editingVideo.likes).trim() !== '' ? (formatMetricCount(editingVideo.likes) || null) : null;
+                  const viewsToSave = editingVideo.views != null && String(editingVideo.views).trim() !== '' ? (formatMetricCount(editingVideo.views) || null) : null;
+                  const descToSave = cleanInstagramCaption(editingVideo.description?.trim() || null, clientHandle);
+                  const thumbToSave = editingVideo.thumbnail_url?.trim() || null;
 
-                await updateBatchflowVideo(editingVideo.id, {
-                  name: editingVideo.name.trim(),
-                  script_number: scriptNum,
-                  description: descToSave,
-                  video_url: clean,
-                  views: viewsToSave,
-                  likes: likesToSave,
-                  ...(dateVal ? { posted_date: dateVal } : {}),
-                });
-
-                if (descToSave) {
-                  setSyncedCaptions(prev => ({ ...prev, [editingVideo.id]: descToSave }));
-                }
-                if (thumbToSave) {
-                  setSyncedThumbs(prev => ({ ...prev, [editingVideo.id]: thumbToSave }));
-                }
-                if (likesToSave) {
-                  setSyncedLikes(prev => ({ ...prev, [editingVideo.id]: likesToSave }));
-                }
-                if (viewsToSave) {
-                  setSyncedViews(prev => ({ ...prev, [editingVideo.id]: viewsToSave }));
-                }
-
-                if (clean) {
-                  saveCachedVideoMeta(clean, {
-                    thumbnailUrl: thumbToSave,
-                    caption: descToSave,
-                    likes: likesToSave,
+                  await updateBatchflowVideo(editingVideo.id, {
+                    name: editingVideo.name.trim(),
+                    script_number: scriptNum,
+                    description: descToSave,
+                    video_url: clean,
                     views: viewsToSave,
+                    likes: likesToSave,
+                    ...(dateVal ? { posted_date: dateVal } : {}),
                   });
 
-                  if (thumbToSave) {
-                    const shortcode = extractInstagramShortcode(clean);
-                    fetchImageBase64(thumbToSave).then(b64 => {
-                      if (b64) {
-                        try {
-                          localStorage.setItem(`trackrr_thumb_b64_${editingVideo.id}`, b64);
-                          if (shortcode) {
-                            localStorage.setItem(`trackrr_thumb_b64_sc_${shortcode.toLowerCase()}`, b64);
-                          }
-                        } catch {}
-                      }
-                    }).catch(() => {});
+                  if (descToSave) {
+                    setSyncedCaptions(prev => ({ ...prev, [editingVideo.id]: descToSave }));
                   }
-                }
+                  if (thumbToSave) {
+                    setSyncedThumbs(prev => ({ ...prev, [editingVideo.id]: thumbToSave }));
+                  }
+                  if (likesToSave) {
+                    setSyncedLikes(prev => ({ ...prev, [editingVideo.id]: likesToSave }));
+                  }
+                  if (viewsToSave) {
+                    setSyncedViews(prev => ({ ...prev, [editingVideo.id]: viewsToSave }));
+                  }
 
-                setEditVideoOpen(false);
+                  if (clean) {
+                    saveCachedVideoMeta(clean, {
+                      thumbnailUrl: thumbToSave,
+                      caption: descToSave,
+                      likes: likesToSave,
+                      views: viewsToSave,
+                      postedDate: editingVideo.posted_date?.trim() || undefined,
+                    });
+
+                    if (thumbToSave) {
+                      const targetId = editingVideo.id;
+                      fetchImageBase64(thumbToSave).then(b64 => {
+                        if (b64) {
+                          try {
+                            localStorage.setItem(`trackrr_thumb_b64_${targetId}`, b64);
+                          } catch {}
+                        }
+                      }).catch(() => {});
+                    }
+                  }
+
+                  setEditVideoOpen(false);
+                  setSyncSnackbar('Saved to database!');
+                } catch {
+                  setSyncSnackbar('Failed to save to database. Please try again.');
+                } finally {
+                  setSavingVideoData(false);
+                }
               }
             }}
           >
-            Save
+            {savingVideoData ? 'Saving...' : 'Save'}
           </Button>
         </DialogActions>
       </Dialog>
@@ -4615,6 +4642,7 @@ script 2
           <Box sx={{ display: 'flex', gap: 1 }}>
             <Button
               onClick={handleCancelPostedLink}
+              disabled={savingVideoData}
               sx={{ textTransform: 'none', color: 'text.disabled' }}
             >
               Cancel
@@ -4622,6 +4650,7 @@ script 2
             {postedTargetVideo?.status !== 'Posted' && (
               <Button
                 onClick={() => handleSavePostedLink(true)}
+                disabled={savingVideoData}
                 sx={{ textTransform: 'none', color: 'text.secondary' }}
               >
                 Skip Link
@@ -4630,6 +4659,7 @@ script 2
           </Box>
           <Button
             variant="contained"
+            disabled={savingVideoData}
             onClick={() => handleSavePostedLink(false)}
             sx={{
               bgcolor: '#10B981',
@@ -4639,7 +4669,9 @@ script 2
               px: 2.5,
             }}
           >
-            {postedTargetVideo?.status === 'Posted' ? 'Save Changes' : 'Save & Post'}
+            {savingVideoData
+              ? 'Saving...'
+              : (postedTargetVideo?.status === 'Posted' ? 'Save Changes' : 'Save & Post')}
           </Button>
         </DialogActions>
       </Dialog>
@@ -4747,7 +4779,7 @@ script 2
         )}
       </Menu>
 
-      {/* Live Sync Status Feedback Toast */}
+      {/* Live Sync & Database Save Status Feedback Toast */}
       <Snackbar
         open={Boolean(syncSnackbar)}
         autoHideDuration={3000}
@@ -4756,15 +4788,23 @@ script 2
       >
         <Alert
           onClose={() => setSyncSnackbar(null)}
-          severity="info"
+          severity={syncSnackbar?.startsWith('Saved') ? 'success' : syncSnackbar?.startsWith('Failed') ? 'error' : 'info'}
           sx={{
             width: '100%',
             bgcolor: '#1E293B',
             color: '#F1F5F9',
-            border: '1px solid rgba(255,255,255,0.1)',
-            fontWeight: 600,
+            border: syncSnackbar?.startsWith('Saved')
+              ? '1px solid rgba(16, 185, 129, 0.45)'
+              : '1px solid rgba(255,255,255,0.1)',
+            fontWeight: 700,
             fontSize: '0.82rem',
-            '& .MuiAlert-icon': { color: '#38BDF8' }
+            '& .MuiAlert-icon': {
+              color: syncSnackbar?.startsWith('Saved')
+                ? '#10B981'
+                : syncSnackbar?.startsWith('Failed')
+                ? '#F87171'
+                : '#38BDF8',
+            },
           }}
         >
           {syncSnackbar}
