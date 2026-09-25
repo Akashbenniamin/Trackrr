@@ -1,3 +1,5 @@
+import { getMemoryStorageKeys, storage } from './storage';
+
 export interface VideoMetadataResult {
   postedDate?: string | null;
   postedDateTime?: string | null;
@@ -434,9 +436,9 @@ export function getCachedVideoMeta(url?: string | null): CachedVideoMeta {
     }
   } catch {}
 
-  // 3. Scan trackrr_recent_ig_* in localStorage
+  // 3. Scan trackrr_recent_ig_* in memory cache
   try {
-    const allKeys = Object.keys(localStorage);
+    const allKeys = getMemoryStorageKeys();
     for (const k of allKeys) {
       if (k.startsWith('trackrr_recent_ig_')) {
         const raw = localStorage.getItem(k);
@@ -531,7 +533,7 @@ export function detectVideoProvider(url: string): 'instagram' | 'youtube' | 'oth
 }
 
 /**
- * Get Meta access token from options, env variables, or localStorage
+ * Get Meta access token from options, env variables, or in-memory settings
  */
 export function getMetaAccessToken(credentials?: MetaApiCredentials): string | null {
   if (credentials?.metaAppId && credentials?.metaClientToken) {
@@ -550,12 +552,9 @@ export function getMetaAccessToken(credentials?: MetaApiCredentials): string | n
   }
 
   try {
-    const rawFt = localStorage.getItem('ft_settings');
-    if (rawFt) {
-      const parsed = JSON.parse(rawFt);
-      if (parsed.meta_app_id?.trim() && parsed.meta_client_token?.trim()) {
-        return `${parsed.meta_app_id.trim()}|${parsed.meta_client_token.trim()}`;
-      }
+    const parsed = storage.getSettings();
+    if (parsed?.meta_app_id?.trim() && parsed?.meta_client_token?.trim()) {
+      return `${parsed.meta_app_id.trim()}|${parsed.meta_client_token.trim()}`;
     }
   } catch {}
 
@@ -564,7 +563,7 @@ export function getMetaAccessToken(credentials?: MetaApiCredentials): string | n
 }
 
 /**
- * Get Meta user access token from options, env variables, or localStorage
+ * Get Meta user access token from options, env variables, or in-memory settings
  */
 export function getMetaUserToken(credentials?: MetaApiCredentials): string | null {
   if (credentials?.metaUserToken?.trim()) {
@@ -582,12 +581,9 @@ export function getMetaUserToken(credentials?: MetaApiCredentials): string | nul
   }
 
   try {
-    const rawFt = localStorage.getItem('ft_settings');
-    if (rawFt) {
-      const parsed = JSON.parse(rawFt);
-      if (parsed.meta_user_token?.trim()) {
-        return parsed.meta_user_token.trim();
-      }
+    const parsed = storage.getSettings();
+    if (parsed?.meta_user_token?.trim()) {
+      return parsed.meta_user_token.trim();
     }
   } catch {}
 
@@ -595,7 +591,7 @@ export function getMetaUserToken(credentials?: MetaApiCredentials): string | nul
 }
 
 /**
- * Get Meta Instagram Business / Creator Account ID from options, env variables, or localStorage
+ * Get Meta Instagram Business / Creator Account ID from options, env variables, or in-memory settings
  */
 export function getMetaIgUserId(credentials?: MetaApiCredentials | { igUserId?: string }): string {
   const credIgId = (credentials as MetaApiCredentials)?.metaIgUserId || (credentials as { igUserId?: string })?.igUserId;
@@ -609,12 +605,9 @@ export function getMetaIgUserId(credentials?: MetaApiCredentials | { igUserId?: 
   }
 
   try {
-    const rawFt = localStorage.getItem('ft_settings');
-    if (rawFt) {
-      const parsed = JSON.parse(rawFt);
-      if (parsed.meta_ig_user_id?.trim()) {
-        return parsed.meta_ig_user_id.trim();
-      }
+    const parsed = storage.getSettings();
+    if (parsed?.meta_ig_user_id?.trim()) {
+      return parsed.meta_ig_user_id.trim();
     }
   } catch {}
 
@@ -1088,7 +1081,7 @@ export async function fetchVideoMetadata(
     let targetHandle = creatorHandle || (credentials?.clientHandle ? cleanInstagramHandle(credentials.clientHandle) : null);
     if (!targetHandle) {
       try {
-        const allKeys = Object.keys(localStorage);
+        const allKeys = getMemoryStorageKeys();
         for (const k of allKeys) {
           if (k.startsWith('trackrr_recent_ig_')) {
             const raw = localStorage.getItem(k);
@@ -1102,14 +1095,11 @@ export async function fetchVideoMetadata(
 
       if (!targetHandle) {
         try {
-          const rawBf = localStorage.getItem('ft_bf_clients');
-          if (rawBf) {
-            const clients = JSON.parse(rawBf);
-            if (Array.isArray(clients)) {
-              const withIg = clients.filter((c: any) => !c.archived && c.instagram_id?.trim());
-              if (withIg.length === 1) {
-                targetHandle = cleanInstagramHandle(withIg[0].instagram_id);
-              }
+          const clients = storage.getBatchflowClients();
+          if (Array.isArray(clients)) {
+            const withIg = clients.filter((c: any) => !c.archived && c.instagram_id?.trim());
+            if (withIg.length === 1 && withIg[0].instagram_id) {
+              targetHandle = cleanInstagramHandle(withIg[0].instagram_id);
             }
           }
         } catch {}
@@ -1117,7 +1107,7 @@ export async function fetchVideoMetadata(
 
       if (!targetHandle) {
         try {
-          const igKeys = Object.keys(localStorage).filter(k => k.startsWith('trackrr_recent_ig_'));
+          const igKeys = getMemoryStorageKeys().filter(k => k.startsWith('trackrr_recent_ig_'));
           if (igKeys.length === 1) {
             targetHandle = igKeys[0].replace('trackrr_recent_ig_', '');
           }
@@ -1158,10 +1148,10 @@ export async function fetchVideoMetadata(
       }
     }
 
-    // D. Check cached recent posts in localStorage
+    // D. Check cached recent posts in memory cache
     if (!viewsCount || !likesCount || !postedDate || !thumbnailUrl || !caption) {
       try {
-        const allKeys = Object.keys(localStorage);
+        const allKeys = getMemoryStorageKeys();
         for (const k of allKeys) {
           if (k.startsWith('trackrr_recent_ig_')) {
             const raw = localStorage.getItem(k);

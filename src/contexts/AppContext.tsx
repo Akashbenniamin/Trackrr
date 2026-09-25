@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useEffect, useState, useCallback, useRef } from 'react';
-import { storage, generateId } from '../lib/storage';
+import { storage, generateId, consumeLegacyLocalSnapshot } from '../lib/storage';
 import { supabase, isSupabaseConfigured } from '../lib/supabase';
 import { useAuth } from './AuthContext';
 import { useNetworkStatus } from '../lib/useNetworkStatus';
@@ -83,6 +83,50 @@ function isSchemaColumnError(error: any): boolean {
     msg.includes('could not find the') ||
     details.includes('column')
   );
+}
+
+function packSettingsForSupabase(s: AppSettings, userId: string) {
+  const baseColor = (s.theme_color || 'auto').split('||META:')[0];
+  const extra = {
+    theme_style: s.theme_style || 'default',
+    meta_app_id: s.meta_app_id || undefined,
+    meta_client_token: s.meta_client_token || undefined,
+    meta_user_token: s.meta_user_token || undefined,
+    meta_ig_user_id: s.meta_ig_user_id || undefined,
+  };
+  return {
+    user_id: userId,
+    currency: s.currency === 'USD' ? 'USD' : 'INR',
+    theme_color: `${baseColor}||META:${JSON.stringify(extra)}`,
+    show_completed: s.show_completed ?? true,
+    active_workspace_id: s.active_workspace_id || null,
+    updated_at: new Date().toISOString(),
+  };
+}
+
+function unpackSettingsFromSupabase(row: any, current: AppSettings): AppSettings {
+  const rawColor = typeof row?.theme_color === 'string' ? row.theme_color : (current.theme_color || 'auto');
+  const metaIdx = rawColor.indexOf('||META:');
+  let cleanColor = rawColor;
+  let extra: Record<string, any> = {};
+  if (metaIdx !== -1) {
+    cleanColor = rawColor.slice(0, metaIdx) || 'auto';
+    try {
+      extra = JSON.parse(rawColor.slice(metaIdx + 7)) || {};
+    } catch {}
+  }
+  return {
+    ...current,
+    currency: row?.currency || current.currency,
+    theme_color: cleanColor || current.theme_color,
+    theme_style: row?.theme_style || extra.theme_style || current.theme_style,
+    show_completed: row?.show_completed !== undefined ? row.show_completed : current.show_completed,
+    active_workspace_id: row?.active_workspace_id || current.active_workspace_id,
+    meta_app_id: row?.meta_app_id || extra.meta_app_id || current.meta_app_id,
+    meta_client_token: row?.meta_client_token || extra.meta_client_token || current.meta_client_token,
+    meta_user_token: row?.meta_user_token || extra.meta_user_token || current.meta_user_token,
+    meta_ig_user_id: row?.meta_ig_user_id || extra.meta_ig_user_id || current.meta_ig_user_id,
+  };
 }
 
 function packWaitingDateWithMeta(v: Partial<BatchflowVideo>): string {
@@ -222,53 +266,63 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
   const canEdit = isOnline && (currentRole === 'owner' || currentRole === 'manager');
 
-  // Load from local storage cache first
-  const loadLocalCache = useCallback((wsId?: string) => {
-    const wsList = storage.getWorkspaces();
-    const appSettings = storage.getSettings();
-    setWorkspaces(wsList);
-    setSettings(appSettings);
-
-    const targetId = wsId ?? storage.getActiveWorkspaceId() ?? appSettings.active_workspace_id ?? wsList[0]?.id ?? null;
-    const active = wsList.find(w => w.id === targetId) ?? wsList[0] ?? null;
-    setActiveWorkspace(active);
-    if (active) {
-      storage.setActiveWorkspaceId(active.id);
-    }
-
-    if (active) {
-      if (active.type === 'batchflow') {
-        const bfClients = storage.getBatchflowClients().filter(c => c.workspace_id === active.id);
-        const bfBatches = storage.getBatchflowBatches().filter(b => b.workspace_id === active.id);
-        const bfVideos = storage.getBatchflowVideos().map(unpackVideoFromSupabase).filter(v => v.workspace_id === active.id);
-        setBatchflowClients(bfClients);
-        setBatchflowBatches(bfBatches);
-        setBatchflowVideos(bfVideos);
-      } else {
-        const allClients = storage.getClients().filter(c => c.workspace_id === active.id);
-        const allTasks = storage.getTasks().filter(t => t.workspace_id === active.id).sort((a, b) => a.order_index - b.order_index);
-        const allPayments = storage.getPayments().filter(p => p.workspace_id === active.id).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-        const allRates = storage.getSalaryRates().filter(sr => sr.workspace_id === active.id).sort((a, b) => a.effective_from.localeCompare(b.effective_from));
-        const allDiscounts = storage.getDiscounts().filter(d => d.workspace_id === active.id).sort((a, b) => (b.date || '').localeCompare(a.date || ''));
-
-        setClients(allClients);
-        setTasks(allTasks);
-        setPayments(allPayments);
-        setSalaryRates(allRates);
-        setDiscounts(allDiscounts);
-      }
-    }
-  }, []);
-
-  // Fetch full data from Supabase (or fallback to local)
+  // Fetch all data strictly from Supabase Cloud (zero localStorage data caching)
   const fetchAll = useCallback(async (wsId?: string) => {
-    if (!isCloudActive || !isOnline) {
-      loadLocalCache(wsId);
+    if (!isCloudActive || !isOnline || !user) {
       return;
     }
 
     try {
-      // 1. Fetch workspaces
+      // One-time safety migration of any legacy BatchFlow items captured right before localStorage was cleaned
+      const legacy = consumeLegacyLocalSnapshot();
+      if (legacy) {
+        try {
+          const [cWsRes, cBfCRes, cBfBRes, cBfVRes] = await Promise.all([
+            supabase.from('workspaces').select('id,type'),
+            supabase.from('batchflow_clients').select('id'),
+            supabase.from('batchflow_batches').select('id'),
+            supabase.from('batchflow_videos').select('id'),
+          ]);
+          const existingWsMap = new Map((cWsRes.data || []).map((w: any) => [w.id, w.type]));
+          const existingBfCIds = new Set((cBfCRes.data || []).map((c: any) => c.id));
+          const existingBfBIds = new Set((cBfBRes.data || []).map((b: any) => b.id));
+          const existingBfVIds = new Set((cBfVRes.data || []).map((v: any) => v.id));
+
+          for (const lw of legacy.workspaces) {
+            const isBf =
+              legacy.workspaceTypes[lw.id] === 'batchflow' ||
+              lw.type === 'batchflow' ||
+              legacy.bfClients.some(c => c.workspace_id === lw.id) ||
+              legacy.bfBatches.some(b => b.workspace_id === lw.id);
+            const targetType: WorkspaceType = isBf ? 'batchflow' : (lw.type || 'freelance');
+            if (!existingWsMap.has(lw.id)) {
+              await upsertWorkspaceToCloud({ ...lw, type: targetType }, user.id);
+            } else if (targetType === 'batchflow' && existingWsMap.get(lw.id) !== 'batchflow') {
+              await supabase.from('workspaces').update({ type: 'batchflow' }).eq('id', lw.id);
+            }
+          }
+
+          for (const lc of legacy.bfClients) {
+            if (!existingBfCIds.has(lc.id)) {
+              await supabase.from('batchflow_clients').upsert(packClientForSupabase(lc, user.id), { onConflict: 'id' });
+            }
+          }
+          for (const lb of legacy.bfBatches) {
+            if (!existingBfBIds.has(lb.id)) {
+              await supabase.from('batchflow_batches').upsert(packBatchForSupabase(lb, user.id), { onConflict: 'id' });
+            }
+          }
+          for (const lv of legacy.bfVideos) {
+            if (!existingBfVIds.has(lv.id)) {
+              await supabase.from('batchflow_videos').upsert(packVideoForSupabase(lv, user.id), { onConflict: 'id' });
+            }
+          }
+        } catch (err) {
+          console.warn('Legacy BatchFlow check warning:', err);
+        }
+      }
+
+      // 1. Fetch workspaces from Supabase Cloud
       let { data: cloudWs, error: wsErr } = await supabase.from('workspaces').select('*');
       if (wsErr) {
         const msg = String(wsErr.message || '').toLowerCase();
@@ -286,357 +340,105 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       if (wsErr) {
         console.error('Error loading cloud workspaces:', wsErr);
-        loadLocalCache(wsId);
         return;
       }
 
-      let activeWsList = (cloudWs as Workspace[]) || [];
+      // 2. Fetch cloud settings & BatchFlow workspace indicators in parallel
+      const [settingsRes, bfWsCRes, bfWsBRes] = await Promise.all([
+        supabase.from('settings').select('*').eq('user_id', user.id).maybeSingle(),
+        supabase.from('batchflow_clients').select('workspace_id'),
+        supabase.from('batchflow_batches').select('workspace_id'),
+      ]);
 
-      // Preserve local workspace metadata (such as type) and local-only workspaces
-      const localWorkspaces = storage.getWorkspaces();
-      const localWsMap = new Map(localWorkspaces.map(w => [w.id, w]));
-      const cloudIds = new Set(activeWsList.map(w => w.id));
+      const bfWorkspaceIds = new Set<string>([
+        ...((bfWsCRes.data as any[]) || []).map(r => r.workspace_id),
+        ...((bfWsBRes.data as any[]) || []).map(r => r.workspace_id),
+      ]);
 
-      activeWsList = activeWsList.map(w => {
-        const local = localWsMap.get(w.id);
-        const explicitType = storage.getWorkspaceType(w.id);
+      let activeWsList = ((cloudWs as Workspace[]) || []).map(w => {
+        const memType = storage.getWorkspaceType(w.id);
         const isNamedBatchflow = Boolean(
           w.name?.toLowerCase().includes('batchflow') ||
           w.name?.toLowerCase().includes('batch flow')
         );
-        const hasBfData = storage.getBatchflowBatches().some(b => b.workspace_id === w.id) ||
-                          storage.getBatchflowVideos().some(v => v.workspace_id === w.id);
-
         const resolvedType: WorkspaceType =
-          explicitType
-          || (w.type === 'batchflow' ? 'batchflow' : undefined)
-          || (local?.type === 'batchflow' ? 'batchflow' : undefined)
-          || (isNamedBatchflow ? 'batchflow' : undefined)
-          || (hasBfData ? 'batchflow' : undefined)
-          || w.type
-          || local?.type
-          || 'freelance';
+          memType ||
+          (w.type === 'batchflow' ? 'batchflow' : undefined) ||
+          (bfWorkspaceIds.has(w.id) ? 'batchflow' : undefined) ||
+          (isNamedBatchflow ? 'batchflow' : undefined) ||
+          w.type ||
+          'freelance';
 
         storage.setWorkspaceType(w.id, resolvedType);
-
+        if (resolvedType === 'batchflow' && w.type !== 'batchflow') {
+          supabase.from('workspaces').update({ type: 'batchflow' }).eq('id', w.id).then(() => {});
+        }
         return {
           ...w,
           type: resolvedType,
         };
       });
 
-      // Keep any locally created workspace not yet present in the cloud & sync it up
-      const unsyncedLocalWorkspaces: Workspace[] = [];
-      for (const loc of localWorkspaces) {
-        if (!cloudIds.has(loc.id)) {
-          const explicitType = storage.getWorkspaceType(loc.id);
-          const resolvedType = explicitType || loc.type || 'freelance';
-          storage.setWorkspaceType(loc.id, resolvedType);
-          const wsObj = { ...loc, type: resolvedType, user_id: user?.id || loc.user_id };
-          activeWsList.push(wsObj);
-          unsyncedLocalWorkspaces.push(wsObj);
-        }
-      }
-
-      if (unsyncedLocalWorkspaces.length > 0) {
-        for (const uws of unsyncedLocalWorkspaces) {
-          try {
-            await upsertWorkspaceToCloud(uws, user?.id);
-          } catch {}
-        }
-      }
-
-      // Initial auto-migration: if user logged in and cloud is empty, migrate local data
-      if ((cloudWs as Workspace[] || []).length === 0 && localWorkspaces.length > 0) {
-        const localClients = storage.getClients().map(c => ({ ...c, user_id: user?.id }));
-        const localTasks = storage.getTasks().map(t => ({ ...t, user_id: user?.id }));
-        const localPayments = storage.getPayments().map(p => ({ ...p, user_id: user?.id }));
-        const localRates = storage.getSalaryRates().map(r => ({ ...r, user_id: user?.id }));
-        const localDiscounts = storage.getDiscounts().map(d => ({ ...d, user_id: user?.id }));
-
-        if (localClients.length) await supabase.from('clients').upsert(localClients, { onConflict: 'id' });
-        if (localTasks.length) await supabase.from('tasks').upsert(localTasks, { onConflict: 'id' });
-        if (localPayments.length) await supabase.from('payments').upsert(localPayments, { onConflict: 'id' });
-        if (localRates.length) await supabase.from('salary_rates').upsert(localRates, { onConflict: 'id' });
-        if (localDiscounts.length) await supabase.from('discounts').upsert(localDiscounts, { onConflict: 'id' });
-      }
-
       setWorkspaces(activeWsList);
       storage.setWorkspaces(activeWsList);
 
-      const targetId = wsId ?? storage.getActiveWorkspaceId() ?? settings.active_workspace_id ?? activeWsList[0]?.id ?? null;
+      // 3. Apply cloud settings
+      let resolvedSettings = storage.getSettings();
+      if (settingsRes.data) {
+        resolvedSettings = unpackSettingsFromSupabase(settingsRes.data, resolvedSettings);
+        storage.setSettings(resolvedSettings);
+        setSettings(resolvedSettings);
+        if (resolvedSettings.meta_app_id && resolvedSettings.meta_client_token) {
+          localStorage.setItem('trackrr_meta_access_token', `${resolvedSettings.meta_app_id.trim()}|${resolvedSettings.meta_client_token.trim()}`);
+        }
+        if (resolvedSettings.meta_user_token) {
+          localStorage.setItem('trackrr_meta_user_token', resolvedSettings.meta_user_token.trim());
+        }
+        if (resolvedSettings.meta_ig_user_id) {
+          localStorage.setItem('trackrr_meta_ig_user_id', resolvedSettings.meta_ig_user_id.trim());
+        }
+      }
+
+      const targetId = wsId ?? storage.getActiveWorkspaceId() ?? resolvedSettings.active_workspace_id ?? activeWsList[0]?.id ?? null;
       const active = activeWsList.find(w => w.id === targetId) ?? activeWsList[0] ?? null;
       setActiveWorkspace(active);
       if (active) {
         storage.setActiveWorkspaceId(active.id);
       }
 
-      // Sync cloud settings including Meta API tokens
-      try {
-        if (user?.id) {
-          const { data: cloudSettings } = await supabase
-            .from('settings')
-            .select('*')
-            .eq('user_id', user.id)
-            .maybeSingle();
-          if (cloudSettings) {
-            const currSettings = storage.getSettings();
-            const mergedSettings: AppSettings = {
-              ...currSettings,
-              currency: cloudSettings.currency || currSettings.currency,
-              theme_color: cloudSettings.theme_color || currSettings.theme_color,
-              theme_style: cloudSettings.theme_style || currSettings.theme_style,
-              show_completed: cloudSettings.show_completed !== undefined ? cloudSettings.show_completed : currSettings.show_completed,
-              active_workspace_id: cloudSettings.active_workspace_id || currSettings.active_workspace_id,
-              meta_app_id: cloudSettings.meta_app_id || currSettings.meta_app_id,
-              meta_client_token: cloudSettings.meta_client_token || currSettings.meta_client_token,
-              meta_user_token: cloudSettings.meta_user_token || currSettings.meta_user_token,
-              meta_ig_user_id: cloudSettings.meta_ig_user_id || currSettings.meta_ig_user_id,
-            };
-            storage.setSettings(mergedSettings);
-            setSettings(mergedSettings);
-            if (mergedSettings.meta_app_id && mergedSettings.meta_client_token) {
-              localStorage.setItem('trackrr_meta_access_token', `${mergedSettings.meta_app_id.trim()}|${mergedSettings.meta_client_token.trim()}`);
-            }
-            if (mergedSettings.meta_user_token) {
-              localStorage.setItem('trackrr_meta_user_token', mergedSettings.meta_user_token.trim());
-            }
-            if (mergedSettings.meta_ig_user_id) {
-              localStorage.setItem('trackrr_meta_ig_user_id', mergedSettings.meta_ig_user_id.trim());
-            }
-          }
-        }
-      } catch (err) {
-        console.warn('Could not sync cloud settings on startup:', err);
-      }
-
       if (active) {
-        // Fetch workspace members
-        const { data: members } = await supabase
-          .from('workspace_members')
-          .select('*')
-          .eq('workspace_id', active.id);
-        setWorkspaceMembers((members as WorkspaceMember[]) || []);
-
-        // Fetch sent pending invites for active workspace
-        const { data: wsInvites } = await supabase
-          .from('workspace_invites')
-          .select('*')
-          .eq('workspace_id', active.id)
-          .eq('status', 'pending');
-        setWorkspaceInvites((wsInvites as WorkspaceInvite[]) || []);
+        // Fetch workspace members & invites
+        const [membersRes, wsInvitesRes] = await Promise.all([
+          supabase.from('workspace_members').select('*').eq('workspace_id', active.id),
+          supabase.from('workspace_invites').select('*').eq('workspace_id', active.id).eq('status', 'pending'),
+        ]);
+        setWorkspaceMembers((membersRes.data as WorkspaceMember[]) || []);
+        setWorkspaceInvites((wsInvitesRes.data as WorkspaceInvite[]) || []);
 
         if (active.type === 'batchflow') {
-          try {
-            const [bfCRes, bfBRes, bfVRes] = await Promise.all([
-              supabase.from('batchflow_clients').select('*').eq('workspace_id', active.id).order('name', { ascending: true }),
-              supabase.from('batchflow_batches').select('*').eq('workspace_id', active.id).order('shoot_date', { ascending: false }),
-              supabase.from('batchflow_videos').select('*').eq('workspace_id', active.id).order('script_number', { ascending: true }),
-            ]);
+          const [bfCRes, bfBRes, bfVRes] = await Promise.all([
+            supabase.from('batchflow_clients').select('*').eq('workspace_id', active.id).order('name', { ascending: true }),
+            supabase.from('batchflow_batches').select('*').eq('workspace_id', active.id).order('shoot_date', { ascending: false }),
+            supabase.from('batchflow_videos').select('*').eq('workspace_id', active.id).order('script_number', { ascending: true }),
+          ]);
 
-            const hasTableError = Boolean(bfCRes.error || bfBRes.error || bfVRes.error);
-            if (hasTableError) {
-              // Tables do not exist in cloud yet or network error - DO NOT overwrite with empty array!
-              // Fall back to offline localStorage cache
-              const bfC = storage.getBatchflowClients().filter(c => c.workspace_id === active.id);
-              const bfB = storage.getBatchflowBatches().filter(b => b.workspace_id === active.id);
-              const bfV = storage.getBatchflowVideos().filter(v => v.workspace_id === active.id);
-              setBatchflowClients(bfC);
-              setBatchflowBatches(bfB);
-              setBatchflowVideos(bfV);
-            } else {
-              const bfC = (bfCRes.data as BatchflowClient[]) || [];
-              const bfB = (bfBRes.data as BatchflowBatch[]) || [];
-              const rawBfV = (bfVRes.data as any[]) || [];
-              const bfV = rawBfV.map(unpackVideoFromSupabase);
+          if (!bfCRes.error && !bfBRes.error && !bfVRes.error) {
+            const bfC = (bfCRes.data as BatchflowClient[]) || [];
+            const bfB = (bfBRes.data as BatchflowBatch[]) || [];
+            const rawBfV = (bfVRes.data as any[]) || [];
+            const bfV = rawBfV.map(unpackVideoFromSupabase);
 
-              // Merge local items that are not in cloud yet
-              const localC = storage.getBatchflowClients().filter(c => c.workspace_id === active.id);
-              const localB = storage.getBatchflowBatches().filter(b => b.workspace_id === active.id);
-              const localV = storage.getBatchflowVideos().filter(v => v.workspace_id === active.id);
-
-              const cloudCIds = new Set(bfC.map(c => c.id));
-              const cloudBIds = new Set(bfB.map(b => b.id));
-              const cloudVIds = new Set(bfV.map(v => v.id));
-
-              // Deep merge items using timestamps to ensure local edits are never overwritten by stale cloud data
-              const mergedC = [
-                ...bfC.map(cc => {
-                  const lc = localC.find(l => l.id === cc.id);
-                  if (!lc) return cc;
-                  const isLocalNewer = !cc.updated_at || (lc.updated_at && new Date(lc.updated_at).getTime() >= new Date(cc.updated_at).getTime());
-                  return {
-                    ...cc,
-                    ...lc,
-                    id: cc.id,
-                    workspace_id: cc.workspace_id || lc.workspace_id || active.id,
-                    name: isLocalNewer ? (lc.name || cc.name) : (cc.name || lc.name),
-                    color: lc.color || cc.color || '#818CF8',
-                    instagram_id: (lc.instagram_id !== undefined && lc.instagram_id !== null && lc.instagram_id !== '')
-                      ? lc.instagram_id
-                      : (cc.instagram_id || ''),
-                    updated_at: lc.updated_at || cc.updated_at || lc.created_at || cc.created_at,
-                  };
-                }),
-                ...localC.filter(c => !cloudCIds.has(c.id)),
-              ];
-
-              const mergedB = [
-                ...bfB.map(cb => {
-                  const lb = localB.find(l => l.id === cb.id);
-                  if (!lb) return cb;
-                  const isLocalNewer = !cb.updated_at || (lb.updated_at && new Date(lb.updated_at).getTime() >= new Date(cb.updated_at).getTime());
-                  return {
-                    ...cb,
-                    ...lb,
-                    id: cb.id,
-                    workspace_id: cb.workspace_id || lb.workspace_id || active.id,
-                    name: isLocalNewer ? (lb.name || cb.name) : (cb.name || lb.name),
-                    shoot_date: isLocalNewer ? (lb.shoot_date || cb.shoot_date) : (cb.shoot_date || lb.shoot_date),
-                    script: (lb.script !== undefined && lb.script !== null && lb.script !== '')
-                      ? lb.script
-                      : (cb.script || ''),
-                    updated_at: lb.updated_at || cb.updated_at || lb.created_at || cb.created_at,
-                  };
-                }),
-                ...localB.filter(b => !cloudBIds.has(b.id)),
-              ];
-
-              const mergedV = [
-                ...bfV.map(cv => {
-                  const lv = localV.find(l => l.id === cv.id);
-                  if (!lv) return cv;
-
-                  // Check timestamps to determine if local version has newer edits
-                  const isLocalNewer = !cv.updated_at || (lv.updated_at && new Date(lv.updated_at).getTime() >= new Date(cv.updated_at).getTime());
-
-                  const resolvedStatus = isLocalNewer ? (lv.status || cv.status) : (cv.status || lv.status);
-                  const resolvedUrl = isLocalNewer
-                    ? ((lv.video_url !== undefined && lv.video_url !== null && lv.video_url !== '') ? lv.video_url : (cv.video_url || null))
-                    : ((cv.video_url !== undefined && cv.video_url !== null && cv.video_url !== '') ? cv.video_url : (lv.video_url || null));
-                  const resolvedViews = isLocalNewer
-                    ? ((lv.views !== undefined && lv.views !== null && String(lv.views).trim() !== '') ? lv.views : (cv.views || null))
-                    : ((cv.views !== undefined && cv.views !== null && String(cv.views).trim() !== '') ? cv.views : (lv.views || null));
-                  const resolvedLikes = isLocalNewer
-                    ? ((lv.likes !== undefined && lv.likes !== null && String(lv.likes).trim() !== '') ? lv.likes : (cv.likes || null))
-                    : ((cv.likes !== undefined && cv.likes !== null && String(cv.likes).trim() !== '') ? cv.likes : (lv.likes || null));
-                  const resolvedDesc = isLocalNewer
-                    ? ((lv.description !== undefined && lv.description !== null && lv.description !== '') ? lv.description : (cv.description || null))
-                    : ((cv.description !== undefined && cv.description !== null && cv.description !== '') ? cv.description : (lv.description || null));
-                  const resolvedPostedDate = isLocalNewer
-                    ? (lv.posted_date !== undefined ? lv.posted_date : cv.posted_date)
-                    : (cv.posted_date || lv.posted_date || null);
-                  const resolvedEditedDate = isLocalNewer
-                    ? (lv.edited_date !== undefined ? lv.edited_date : cv.edited_date)
-                    : (cv.edited_date || lv.edited_date || null);
-                  const resolvedWaitingDate = isLocalNewer
-                    ? (lv.waiting_date !== undefined ? lv.waiting_date : cv.waiting_date)
-                    : (cv.waiting_date || lv.waiting_date || null);
-
-                  return {
-                    ...cv,
-                    ...lv,
-                    id: cv.id,
-                    workspace_id: cv.workspace_id || lv.workspace_id || active.id,
-                    batch_id: cv.batch_id || lv.batch_id,
-                    name: isLocalNewer ? (lv.name || cv.name) : (cv.name || lv.name),
-                    script_number: (lv.script_number !== undefined && lv.script_number !== null)
-                      ? lv.script_number
-                      : ((cv.script_number !== undefined && cv.script_number !== null) ? cv.script_number : 1),
-                    status: resolvedStatus,
-                    video_url: resolvedUrl,
-                    views: resolvedViews,
-                    likes: resolvedLikes,
-                    description: resolvedDesc,
-                    posted_date: resolvedPostedDate,
-                    edited_date: resolvedEditedDate,
-                    waiting_date: resolvedWaitingDate ? String(resolvedWaitingDate).split('||META:')[0] : null,
-                    updated_at: lv.updated_at || cv.updated_at || lv.created_at || cv.created_at,
-                  };
-                }),
-                ...localV.filter(v => !cloudVIds.has(v.id)),
-              ];
-
-              setBatchflowClients(mergedC);
-              setBatchflowBatches(mergedB);
-              setBatchflowVideos(mergedV);
-
-              // Update storage keeping other workspaces' data intact
-              const otherC = storage.getBatchflowClients().filter(c => c.workspace_id !== active.id);
-              const otherB = storage.getBatchflowBatches().filter(b => b.workspace_id !== active.id);
-              const otherV = storage.getBatchflowVideos().filter(v => v.workspace_id !== active.id);
-
-              storage.setBatchflowClients([...otherC, ...mergedC]);
-              storage.setBatchflowBatches([...otherB, ...mergedB]);
-              storage.setBatchflowVideos([...otherV, ...mergedV]);
-
-              // Sync any unsynced local clients, batches, and videos back to Supabase
-              const clientsNeedingSync = mergedC.filter(c => {
-                const cc = bfC.find(x => x.id === c.id);
-                if (!cc) return true;
-                return c.name !== cc.name || c.color !== cc.color || (c.instagram_id || '') !== (cc.instagram_id || '') || (c.archived ?? 0) !== (cc.archived ?? 0);
-              });
-
-              const batchesNeedingSync = mergedB.filter(b => {
-                const cb = bfB.find(x => x.id === b.id);
-                if (!cb) return true;
-                return b.name !== cb.name || b.shoot_date !== cb.shoot_date || (b.script || '') !== (cb.script || '') || (b.archived ?? 0) !== (cb.archived ?? 0);
-              });
-
-              const videosNeedingSync = mergedV.filter(v => {
-                const cv = bfV.find(c => c.id === v.id);
-                const rawRow = rawBfV.find(r => r.id === v.id);
-                if (!cv || !rawRow) return true;
-                const hasMetaPacked = typeof rawRow.waiting_date === 'string' && rawRow.waiting_date.includes('||META:');
-                const hasExtraFields = Boolean(v.video_url || v.views || v.likes || v.description);
-                return (
-                  (hasExtraFields && !hasMetaPacked) ||
-                  v.status !== cv.status ||
-                  (v.video_url || null) !== (cv.video_url || null) ||
-                  (v.views || null) !== (cv.views || null) ||
-                  (v.likes || null) !== (cv.likes || null) ||
-                  (v.description || null) !== (cv.description || null) ||
-                  v.script_number !== cv.script_number ||
-                  v.name !== cv.name ||
-                  (v.posted_date || null) !== (cv.posted_date || null) ||
-                  (v.edited_date || null) !== (cv.edited_date || null)
-                );
-              });
-
-              if (clientsNeedingSync.length > 0 || batchesNeedingSync.length > 0 || videosNeedingSync.length > 0) {
-                (async () => {
-                  try {
-                    await upsertWorkspaceToCloud(active, user?.id);
-                  } catch {}
-                  for (const sc of clientsNeedingSync) {
-                    try {
-                      await supabase.from('batchflow_clients').upsert(packClientForSupabase(sc, user?.id), { onConflict: 'id' });
-                    } catch {}
-                  }
-                  for (const sb of batchesNeedingSync) {
-                    try {
-                      await supabase.from('batchflow_batches').upsert(packBatchForSupabase(sb, user?.id), { onConflict: 'id' });
-                    } catch {}
-                  }
-                  for (const sv of videosNeedingSync) {
-                    try {
-                      await supabase.from('batchflow_videos').upsert(packVideoForSupabase(sv, user?.id), { onConflict: 'id' });
-                    } catch {}
-                  }
-                })();
-              }
-            }
-          } catch (err) {
-            console.warn('BatchFlow sync failed, loading from local cache:', err);
-            const bfC = storage.getBatchflowClients().filter(c => c.workspace_id === active.id);
-            const bfB = storage.getBatchflowBatches().filter(b => b.workspace_id === active.id);
-            const bfV = storage.getBatchflowVideos().map(unpackVideoFromSupabase).filter(v => v.workspace_id === active.id);
             setBatchflowClients(bfC);
             setBatchflowBatches(bfB);
             setBatchflowVideos(bfV);
+
+            storage.setBatchflowClients(bfC);
+            storage.setBatchflowBatches(bfB);
+            storage.setBatchflowVideos(bfV);
+          } else {
+            console.error('Error loading BatchFlow data from Supabase:', bfCRes.error || bfBRes.error || bfVRes.error);
           }
         } else {
-          // Fetch freelance workspace data in parallel
           const [cRes, tRes, pRes, rRes, dRes] = await Promise.all([
             supabase.from('clients').select('*').eq('workspace_id', active.id),
             supabase.from('tasks').select('*').eq('workspace_id', active.id).order('order_index', { ascending: true }),
@@ -645,83 +447,26 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             supabase.from('discounts').select('*').eq('workspace_id', active.id).order('date', { ascending: false }),
           ]);
 
-          const hasTableError = Boolean(cRes.error || tRes.error || pRes.error || rRes.error || dRes.error);
-          if (hasTableError) {
-            console.warn('Freelance sync had table/network errors, falling back to local cache');
-            const localC = storage.getClients().filter(c => c.workspace_id === active.id);
-            const localT = storage.getTasks().filter(t => t.workspace_id === active.id);
-            const localP = storage.getPayments().filter(p => p.workspace_id === active.id);
-            const localR = storage.getSalaryRates().filter(r => r.workspace_id === active.id);
-            const localD = storage.getDiscounts().filter(d => d.workspace_id === active.id);
-            setClients(localC);
-            setTasks(localT);
-            setPayments(localP);
-            setSalaryRates(localR);
-            setDiscounts(localD);
-          } else {
+          if (!cRes.error && !tRes.error && !pRes.error && !rRes.error && !dRes.error) {
             const cl = (cRes.data as Client[]) || [];
             const tk = (tRes.data as Task[]) || [];
             const pm = (pRes.data as Payment[]) || [];
             const sr = (rRes.data as SalaryRate[]) || [];
             const ds = (dRes.data as Discount[]) || [];
 
-            // Merge local items not in cloud yet
-            const localC = storage.getClients().filter(c => c.workspace_id === active.id);
-            const localT = storage.getTasks().filter(t => t.workspace_id === active.id);
-            const localP = storage.getPayments().filter(p => p.workspace_id === active.id);
-            const localR = storage.getSalaryRates().filter(r => r.workspace_id === active.id);
-            const localD = storage.getDiscounts().filter(d => d.workspace_id === active.id);
+            setClients(cl);
+            setTasks(tk);
+            setPayments(pm);
+            setSalaryRates(sr);
+            setDiscounts(ds);
 
-            const cloudCIds = new Set(cl.map(c => c.id));
-            const cloudTIds = new Set(tk.map(t => t.id));
-            const cloudPIds = new Set(pm.map(p => p.id));
-            const cloudRIds = new Set(sr.map(r => r.id));
-            const cloudDIds = new Set(ds.map(d => d.id));
-
-            const unsyncedC = localC.filter(c => !cloudCIds.has(c.id));
-            const unsyncedT = localT.filter(t => !cloudTIds.has(t.id));
-            const unsyncedP = localP.filter(p => !cloudPIds.has(p.id));
-            const unsyncedR = localR.filter(r => !cloudRIds.has(r.id));
-            const unsyncedD = localD.filter(d => !cloudDIds.has(d.id));
-
-            const mergedC = [...cl, ...unsyncedC];
-            const mergedT = [...tk, ...unsyncedT];
-            const mergedP = [...pm, ...unsyncedP];
-            const mergedR = [...sr, ...unsyncedR];
-            const mergedD = [...ds, ...unsyncedD];
-
-            setClients(mergedC);
-            setTasks(mergedT);
-            setPayments(mergedP);
-            setSalaryRates(mergedR);
-            setDiscounts(mergedD);
-
-            // Update storage keeping other workspaces' data intact
-            const otherC = storage.getClients().filter(c => c.workspace_id !== active.id);
-            const otherT = storage.getTasks().filter(t => t.workspace_id !== active.id);
-            const otherP = storage.getPayments().filter(p => p.workspace_id !== active.id);
-            const otherR = storage.getSalaryRates().filter(r => r.workspace_id !== active.id);
-            const otherD = storage.getDiscounts().filter(d => d.workspace_id !== active.id);
-
-            storage.setClients([...otherC, ...mergedC]);
-            storage.setTasks([...otherT, ...mergedT]);
-            storage.setPayments([...otherP, ...mergedP]);
-            storage.setSalaryRates([...otherR, ...mergedR]);
-            storage.setDiscounts([...otherD, ...mergedD]);
-
-            // Sync any local-only Freelance records up to Supabase
-            if (unsyncedC.length || unsyncedT.length || unsyncedP.length || unsyncedR.length || unsyncedD.length) {
-              (async () => {
-                try {
-                  await upsertWorkspaceToCloud(active, user?.id);
-                  if (unsyncedC.length) await supabase.from('clients').upsert(unsyncedC.map(c => ({ ...c, user_id: user?.id || (c as any).user_id })), { onConflict: 'id' });
-                  if (unsyncedT.length) await supabase.from('tasks').upsert(unsyncedT.map(t => ({ ...t, user_id: user?.id || (t as any).user_id })), { onConflict: 'id' });
-                  if (unsyncedP.length) await supabase.from('payments').upsert(unsyncedP.map(p => ({ ...p, user_id: user?.id || (p as any).user_id })), { onConflict: 'id' });
-                  if (unsyncedR.length) await supabase.from('salary_rates').upsert(unsyncedR.map(r => ({ ...r, user_id: user?.id || (r as any).user_id })), { onConflict: 'id' });
-                  if (unsyncedD.length) await supabase.from('discounts').upsert(unsyncedD.map(d => ({ ...d, user_id: user?.id || (d as any).user_id })), { onConflict: 'id' });
-                } catch {}
-              })();
-            }
+            storage.setClients(cl);
+            storage.setTasks(tk);
+            storage.setPayments(pm);
+            storage.setSalaryRates(sr);
+            storage.setDiscounts(ds);
+          } else {
+            console.error('Error loading Freelance data from Supabase:', cRes.error || tRes.error || pRes.error || rRes.error || dRes.error);
           }
         }
       } else {
@@ -748,13 +493,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     } catch (err) {
       console.error('Failed to sync with Supabase:', err);
-      loadLocalCache(wsId);
     }
-  }, [isCloudActive, isOnline, user, settings.active_workspace_id, loadLocalCache]);
+  }, [isCloudActive, isOnline, user]);
 
   const hasInitializedRef = useRef(false);
 
-  // Initial load on mount or user/auth change
+  // Initial load on mount or user/auth change (100% Cloud-Only)
   useEffect(() => {
     (async () => {
       if (!hasInitializedRef.current) {
@@ -762,7 +506,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
       try {
         if (!user) {
-          // If no user is logged in: wipe all memory state and do NOT load or initialize storage
+          storage.clearAllUserData();
           setWorkspaces([]);
           setActiveWorkspace(null);
           setClients([]);
@@ -779,15 +523,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
           return;
         }
 
-        storage.initStorage(true);
-        loadLocalCache();
         await fetchAll();
       } finally {
         hasInitializedRef.current = true;
         setLoading(false);
       }
     })();
-  }, [user?.id, fetchAll, loadLocalCache]);
+  }, [user?.id, fetchAll]);
 
   // Workspace Switch
   const switchWorkspace = useCallback(async (id: string) => {
@@ -1253,7 +995,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     storage.setSettings(updated);
     setSettings(updated);
 
-    // Keep localStorage Meta credentials in sync immediately for videoMetadata utilities
+    // Keep in-memory Meta credentials in sync immediately for videoMetadata utilities
     if (updated.meta_app_id && updated.meta_client_token) {
       try { localStorage.setItem('trackrr_meta_access_token', `${updated.meta_app_id.trim()}|${updated.meta_client_token.trim()}`); } catch {}
     } else if (data.meta_app_id === '' || data.meta_client_token === '') {
@@ -1274,28 +1016,10 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     if (isCloudActive && isOnline && user) {
       try {
-        const payload: any = {
-          user_id: user.id,
-          currency: updated.currency,
-          theme_color: updated.theme_color,
-          theme_style: updated.theme_style,
-          show_completed: updated.show_completed,
-          active_workspace_id: updated.active_workspace_id,
-          meta_app_id: updated.meta_app_id || null,
-          meta_client_token: updated.meta_client_token || null,
-          meta_user_token: updated.meta_user_token || null,
-          meta_ig_user_id: updated.meta_ig_user_id || null,
-          updated_at: new Date().toISOString(),
-        };
-        const { error } = await supabase.from('settings').upsert(payload, { onConflict: 'user_id' });
+        const packed = packSettingsForSupabase(updated, user.id);
+        const { error } = await supabase.from('settings').upsert(packed, { onConflict: 'user_id' });
         if (error) {
-          // If theme_style or other column does not exist in legacy cloud table, retry without it
-          if (isSchemaColumnError(error)) {
-            const { theme_style: _ts, meta_app_id: _ma, meta_client_token: _mc, meta_user_token: _mu, meta_ig_user_id: _mi, ...payloadBase } = payload;
-            await supabase.from('settings').upsert(payloadBase, { onConflict: 'user_id' });
-          } else {
-            console.warn('Could not sync settings to cloud:', error);
-          }
+          console.warn('Could not sync settings to cloud:', error);
         }
       } catch (err) {
         console.warn('Network error syncing settings:', err);
@@ -1655,7 +1379,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       }
       if (error) {
-        console.warn('Could not update batchflow_videos in cloud (saved locally):', error);
+        console.error('Could not update batchflow_videos in cloud:', error);
+        throw new Error(error.message || 'Failed to save to database');
       }
     }
   }, [assertCanEdit, isCloudActive, user, activeWorkspace, batchflowVideos, batchflowBatches, batchflowClients]);
@@ -1699,7 +1424,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       }
     }
 
-    // 1. Immediately save locally & update UI first (guarantees zero data loss on immediate refresh)
+    // 1. Update in-memory state
     const all = storage.getBatchflowVideos();
     const existing = all.find(v => v.id === id) || batchflowVideos.find(v => v.id === id);
     const mergedVideo: BatchflowVideo | undefined = existing ? { ...existing, ...updates } : undefined;
@@ -1746,7 +1471,8 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         }
       }
       if (error) {
-        console.warn('Could not update status in batchflow_videos (saved locally):', error);
+        console.error('Could not update status in batchflow_videos:', error);
+        throw new Error(error.message || 'Failed to save to database');
       }
     }
   }, [assertCanEdit, isCloudActive, user, activeWorkspace, batchflowVideos, batchflowBatches, batchflowClients]);

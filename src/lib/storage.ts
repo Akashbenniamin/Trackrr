@@ -37,57 +37,131 @@ export const defaultSettings: AppSettings = {
   show_completed: true,
 };
 
-export function evictThumbnailCacheIfNeeded(forceAll = false): void {
-  try {
-    const thumbKeys: string[] = [];
-    for (let i = 0; i < localStorage.length; i++) {
-      const k = localStorage.key(i);
-      if (k && k.startsWith('trackrr_thumb_b64_')) {
-        if (forceAll) {
-          thumbKeys.push(k);
-        } else {
-          const val = localStorage.getItem(k);
-          if (val && val.length > 35000) {
-            thumbKeys.push(k);
-          }
-        }
-      }
-    }
-    for (const k of thumbKeys) {
-      localStorage.removeItem(k);
-    }
-  } catch {}
+export interface LegacyLocalSnapshot {
+  workspaces: Workspace[];
+  workspaceTypes: Record<string, WorkspaceType>;
+  bfClients: BatchflowClient[];
+  bfBatches: BatchflowBatch[];
+  bfVideos: BatchflowVideo[];
+  activeWorkspaceId: string | null;
 }
 
-// Immediately clean up any oversized base64 thumbnails clogging localStorage quota on startup
-if (typeof window !== 'undefined') {
-  evictThumbnailCacheIfNeeded(false);
+// Ephemeral in-memory stores (RAM only - ZERO browser localStorage persistence for app data)
+const inMemoryDataStore = new Map<string, any>();
+const inMemoryKvStore = new Map<string, string>();
+let legacySnapshot: LegacyLocalSnapshot | null = null;
+
+function isSupabaseAuthKey(key: string): boolean {
+  return key.startsWith('sb-') && key.endsWith('-auth-token');
+}
+
+// On startup: capture one-time snapshot of any unsynced BatchFlow items, then completely wipe
+// all app data/thumbnails from browser localStorage and block any future non-auth localStorage writes.
+if (typeof window !== 'undefined' && window.localStorage) {
+  try {
+    const rawLs = window.localStorage;
+    const nativeGetItem = Storage.prototype.getItem.bind(rawLs);
+    const nativeSetItem = Storage.prototype.setItem.bind(rawLs);
+    const nativeRemoveItem = Storage.prototype.removeItem.bind(rawLs);
+    const nativeKey = Storage.prototype.key.bind(rawLs);
+
+    const parseRaw = <T>(key: string, fallback: T): T => {
+      try {
+        const raw = nativeGetItem(key);
+        return raw ? (JSON.parse(raw) as T) : fallback;
+      } catch {
+        return fallback;
+      }
+    };
+
+    const legacyWs = parseRaw<Workspace[]>(STORAGE_KEYS.WORKSPACES, []);
+    const legacyTypes = parseRaw<Record<string, WorkspaceType>>(STORAGE_KEYS.WS_TYPES, {});
+    const legacyBfC = parseRaw<BatchflowClient[]>(STORAGE_KEYS.BF_CLIENTS, []);
+    const legacyBfB = parseRaw<BatchflowBatch[]>(STORAGE_KEYS.BF_BATCHES, []);
+    const legacyBfV = parseRaw<BatchflowVideo[]>(STORAGE_KEYS.BF_VIDEOS, []);
+    const legacyActiveWs = nativeGetItem(STORAGE_KEYS.ACTIVE_WS) || null;
+
+    if (
+      legacyWs.length > 0 ||
+      Object.keys(legacyTypes).length > 0 ||
+      legacyBfC.length > 0 ||
+      legacyBfB.length > 0 ||
+      legacyBfV.length > 0
+    ) {
+      legacySnapshot = {
+        workspaces: legacyWs,
+        workspaceTypes: legacyTypes,
+        bfClients: legacyBfC,
+        bfBatches: legacyBfB,
+        bfVideos: legacyBfV,
+        activeWorkspaceId: legacyActiveWs,
+      };
+    }
+
+    // Wipe EVERY key in browser localStorage except the Supabase auth session token
+    const keysToWipe: string[] = [];
+    for (let i = 0; i < rawLs.length; i++) {
+      const k = nativeKey(i);
+      if (k && !isSupabaseAuthKey(k)) {
+        keysToWipe.push(k);
+      }
+    }
+    for (const k of keysToWipe) {
+      try {
+        nativeRemoveItem(k);
+      } catch {}
+    }
+
+    // Intercept localStorage methods so ONLY Supabase auth token ever touches browser localStorage;
+    // all other keys (e.g. runtime session caches) stay strictly in RAM.
+    rawLs.getItem = (key: string): string | null => {
+      if (isSupabaseAuthKey(key)) {
+        return nativeGetItem(key);
+      }
+      return inMemoryKvStore.get(key) ?? null;
+    };
+
+    rawLs.setItem = (key: string, value: string): void => {
+      if (isSupabaseAuthKey(key)) {
+        nativeSetItem(key, String(value));
+        return;
+      }
+      inMemoryKvStore.set(key, String(value));
+    };
+
+    rawLs.removeItem = (key: string): void => {
+      if (isSupabaseAuthKey(key)) {
+        nativeRemoveItem(key);
+        return;
+      }
+      inMemoryKvStore.delete(key);
+    };
+  } catch (err) {
+    console.warn('Could not initialize cloud-only localStorage cleanup:', err);
+  }
+}
+
+export function consumeLegacyLocalSnapshot(): LegacyLocalSnapshot | null {
+  const snap = legacySnapshot;
+  legacySnapshot = null;
+  return snap;
+}
+
+export function getMemoryStorageKeys(): string[] {
+  return Array.from(inMemoryKvStore.keys());
+}
+
+export function evictThumbnailCacheIfNeeded(_forceAll = false): void {
+  // No-op in cloud-only mode (no thumbnails are ever stored in localStorage)
 }
 
 function getItem<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(key);
-    if (!raw) return fallback;
-    return JSON.parse(raw) as T;
-  } catch (err) {
-    console.error(`Error reading ${key} from localStorage:`, err);
-    return fallback;
-  }
+  if (!inMemoryDataStore.has(key)) return fallback;
+  return inMemoryDataStore.get(key) as T;
 }
 
 function setItem<T>(key: string, value: T): void {
-  const serialized = JSON.stringify(value);
-  try {
-    localStorage.setItem(key, serialized);
-  } catch (err) {
-    // Evict cached base64 thumbnails and retry saving critical app data
-    evictThumbnailCacheIfNeeded(true);
-    try {
-      localStorage.setItem(key, serialized);
-    } catch (retryErr) {
-      console.error(`Error saving ${key} to localStorage after cache eviction:`, retryErr);
-    }
-  }
+  inMemoryDataStore.set(key, value);
 }
 
 export const storage = {
@@ -122,20 +196,14 @@ export const storage = {
   setSettings: (data: AppSettings) => setItem(STORAGE_KEYS.SETTINGS, data),
 
   getActiveWorkspaceId: (): string | null => {
-    try {
-      return localStorage.getItem(STORAGE_KEYS.ACTIVE_WS) || storage.getSettings().active_workspace_id || null;
-    } catch {
-      return storage.getSettings().active_workspace_id || null;
-    }
+    return (inMemoryDataStore.get(STORAGE_KEYS.ACTIVE_WS) as string | null) || storage.getSettings().active_workspace_id || null;
   },
   setActiveWorkspaceId: (id: string | null) => {
-    try {
-      if (id) {
-        localStorage.setItem(STORAGE_KEYS.ACTIVE_WS, id);
-      } else {
-        localStorage.removeItem(STORAGE_KEYS.ACTIVE_WS);
-      }
-    } catch {}
+    if (id) {
+      inMemoryDataStore.set(STORAGE_KEYS.ACTIVE_WS, id);
+    } else {
+      inMemoryDataStore.delete(STORAGE_KEYS.ACTIVE_WS);
+    }
     const s = storage.getSettings();
     if (s.active_workspace_id !== id) {
       storage.setSettings({ ...s, active_workspace_id: id });
@@ -146,8 +214,7 @@ export const storage = {
     return getItem<Record<string, WorkspaceType>>(STORAGE_KEYS.WS_TYPES, {});
   },
   setWorkspaceType: (wsId: string, type: WorkspaceType) => {
-    const map = storage.getWorkspaceTypeMap();
-    map[wsId] = type;
+    const map = { ...storage.getWorkspaceTypeMap(), [wsId]: type };
     setItem(STORAGE_KEYS.WS_TYPES, map);
   },
   getWorkspaceType: (wsId: string): WorkspaceType | undefined => {
@@ -156,196 +223,11 @@ export const storage = {
   },
 
   clearAllUserData: () => {
-    try {
-      localStorage.removeItem(STORAGE_KEYS.WORKSPACES);
-      localStorage.removeItem(STORAGE_KEYS.CLIENTS);
-      localStorage.removeItem(STORAGE_KEYS.TASKS);
-      localStorage.removeItem(STORAGE_KEYS.PAYMENTS);
-      localStorage.removeItem(STORAGE_KEYS.SALARY_RATES);
-      localStorage.removeItem(STORAGE_KEYS.DISCOUNTS);
-      localStorage.removeItem(STORAGE_KEYS.BF_CLIENTS);
-      localStorage.removeItem(STORAGE_KEYS.BF_BATCHES);
-      localStorage.removeItem(STORAGE_KEYS.BF_VIDEOS);
-      localStorage.removeItem(STORAGE_KEYS.ACTIVE_WS);
-      localStorage.removeItem(STORAGE_KEYS.WS_TYPES);
-      localStorage.removeItem('trackrr_selected_batch_id');
-      localStorage.removeItem('trackrr_current_view');
-      localStorage.removeItem('trackrr_meta_access_token');
-      localStorage.removeItem('trackrr_meta_user_token');
-      localStorage.removeItem('trackrr_meta_ig_user_id');
-
-      // Remove cached thumbnails, captions, metrics, and shortcode keys
-      const keysToRemove: string[] = [];
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (k && (
-          k.startsWith('trackrr_thumb_') ||
-          k.startsWith('trackrr_meta_') ||
-          k.startsWith('trackrr_views_') ||
-          k.startsWith('trackrr_likes_') ||
-          k.startsWith('trackrr_caption_')
-        )) {
-          keysToRemove.push(k);
-        }
-      }
-      for (const k of keysToRemove) {
-        localStorage.removeItem(k);
-      }
-    } catch (err) {
-      console.error('Error clearing user data from localStorage:', err);
-    }
+    inMemoryDataStore.clear();
+    inMemoryKvStore.clear();
   },
 
-  initStorage: (isUserLoggedIn = false) => {
-    if (!isUserLoggedIn) return;
-    const existingWs = storage.getWorkspaces();
-    if (existingWs.length === 0) {
-      const defaultWsId = generateId();
-      const now = new Date().toISOString();
-      const defaultWs: Workspace = {
-        id: defaultWsId,
-        name: 'My Workspace',
-        color: '#818CF8',
-        type: 'freelance',
-        created_at: now,
-        updated_at: now,
-      };
-
-      const client1Id = generateId();
-      const client2Id = generateId();
-
-      const initialClients: Client[] = [
-        {
-          id: client1Id,
-          workspace_id: defaultWsId,
-          name: 'TechPulse Studio',
-          company: 'TechPulse Media',
-          email: 'contact@techpulse.io',
-          phone: '+1 555-0199',
-          color: '#818CF8',
-          payment_type: 'monthly',
-          monthly_salary: 1500,
-          notes: 'Regular tech reviews & YouTube shorts',
-          created_at: now,
-          updated_at: now,
-        },
-        {
-          id: client2Id,
-          workspace_id: defaultWsId,
-          name: 'Apex Gaming',
-          company: 'Apex Media',
-          email: 'editor@apexgaming.gg',
-          phone: '+1 555-0144',
-          color: '#34D399',
-          payment_type: 'per_video',
-          monthly_salary: 0,
-          notes: 'High energy esports highlight edits',
-          created_at: now,
-          updated_at: now,
-        },
-      ];
-
-      const currentYear = new Date().getFullYear();
-      const currentMonth = String(new Date().getMonth() + 1).padStart(2, '0');
-
-      const initialRates: SalaryRate[] = [
-        {
-          id: generateId(),
-          client_id: client1Id,
-          workspace_id: defaultWsId,
-          amount: 1500,
-          effective_from: `${currentYear}-01-01`,
-          created_at: now,
-        },
-      ];
-
-      const initialTasks: Task[] = [
-        {
-          id: generateId(),
-          workspace_id: defaultWsId,
-          client_id: client1Id,
-          title: 'YouTube Tech Review #45',
-          description: 'Long-form 4K review with motion graphics and color grading',
-          status: 'Completed',
-          videos: 1,
-          price: 0,
-          pricing_type: 'total',
-          received_date: `${currentYear}-${currentMonth}-02T10:00:00.000Z`,
-          completed_date: `${currentYear}-${currentMonth}-04T15:30:00.000Z`,
-          deadline: `${currentYear}-${currentMonth}-05T18:00:00.000Z`,
-          tags: ['YouTube', 'Longform'],
-          order_index: 0,
-          created_at: now,
-          updated_at: now,
-        },
-        {
-          id: generateId(),
-          workspace_id: defaultWsId,
-          client_id: client2Id,
-          title: 'Esports Tournament Highlights',
-          description: 'Fast paced cut with beat sync SFX and subtitles',
-          status: 'Completed',
-          videos: 2,
-          price: 150,
-          pricing_type: 'per_video',
-          received_date: `${currentYear}-${currentMonth}-05T09:00:00.000Z`,
-          completed_date: `${currentYear}-${currentMonth}-07T12:00:00.000Z`,
-          deadline: `${currentYear}-${currentMonth}-08T18:00:00.000Z`,
-          tags: ['Gaming', 'Highlights'],
-          order_index: 1,
-          created_at: now,
-          updated_at: now,
-        },
-        {
-          id: generateId(),
-          workspace_id: defaultWsId,
-          client_id: client1Id,
-          title: 'Batch Shorts (Tech Tips 1-3)',
-          description: 'Vertical 9:16 reels with viral captions and sound design',
-          status: 'Completed',
-          videos: 3,
-          price: 0,
-          pricing_type: 'total',
-          received_date: `${currentYear}-${currentMonth}-08T11:00:00.000Z`,
-          completed_date: `${currentYear}-${currentMonth}-09T16:00:00.000Z`,
-          deadline: `${currentYear}-${currentMonth}-15T18:00:00.000Z`,
-          tags: ['Shorts', 'Reels'],
-          order_index: 2,
-          created_at: now,
-          updated_at: now,
-        },
-      ];
-
-      const initialPayments: Payment[] = [
-        {
-          id: generateId(),
-          client_id: client2Id,
-          workspace_id: defaultWsId,
-          amount: 300,
-          method: 'Bank Transfer',
-          note: 'Payment for tournament highlights',
-          date: `${currentYear}-${currentMonth}-08T14:00:00.000Z`,
-          payment_for_months: [`${currentYear}-${currentMonth}`],
-          created_at: now,
-        },
-      ];
-
-      const initialSettings: AppSettings = {
-        id: 1,
-        active_workspace_id: defaultWsId,
-        currency: 'INR',
-        theme_color: '#818CF8',
-        theme_style: 'default',
-        show_completed: true,
-      };
-
-      storage.setWorkspaces([defaultWs]);
-      storage.setClients(initialClients);
-      storage.setSalaryRates(initialRates);
-      storage.setTasks(initialTasks);
-      storage.setPayments(initialPayments);
-      storage.setDiscounts([]);
-      storage.setSettings(initialSettings);
-    }
+  initStorage: (_isUserLoggedIn = false) => {
+    // Cloud-only mode: never seed fake local demo data
   },
 };
