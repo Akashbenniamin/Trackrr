@@ -1,7 +1,6 @@
 import React, { createContext, useContext, useEffect, useState } from 'react';
 import type { User, Session } from '@supabase/supabase-js';
-import { supabase, isSupabaseConfigured } from '../lib/supabase';
-import { storage } from '../lib/storage';
+import { supabase, isSupabaseConfigured, getJwtExp } from '../lib/supabase';
 
 interface AuthContextType {
   user: User | null;
@@ -28,10 +27,42 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
       return;
     }
 
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
+    // Get initial session and ensure token is valid/refreshed
+    supabase.auth.getSession().then(async ({ data: { session: currentSession }, error }) => {
+      if (error || !currentSession) {
+        setSession(null);
+        setUser(null);
+        setLoading(false);
+        return;
+      }
+
+      const exp = getJwtExp(currentSession.access_token);
+      const nowSec = Math.floor(Date.now() / 1000);
+      if (exp && exp < nowSec + 30) {
+        try {
+          const { data: refreshed, error: refreshErr } = await supabase.auth.refreshSession();
+          if (refreshErr || !refreshed.session) {
+            await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+            setSession(null);
+            setUser(null);
+            setLoading(false);
+            return;
+          }
+          setSession(refreshed.session);
+          setUser(refreshed.session.user ?? null);
+          setLoading(false);
+          return;
+        } catch {
+          await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+          setSession(null);
+          setUser(null);
+          setLoading(false);
+          return;
+        }
+      }
+
+      setSession(currentSession);
+      setUser(currentSession.user ?? null);
       setLoading(false);
     }).catch((err) => {
       console.error('Error fetching Supabase session:', err);
@@ -39,11 +70,11 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     });
 
     // Listen for auth state changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, session) => {
-      setSession(session);
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((_event, nextSession) => {
+      setSession(nextSession);
       setUser(prev => {
-        if (prev?.id === session?.user?.id) return prev;
-        return session?.user ?? null;
+        if (prev?.id === nextSession?.user?.id) return prev;
+        return nextSession?.user ?? null;
       });
       setLoading(false);
     });
@@ -96,7 +127,6 @@ export const AuthProvider: React.FC<{ children: React.ReactNode }> = ({ children
     } catch (err) {
       console.warn('Error during supabase signOut:', err);
     } finally {
-      storage.clearAllUserData();
       setUser(null);
       setSession(null);
     }

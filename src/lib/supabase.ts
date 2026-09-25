@@ -16,6 +16,20 @@ export const isSupabaseConfigured = (): boolean => {
   );
 };
 
+export function getJwtExp(token?: string | null): number | null {
+  if (!token) return null;
+  try {
+    const parts = token.split('.');
+    if (parts.length !== 3) return null;
+    const base64 = parts[1].replace(/-/g, '+').replace(/_/g, '/');
+    const padded = base64 + '='.repeat((4 - (base64.length % 4)) % 4);
+    const payload = JSON.parse(window.atob(padded));
+    return typeof payload?.exp === 'number' ? payload.exp : null;
+  } catch {
+    return null;
+  }
+}
+
 function safeStorageSetItem(key: string, val: string): void {
   try {
     window.localStorage.setItem(key, val);
@@ -42,21 +56,15 @@ const customAuthStorage = {
       const raw = window.localStorage.getItem(key);
       if (!raw) return null;
       const parsed = JSON.parse(raw);
-      if (parsed && typeof parsed === 'object' && parsed.access_token) {
-        const nowSec = Math.floor(Date.now() / 1000);
-        const expiresIn = typeof parsed.expires_in === 'number' && parsed.expires_in > 0 ? parsed.expires_in : 3600;
-        // If session was stored with server's clock (skewed > 24h from local PC clock) or missing _local_issued_at
-        if (
-          typeof parsed._local_issued_at !== 'number' ||
-          parsed._last_token !== parsed.access_token ||
-          Math.abs((parsed.expires_at || 0) - (parsed._local_issued_at + expiresIn)) > 300
-        ) {
-          parsed._local_issued_at = nowSec;
-          parsed._last_token = parsed.access_token;
-          parsed.expires_at = nowSec + expiresIn;
-          const updated = JSON.stringify(parsed);
-          safeStorageSetItem(key, updated);
-          return updated;
+      if (parsed && typeof parsed === 'object' && typeof parsed.access_token === 'string') {
+        const realExp = getJwtExp(parsed.access_token);
+        if (realExp && (parsed.expires_at !== realExp || '_local_issued_at' in parsed)) {
+          parsed.expires_at = realExp;
+          delete parsed._local_issued_at;
+          delete parsed._last_token;
+          const repaired = JSON.stringify(parsed);
+          safeStorageSetItem(key, repaired);
+          return repaired;
         }
       }
       return raw;
@@ -65,20 +73,6 @@ const customAuthStorage = {
     }
   },
   setItem: (key: string, value: string): void => {
-    try {
-      const parsed = JSON.parse(value);
-      if (parsed && typeof parsed === 'object' && parsed.access_token) {
-        const nowSec = Math.floor(Date.now() / 1000);
-        const expiresIn = typeof parsed.expires_in === 'number' && parsed.expires_in > 0 ? parsed.expires_in : 3600;
-        if (parsed._last_token !== parsed.access_token || typeof parsed._local_issued_at !== 'number') {
-          parsed._local_issued_at = nowSec;
-          parsed._last_token = parsed.access_token;
-        }
-        parsed.expires_at = parsed._local_issued_at + expiresIn;
-        safeStorageSetItem(key, JSON.stringify(parsed));
-        return;
-      }
-    } catch {}
     safeStorageSetItem(key, value);
   },
   removeItem: (key: string): void => {
@@ -86,30 +80,6 @@ const customAuthStorage = {
       window.localStorage.removeItem(key);
     } catch {}
   },
-};
-
-const customSupabaseFetch: typeof fetch = async (input, init) => {
-  const res = await fetch(input, init);
-  try {
-    const urlStr = typeof input === 'string' ? input : input instanceof URL ? input.toString() : input.url;
-    if (res.ok && urlStr.includes('/auth/v1/')) {
-      const clone = res.clone();
-      const data = await clone.json();
-      if (data && typeof data === 'object' && data.access_token) {
-        const nowSec = Math.floor(Date.now() / 1000);
-        const expiresIn = typeof data.expires_in === 'number' && data.expires_in > 0 ? data.expires_in : 3600;
-        data._local_issued_at = nowSec;
-        data._last_token = data.access_token;
-        data.expires_at = nowSec + expiresIn;
-        return new Response(JSON.stringify(data), {
-          status: res.status,
-          statusText: res.statusText,
-          headers: res.headers,
-        });
-      }
-    }
-  } catch {}
-  return res;
 };
 
 export const supabase = createClient(
@@ -122,9 +92,5 @@ export const supabase = createClient(
       detectSessionInUrl: true,
       storage: customAuthStorage,
     },
-    global: {
-      fetch: customSupabaseFetch,
-    },
   }
 );
-

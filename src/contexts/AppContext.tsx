@@ -127,7 +127,7 @@ function packVideoForSupabase(v: BatchflowVideo, fallbackUserId?: string) {
   return {
     id: v.id,
     workspace_id: v.workspace_id,
-    user_id: v.user_id || fallbackUserId,
+    user_id: fallbackUserId || v.user_id,
     batch_id: v.batch_id,
     name: v.name,
     script_number: v.script_number ?? 1,
@@ -143,7 +143,7 @@ function packBatchForSupabase(b: BatchflowBatch, fallbackUserId?: string) {
   return {
     id: b.id,
     workspace_id: b.workspace_id,
-    user_id: b.user_id || fallbackUserId,
+    user_id: fallbackUserId || b.user_id,
     client_id: b.client_id,
     name: b.name,
     shoot_date: b.shoot_date || '',
@@ -157,13 +157,31 @@ function packClientForSupabase(c: BatchflowClient, fallbackUserId?: string) {
   return {
     id: c.id,
     workspace_id: c.workspace_id,
-    user_id: c.user_id || fallbackUserId,
+    user_id: fallbackUserId || c.user_id,
     name: c.name,
     color: c.color || '#818CF8',
     instagram_id: c.instagram_id || '',
     archived: c.archived ?? 0,
     created_at: c.created_at || new Date().toISOString(),
   };
+}
+
+async function upsertWorkspaceToCloud(ws: Workspace, fallbackUserId?: string) {
+  const now = new Date().toISOString();
+  const payload: any = {
+    id: ws.id,
+    user_id: fallbackUserId || ws.user_id,
+    name: ws.name || 'Workspace',
+    color: ws.color || '#818CF8',
+    type: ws.type || 'freelance',
+    created_at: ws.created_at || now,
+    updated_at: ws.updated_at || now,
+  };
+  const { error } = await supabase.from('workspaces').upsert(payload, { onConflict: 'id' });
+  if (error && (error.message?.includes('type') || isSchemaColumnError(error))) {
+    const { type: _t, ...noType } = payload;
+    await supabase.from('workspaces').upsert(noType, { onConflict: 'id' });
+  }
 }
 
 const AppContext = createContext<AppContextType | null>(null);
@@ -222,7 +240,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       if (active.type === 'batchflow') {
         const bfClients = storage.getBatchflowClients().filter(c => c.workspace_id === active.id);
         const bfBatches = storage.getBatchflowBatches().filter(b => b.workspace_id === active.id);
-        const bfVideos = storage.getBatchflowVideos().filter(v => v.workspace_id === active.id);
+        const bfVideos = storage.getBatchflowVideos().map(unpackVideoFromSupabase).filter(v => v.workspace_id === active.id);
         setBatchflowClients(bfClients);
         setBatchflowBatches(bfBatches);
         setBatchflowVideos(bfVideos);
@@ -251,7 +269,21 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     try {
       // 1. Fetch workspaces
-      const { data: cloudWs, error: wsErr } = await supabase.from('workspaces').select('*');
+      let { data: cloudWs, error: wsErr } = await supabase.from('workspaces').select('*');
+      if (wsErr) {
+        const msg = String(wsErr.message || '').toLowerCase();
+        if (wsErr.code === 'PGRST301' || msg.includes('jwt') || msg.includes('expired') || msg.includes('unauthorized')) {
+          const { data: refreshed, error: refreshErr } = await supabase.auth.refreshSession();
+          if (!refreshErr && refreshed.session) {
+            const retryWs = await supabase.from('workspaces').select('*');
+            cloudWs = retryWs.data;
+            wsErr = retryWs.error;
+          } else {
+            await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+            return;
+          }
+        }
+      }
       if (wsErr) {
         console.error('Error loading cloud workspaces:', wsErr);
         loadLocalCache(wsId);
@@ -293,39 +325,40 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         };
       });
 
-      // Keep any locally created workspace not yet present in the cloud
+      // Keep any locally created workspace not yet present in the cloud & sync it up
+      const unsyncedLocalWorkspaces: Workspace[] = [];
       for (const loc of localWorkspaces) {
         if (!cloudIds.has(loc.id)) {
           const explicitType = storage.getWorkspaceType(loc.id);
           const resolvedType = explicitType || loc.type || 'freelance';
           storage.setWorkspaceType(loc.id, resolvedType);
-          activeWsList.push({ ...loc, type: resolvedType });
+          const wsObj = { ...loc, type: resolvedType, user_id: user?.id || loc.user_id };
+          activeWsList.push(wsObj);
+          unsyncedLocalWorkspaces.push(wsObj);
+        }
+      }
+
+      if (unsyncedLocalWorkspaces.length > 0) {
+        for (const uws of unsyncedLocalWorkspaces) {
+          try {
+            await upsertWorkspaceToCloud(uws, user?.id);
+          } catch {}
         }
       }
 
       // Initial auto-migration: if user logged in and cloud is empty, migrate local data
-      if ((cloudWs as Workspace[] || []).length === 0) {
-        const localWs = storage.getWorkspaces();
-        if (localWs.length > 0) {
-          const wsToUpload = localWs.map(w => ({ ...w, user_id: user?.id }));
-          const { data: createdWs } = await supabase.from('workspaces').insert(wsToUpload).select();
-          if (createdWs && createdWs.length > 0) {
-            activeWsList = createdWs as Workspace[];
+      if ((cloudWs as Workspace[] || []).length === 0 && localWorkspaces.length > 0) {
+        const localClients = storage.getClients().map(c => ({ ...c, user_id: user?.id }));
+        const localTasks = storage.getTasks().map(t => ({ ...t, user_id: user?.id }));
+        const localPayments = storage.getPayments().map(p => ({ ...p, user_id: user?.id }));
+        const localRates = storage.getSalaryRates().map(r => ({ ...r, user_id: user?.id }));
+        const localDiscounts = storage.getDiscounts().map(d => ({ ...d, user_id: user?.id }));
 
-            // Migrate other items
-            const localClients = storage.getClients().map(c => ({ ...c, user_id: user?.id }));
-            const localTasks = storage.getTasks().map(t => ({ ...t, user_id: user?.id }));
-            const localPayments = storage.getPayments().map(p => ({ ...p, user_id: user?.id }));
-            const localRates = storage.getSalaryRates().map(r => ({ ...r, user_id: user?.id }));
-            const localDiscounts = storage.getDiscounts().map(d => ({ ...d, user_id: user?.id }));
-
-            if (localClients.length) await supabase.from('clients').insert(localClients);
-            if (localTasks.length) await supabase.from('tasks').insert(localTasks);
-            if (localPayments.length) await supabase.from('payments').insert(localPayments);
-            if (localRates.length) await supabase.from('salary_rates').insert(localRates);
-            if (localDiscounts.length) await supabase.from('discounts').insert(localDiscounts);
-          }
-        }
+        if (localClients.length) await supabase.from('clients').upsert(localClients, { onConflict: 'id' });
+        if (localTasks.length) await supabase.from('tasks').upsert(localTasks, { onConflict: 'id' });
+        if (localPayments.length) await supabase.from('payments').upsert(localPayments, { onConflict: 'id' });
+        if (localRates.length) await supabase.from('salary_rates').upsert(localRates, { onConflict: 'id' });
+        if (localDiscounts.length) await supabase.from('discounts').upsert(localDiscounts, { onConflict: 'id' });
       }
 
       setWorkspaces(activeWsList);
@@ -572,6 +605,9 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
               if (clientsNeedingSync.length > 0 || batchesNeedingSync.length > 0 || videosNeedingSync.length > 0) {
                 (async () => {
+                  try {
+                    await upsertWorkspaceToCloud(active, user?.id);
+                  } catch {}
                   for (const sc of clientsNeedingSync) {
                     try {
                       await supabase.from('batchflow_clients').upsert(packClientForSupabase(sc, user?.id), { onConflict: 'id' });
@@ -594,7 +630,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             console.warn('BatchFlow sync failed, loading from local cache:', err);
             const bfC = storage.getBatchflowClients().filter(c => c.workspace_id === active.id);
             const bfB = storage.getBatchflowBatches().filter(b => b.workspace_id === active.id);
-            const bfV = storage.getBatchflowVideos().filter(v => v.workspace_id === active.id);
+            const bfV = storage.getBatchflowVideos().map(unpackVideoFromSupabase).filter(v => v.workspace_id === active.id);
             setBatchflowClients(bfC);
             setBatchflowBatches(bfB);
             setBatchflowVideos(bfV);
@@ -642,11 +678,17 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             const cloudRIds = new Set(sr.map(r => r.id));
             const cloudDIds = new Set(ds.map(d => d.id));
 
-            const mergedC = [...cl, ...localC.filter(c => !cloudCIds.has(c.id))];
-            const mergedT = [...tk, ...localT.filter(t => !cloudTIds.has(t.id))];
-            const mergedP = [...pm, ...localP.filter(p => !cloudPIds.has(p.id))];
-            const mergedR = [...sr, ...localR.filter(r => !cloudRIds.has(r.id))];
-            const mergedD = [...ds, ...localD.filter(d => !cloudDIds.has(d.id))];
+            const unsyncedC = localC.filter(c => !cloudCIds.has(c.id));
+            const unsyncedT = localT.filter(t => !cloudTIds.has(t.id));
+            const unsyncedP = localP.filter(p => !cloudPIds.has(p.id));
+            const unsyncedR = localR.filter(r => !cloudRIds.has(r.id));
+            const unsyncedD = localD.filter(d => !cloudDIds.has(d.id));
+
+            const mergedC = [...cl, ...unsyncedC];
+            const mergedT = [...tk, ...unsyncedT];
+            const mergedP = [...pm, ...unsyncedP];
+            const mergedR = [...sr, ...unsyncedR];
+            const mergedD = [...ds, ...unsyncedD];
 
             setClients(mergedC);
             setTasks(mergedT);
@@ -666,6 +708,20 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
             storage.setPayments([...otherP, ...mergedP]);
             storage.setSalaryRates([...otherR, ...mergedR]);
             storage.setDiscounts([...otherD, ...mergedD]);
+
+            // Sync any local-only Freelance records up to Supabase
+            if (unsyncedC.length || unsyncedT.length || unsyncedP.length || unsyncedR.length || unsyncedD.length) {
+              (async () => {
+                try {
+                  await upsertWorkspaceToCloud(active, user?.id);
+                  if (unsyncedC.length) await supabase.from('clients').upsert(unsyncedC.map(c => ({ ...c, user_id: user?.id || (c as any).user_id })), { onConflict: 'id' });
+                  if (unsyncedT.length) await supabase.from('tasks').upsert(unsyncedT.map(t => ({ ...t, user_id: user?.id || (t as any).user_id })), { onConflict: 'id' });
+                  if (unsyncedP.length) await supabase.from('payments').upsert(unsyncedP.map(p => ({ ...p, user_id: user?.id || (p as any).user_id })), { onConflict: 'id' });
+                  if (unsyncedR.length) await supabase.from('salary_rates').upsert(unsyncedR.map(r => ({ ...r, user_id: user?.id || (r as any).user_id })), { onConflict: 'id' });
+                  if (unsyncedD.length) await supabase.from('discounts').upsert(unsyncedD.map(d => ({ ...d, user_id: user?.id || (d as any).user_id })), { onConflict: 'id' });
+                } catch {}
+              })();
+            }
           }
         }
       } else {
@@ -1405,6 +1461,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     // 2. Sync to Supabase
     if (isCloudActive) {
       try {
+        await upsertWorkspaceToCloud(activeWorkspace, user?.id);
         if (client) {
           await supabase.from('batchflow_clients').upsert(packClientForSupabase(client, user?.id), { onConflict: 'id' });
         }
@@ -1428,27 +1485,43 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     // 1. Immediately save locally & update UI first
     const all = storage.getBatchflowBatches();
-    const existing = all.find(b => b.id === id);
+    const existing = all.find(b => b.id === id) || batchflowBatches.find(b => b.id === id);
     const mergedBatch: BatchflowBatch | undefined = existing ? { ...existing, ...updates } : undefined;
-    storage.setBatchflowBatches(all.map(b => b.id === id ? { ...b, ...updates } : b));
+    const nextStorage = all.some(b => b.id === id)
+      ? all.map(b => b.id === id ? { ...b, ...updates } : b)
+      : (mergedBatch ? [...all, mergedBatch] : all);
+    storage.setBatchflowBatches(nextStorage);
     setBatchflowBatches(prev => prev.map(b => b.id === id ? { ...b, ...updates } : b));
 
     // 2. Sync to Supabase
     if (isCloudActive && mergedBatch) {
       try {
-        const { error } = await supabase
+        let { error } = await supabase
           .from('batchflow_batches')
           .upsert(packBatchForSupabase(mergedBatch, user?.id), { onConflict: 'id' });
         if (error) {
+          await supabase.auth.refreshSession().catch(() => {});
+          if (activeWorkspace) {
+            await upsertWorkspaceToCloud(activeWorkspace, user?.id);
+          }
+          const parentClient = storage.getBatchflowClients().find(c => c.id === mergedBatch.client_id) ||
+                               batchflowClients.find(c => c.id === mergedBatch.client_id);
+          if (parentClient) {
+            await supabase.from('batchflow_clients').upsert(packClientForSupabase(parentClient, user?.id), { onConflict: 'id' });
+          }
+          const retry = await supabase
+            .from('batchflow_batches')
+            .upsert(packBatchForSupabase(mergedBatch, user?.id), { onConflict: 'id' });
+          error = retry.error;
+        }
+        if (error) {
           console.warn('Could not update batchflow_batches:', error);
-          throw error;
         }
       } catch (err) {
         console.warn('Could not update batchflow_batches:', err);
-        throw err;
       }
     }
-  }, [assertCanEdit, isCloudActive, user]);
+  }, [assertCanEdit, isCloudActive, user, activeWorkspace, batchflowBatches, batchflowClients]);
 
   const deleteBatchflowBatch = useCallback(async (id: string) => {
     assertCanEdit();
@@ -1505,9 +1578,13 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
         const packed = packVideoForSupabase(newVideo, user?.id);
         let { error } = await supabase.from('batchflow_videos').upsert(packed, { onConflict: 'id' });
         if (error) {
-          const parentBatch = storage.getBatchflowBatches().find(b => b.id === newVideo.batch_id);
+          await supabase.auth.refreshSession().catch(() => {});
+          await upsertWorkspaceToCloud(activeWorkspace, user?.id);
+          const parentBatch = storage.getBatchflowBatches().find(b => b.id === newVideo.batch_id) ||
+                              batchflowBatches.find(b => b.id === newVideo.batch_id);
           if (parentBatch) {
-            const parentClient = storage.getBatchflowClients().find(c => c.id === parentBatch.client_id);
+            const parentClient = storage.getBatchflowClients().find(c => c.id === parentBatch.client_id) ||
+                                 batchflowClients.find(c => c.id === parentBatch.client_id);
             if (parentClient) {
               await supabase.from('batchflow_clients').upsert(packClientForSupabase(parentClient, user?.id), { onConflict: 'id' });
             }
@@ -1521,7 +1598,7 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
     }
 
     return newVideo;
-  }, [assertCanEdit, activeWorkspace, user, isCloudActive]);
+  }, [assertCanEdit, activeWorkspace, user, isCloudActive, batchflowBatches, batchflowClients]);
 
   const updateBatchflowVideo = useCallback(async (id: string, data: Partial<BatchflowVideo>) => {
     assertCanEdit();
@@ -1533,9 +1610,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     // 1. Immediately save locally & update UI first (guarantees zero data loss on immediate refresh)
     const all = storage.getBatchflowVideos();
-    const existing = all.find(v => v.id === id);
+    const existing = all.find(v => v.id === id) || batchflowVideos.find(v => v.id === id);
     const mergedVideo: BatchflowVideo | undefined = existing ? { ...existing, ...updates } : undefined;
-    storage.setBatchflowVideos(all.map(v => v.id === id ? { ...v, ...updates } : v));
+    const nextStorage = all.some(v => v.id === id)
+      ? all.map(v => v.id === id ? { ...v, ...updates } : v)
+      : (mergedVideo ? [...all, mergedVideo] : all);
+    storage.setBatchflowVideos(nextStorage);
     setBatchflowVideos(prev => prev.map(v => v.id === id ? { ...v, ...updates } : v));
 
     // 2. Sync to Supabase & verify save
@@ -1543,24 +1623,42 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const packed = packVideoForSupabase(mergedVideo, user?.id);
       let { error } = await supabase.from('batchflow_videos').upsert(packed, { onConflict: 'id' });
       if (error) {
-        // Ensure parent client and batch exist in cloud if foreign key failed
-        const parentBatch = storage.getBatchflowBatches().find(b => b.id === mergedVideo.batch_id);
+        await supabase.auth.refreshSession().catch(() => {});
+        if (activeWorkspace) {
+          await upsertWorkspaceToCloud(activeWorkspace, user?.id);
+        }
+        const parentBatch = storage.getBatchflowBatches().find(b => b.id === mergedVideo.batch_id) ||
+                            batchflowBatches.find(b => b.id === mergedVideo.batch_id);
         if (parentBatch) {
-          const parentClient = storage.getBatchflowClients().find(c => c.id === parentBatch.client_id);
+          const parentClient = storage.getBatchflowClients().find(c => c.id === parentBatch.client_id) ||
+                               batchflowClients.find(c => c.id === parentBatch.client_id);
           if (parentClient) {
             await supabase.from('batchflow_clients').upsert(packClientForSupabase(parentClient, user?.id), { onConflict: 'id' });
           }
           await supabase.from('batchflow_batches').upsert(packBatchForSupabase(parentBatch, user?.id), { onConflict: 'id' });
-          const retry = await supabase.from('batchflow_videos').upsert(packed, { onConflict: 'id' });
-          error = retry.error;
+        }
+        const retry = await supabase.from('batchflow_videos').upsert(packed, { onConflict: 'id' });
+        error = retry.error;
+        if (error) {
+          const updateFallback = await supabase
+            .from('batchflow_videos')
+            .update({
+              name: packed.name,
+              script_number: packed.script_number,
+              status: packed.status,
+              waiting_date: packed.waiting_date,
+              edited_date: packed.edited_date,
+              posted_date: packed.posted_date,
+            })
+            .eq('id', id);
+          error = updateFallback.error;
         }
       }
       if (error) {
-        console.warn('Could not update batchflow_videos in cloud:', error);
-        throw error;
+        console.warn('Could not update batchflow_videos in cloud (saved locally):', error);
       }
     }
-  }, [assertCanEdit, isCloudActive, user]);
+  }, [assertCanEdit, isCloudActive, user, activeWorkspace, batchflowVideos, batchflowBatches, batchflowClients]);
 
   const updateBatchflowVideoStatus = useCallback(async (
     id: string,
@@ -1603,9 +1701,12 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
 
     // 1. Immediately save locally & update UI first (guarantees zero data loss on immediate refresh)
     const all = storage.getBatchflowVideos();
-    const existing = all.find(v => v.id === id);
+    const existing = all.find(v => v.id === id) || batchflowVideos.find(v => v.id === id);
     const mergedVideo: BatchflowVideo | undefined = existing ? { ...existing, ...updates } : undefined;
-    storage.setBatchflowVideos(all.map(v => v.id === id ? { ...v, ...updates } : v));
+    const nextStorage = all.some(v => v.id === id)
+      ? all.map(v => v.id === id ? { ...v, ...updates } : v)
+      : (mergedVideo ? [...all, mergedVideo] : all);
+    storage.setBatchflowVideos(nextStorage);
     setBatchflowVideos(prev => prev.map(v => v.id === id ? { ...v, ...updates } : v));
 
     // 2. Sync to Supabase & verify save
@@ -1613,23 +1714,42 @@ export function AppProvider({ children }: { children: React.ReactNode }) {
       const packed = packVideoForSupabase(mergedVideo, user?.id);
       let { error } = await supabase.from('batchflow_videos').upsert(packed, { onConflict: 'id' });
       if (error) {
-        const parentBatch = storage.getBatchflowBatches().find(b => b.id === mergedVideo.batch_id);
+        await supabase.auth.refreshSession().catch(() => {});
+        if (activeWorkspace) {
+          await upsertWorkspaceToCloud(activeWorkspace, user?.id);
+        }
+        const parentBatch = storage.getBatchflowBatches().find(b => b.id === mergedVideo.batch_id) ||
+                            batchflowBatches.find(b => b.id === mergedVideo.batch_id);
         if (parentBatch) {
-          const parentClient = storage.getBatchflowClients().find(c => c.id === parentBatch.client_id);
+          const parentClient = storage.getBatchflowClients().find(c => c.id === parentBatch.client_id) ||
+                               batchflowClients.find(c => c.id === parentBatch.client_id);
           if (parentClient) {
             await supabase.from('batchflow_clients').upsert(packClientForSupabase(parentClient, user?.id), { onConflict: 'id' });
           }
           await supabase.from('batchflow_batches').upsert(packBatchForSupabase(parentBatch, user?.id), { onConflict: 'id' });
-          const retry = await supabase.from('batchflow_videos').upsert(packed, { onConflict: 'id' });
-          error = retry.error;
+        }
+        const retry = await supabase.from('batchflow_videos').upsert(packed, { onConflict: 'id' });
+        error = retry.error;
+        if (error) {
+          const updateFallback = await supabase
+            .from('batchflow_videos')
+            .update({
+              name: packed.name,
+              script_number: packed.script_number,
+              status: packed.status,
+              waiting_date: packed.waiting_date,
+              edited_date: packed.edited_date,
+              posted_date: packed.posted_date,
+            })
+            .eq('id', id);
+          error = updateFallback.error;
         }
       }
       if (error) {
-        console.warn('Could not update status in batchflow_videos:', error);
-        throw error;
+        console.warn('Could not update status in batchflow_videos (saved locally):', error);
       }
     }
-  }, [assertCanEdit, isCloudActive, user]);
+  }, [assertCanEdit, isCloudActive, user, activeWorkspace, batchflowVideos, batchflowBatches, batchflowClients]);
 
   const deleteBatchflowVideo = useCallback(async (id: string) => {
     assertCanEdit();
