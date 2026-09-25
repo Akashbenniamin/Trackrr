@@ -129,6 +129,237 @@ function hexToRgb(hex: string): [number, number, number] {
   return [r, g, b];
 }
 
+interface ParsedScriptSection {
+  scriptNum: number;
+  hasExplicitHeader: boolean;
+  headerTitle: string;
+  headerSubtitle: string;
+  bodyLines: string[];
+  rawSection: string;
+  originalIndex: number;
+}
+
+function parseMasterScriptSections(rawText: string): ParsedScriptSection[] {
+  if (!rawText || !rawText.trim()) return [];
+
+  // 1. Normalize line endings and strip zero-width / BOM characters
+  let normalized = rawText
+    .replace(/\r\n/g, '\n')
+    .replace(/\r/g, '\n')
+    .replace(/[\u200B-\u200D\uFEFF]/g, '');
+
+  // 2. Collapse letter-spaced "V I D E O   S C R I P T" if a PDF viewer inserted spaces between letters
+  normalized = normalized.replace(
+    /\bV\s+I\s+D\s+E\s+O\s+S\s+C\s+R\s+I\s+P\s+T\b/gi,
+    'VIDEO SCRIPT'
+  );
+
+  // 3. Ensure inline script headers split onto their own line if pasted without a line break
+  normalized = normalized.replace(
+    /(\S)[ \t]+(?=#?0*\d{1,3}[ \t]+(?:video[ \t]+script|script)\b(?!\s*s\b|\s+count\b))/gi,
+    '$1\n'
+  );
+  normalized = normalized.replace(
+    /(\S)[ \t]+(?=(?:video[ \t]+)?script(?!\s*s\b|\s+count\b)[ \t]*[#:\-–—.][ \t]*0*\d{1,3}\b)/gi,
+    '$1\n'
+  );
+
+  const rawLines = normalized.split('\n');
+
+  // 4. Pre-pass: strip PDF page footers ("Prepared for ... • Arra Social [page]")
+  //    and merge 2-line split headers like "01\nVIDEO SCRIPT" or "VIDEO SCRIPT\n01"
+  const mergedLines: string[] = [];
+  for (let i = 0; i < rawLines.length; i++) {
+    const cur = rawLines[i].trim();
+    const next = i + 1 < rawLines.length ? rawLines[i + 1].trim() : '';
+
+    // Skip "Prepared for <Client> • Arra Social [pageNum]" footer lines
+    if (/^Prepared\s+for\s+.+(?:•|\|)\s*Arra\s+Social(?:\s+\d+)?$/i.test(cur)) {
+      const afterNext = i + 2 < rawLines.length ? rawLines[i + 2].trim() : '';
+      const nextIsStandaloneNum = /^\d{1,3}$/.test(next);
+      const afterNextIsScriptLabel = /^(?:video\s+script|script)\b(?!\s*s\b|\s+count\b)/i.test(afterNext);
+      if (nextIsStandaloneNum && !afterNextIsScriptLabel) {
+        i++; // skip standalone page number line
+      }
+      continue;
+    }
+
+    // Check 2-line header Pattern 1: Line i is just a number ("01" or "#1"), Line i+1 is "VIDEO SCRIPT" / "Video Script 1"
+    const standaloneNumMatch = cur.match(/^#?0*(\d{1,3})\s*[.:\-–—]?\s*$/);
+    if (standaloneNumMatch && next) {
+      const nextScriptLabelMatch = next.match(
+        /^(?:video\s+script|script)\b(?!\s*s\b|\s+count\b)(?:\s+0*(\d{1,3})\b)?\s*[.:\-–—]?\s*(.*)$/i
+      );
+      if (nextScriptLabelMatch) {
+        const num = standaloneNumMatch[1];
+        const sub = (nextScriptLabelMatch[2] || '').trim();
+        mergedLines.push(sub ? `Script ${num} : ${sub}` : `Script ${num}`);
+        i++;
+        continue;
+      }
+    }
+
+    // Check 2-line header Pattern 2: Line i is just "VIDEO SCRIPT" or "Script", Line i+1 is a standalone number ("01")
+    if (/^(?:video\s+script|script)\s*[#:\-–—]?\s*$/i.test(cur) && next) {
+      const nextNumMatch = next.match(/^#?0*(\d{1,3})\s*[.:\-–—]?\s*(.*)$/);
+      if (nextNumMatch && !/^(?:scripts?\b)/i.test(nextNumMatch[2] || '')) {
+        const num = nextNumMatch[1];
+        const sub = (nextNumMatch[2] || '').trim();
+        mergedLines.push(sub ? `Script ${num} : ${sub}` : `Script ${num}`);
+        i++;
+        continue;
+      }
+    }
+
+    mergedLines.push(rawLines[i]);
+  }
+
+  const matchScriptHeader = (line: string): { scriptNum: number; subtitle: string } | null => {
+    const trimmed = line.trim();
+    if (!trimmed) return null;
+
+    // Pattern A: Number before "VIDEO SCRIPT" / "Script" (e.g., "01 VIDEO SCRIPT", "01 Video Script 1", "01 - VIDEO SCRIPT: Title")
+    const mNumFirst = trimmed.match(
+      /^#?0*(\d{1,3})\s*[.:\-–—]?\s*(?:video\s+script|script)\b(?!\s*s\b|\s+count\b)(?:\s+0*\d{1,3}\b)?\s*[.:\-–—]?\s*(.*)$/i
+    );
+    if (mNumFirst) {
+      return {
+        scriptNum: parseInt(mNumFirst[1], 10),
+        subtitle: (mNumFirst[2] || '').trim(),
+      };
+    }
+
+    // Pattern B: "Script" / "Video Script" before Number (e.g., "Script-1.", "SCRIPT 1 : Title", "Video Script 01", "Script 0")
+    const mScriptFirst = trimmed.match(
+      /^(?:video\s+)?script\b(?!\s*s\b|\s+count\b)\s*[#:\-–—.]*\s*0*(\d{1,3})\b\s*[.:\-–—]?\s*(.*)$/i
+    );
+    if (mScriptFirst) {
+      return {
+        scriptNum: parseInt(mScriptFirst[1], 10),
+        subtitle: (mScriptFirst[2] || '').trim(),
+      };
+    }
+
+    return null;
+  };
+
+  const rawSections: ParsedScriptSection[] = [];
+  let currentHeader: { scriptNum: number; subtitle: string; hasExplicitHeader: boolean } | null = null;
+  let currentBody: string[] = [];
+
+  const flushSection = () => {
+    let start = 0;
+    while (
+      start < currentBody.length &&
+      (!currentBody[start].trim() || /^[_=\-–—]{3,}$/.test(currentBody[start].trim()))
+    ) {
+      start++;
+    }
+    let end = currentBody.length - 1;
+    while (
+      end >= start &&
+      (!currentBody[end].trim() || /^[_=\-–—]{3,}$/.test(currentBody[end].trim()))
+    ) {
+      end--;
+    }
+    const cleanBody = currentBody.slice(start, end + 1);
+
+    if (
+      !currentHeader?.hasExplicitHeader &&
+      cleanBody.length === 1 &&
+      /^contents$/i.test(cleanBody[0].trim())
+    ) {
+      currentBody = [];
+      return;
+    }
+    if (
+      !currentHeader?.hasExplicitHeader &&
+      cleanBody.length > 1 &&
+      /^contents$/i.test(cleanBody[cleanBody.length - 1].trim())
+    ) {
+      cleanBody.pop();
+      while (cleanBody.length > 0 && !cleanBody[cleanBody.length - 1].trim()) {
+        cleanBody.pop();
+      }
+    }
+
+    if (!currentHeader?.hasExplicitHeader && cleanBody.length === 0) {
+      currentBody = [];
+      return;
+    }
+
+    const scriptNum = currentHeader ? currentHeader.scriptNum : 0;
+    const hasExplicitHeader = currentHeader ? currentHeader.hasExplicitHeader : false;
+    const headerTitle = `SCRIPT ${scriptNum}`;
+    const headerSubtitle = currentHeader?.subtitle || '';
+    const fullHeaderLine = headerSubtitle ? `${headerTitle} • ${headerSubtitle}` : headerTitle;
+    const rawSection = hasExplicitHeader
+      ? [fullHeaderLine, ...cleanBody].join('\n').trim()
+      : cleanBody.join('\n').trim();
+
+    rawSections.push({
+      scriptNum,
+      hasExplicitHeader,
+      headerTitle,
+      headerSubtitle,
+      bodyLines: cleanBody,
+      rawSection,
+      originalIndex: rawSections.length,
+    });
+    currentBody = [];
+  };
+
+  for (const line of mergedLines) {
+    const hm = matchScriptHeader(line);
+    if (hm) {
+      if (currentHeader !== null || currentBody.some(l => l.trim().length > 0)) {
+        flushSection();
+      } else {
+        currentBody = [];
+      }
+      currentHeader = {
+        scriptNum: hm.scriptNum,
+        subtitle: hm.subtitle,
+        hasExplicitHeader: true,
+      };
+    } else {
+      currentBody.push(line);
+    }
+  }
+  if (currentHeader !== null || currentBody.some(l => l.trim().length > 0)) {
+    flushSection();
+  }
+
+  // Filter out empty header-only sections (such as Table of Contents lines "01 Video Script 1")
+  const nonEmpty = rawSections.filter(s => s.bodyLines.length > 0);
+  let finalSections = nonEmpty.length > 0 ? nonEmpty : rawSections;
+
+  // If numbered scripts exist, filter out pure PDF cover page / title-only preamble blocks
+  const hasExplicitNumbered = finalSections.some(s => s.hasExplicitHeader);
+  if (hasExplicitNumbered) {
+    finalSections = finalSections.filter(s => {
+      if (s.hasExplicitHeader) return true;
+      const joined = s.bodyLines.join('\n');
+      const isCoverBoilerplate =
+        /C\s*O\s*N\s*T\s*E\s*N\s*T\s+S\s*C\s*R\s*I\s*P\s*T\s+P\s*A\s*C\s*K\s*A\s*G\s*E/i.test(joined) ||
+        (/\bPREPARED\s+FOR\b/i.test(joined) && /\bSCRIPT\s+COUNT\b/i.test(joined)) ||
+        (s.bodyLines.length === 1 && /^(?:additional\s+scripts|video\s+scripts|scripts|contents)$/i.test(s.bodyLines[0].trim()));
+      return !isCoverBoilerplate;
+    });
+  }
+
+  // Always sort from 0 to higher number in ascending order;
+  // when multiple scripts have the same number, preserve their relative order before moving to the next number
+  finalSections.sort((a, b) => {
+    if (a.scriptNum !== b.scriptNum) {
+      return a.scriptNum - b.scriptNum;
+    }
+    return a.originalIndex - b.originalIndex;
+  });
+
+  return finalSections;
+}
+
 // Formatted Script Parser Component
 function FormattedScriptViewer({
   text,
@@ -186,22 +417,26 @@ function FormattedScriptViewer({
     });
   };
 
-  const sections = text.split(/(?=script\s*[-\s]?\s*\d+)/gi).filter(s => s.trim().length > 0);
+  const sections = parseMasterScriptSections(text);
 
   return (
     <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1.5 }}>
       {sections.map((section, sIdx) => {
-        const lines = section.trim().split('\n');
-        const firstLine = lines[0];
-        const match = firstLine.match(/^(script\s*[-\s]?\s*(\d+))(.*)/i);
-        const scriptNum = match ? parseInt(match[2], 10) : null;
-        const isHighlighted = scriptNum !== null && highlightedScriptNum === scriptNum;
+        const scriptNum = section.scriptNum;
+        const isHighlighted =
+          highlightedScriptNum !== null &&
+          highlightedScriptNum !== undefined &&
+          highlightedScriptNum === scriptNum;
         const sectionId = `sec-${sIdx}`;
+        const isFirstOfNum = sections.findIndex(s => s.scriptNum === scriptNum) === sIdx;
+        const sameNumSections = sections.filter(s => s.scriptNum === scriptNum);
+        const dupIndex = sameNumSections.indexOf(section) + 1;
+        const dupBadge = sameNumSections.length > 1 ? ` (${dupIndex}/${sameNumSections.length})` : '';
 
         return (
           <Paper
             key={sIdx}
-            id={scriptNum !== null ? `script-sec-${scriptNum}` : undefined}
+            id={isFirstOfNum ? `script-sec-${scriptNum}` : undefined}
             elevation={0}
             sx={{
               borderRadius: 1,
@@ -212,79 +447,109 @@ function FormattedScriptViewer({
               transition: 'all 0.3s cubic-bezier(0.4, 0, 0.2, 1)',
             }}
           >
-            {match ? (
-              <>
-                <Box
-                  sx={{
-                    px: 2,
-                    py: 1,
-                    bgcolor: 'primary.main',
-                    color: '#fff',
-                    display: 'flex',
-                    justifyContent: 'space-between',
-                    alignItems: 'center',
-                  }}
+            <Box
+              sx={{
+                px: 2,
+                py: 1,
+                bgcolor: 'primary.main',
+                color: '#fff',
+                display: 'flex',
+                justifyContent: 'space-between',
+                alignItems: 'center',
+              }}
+            >
+              <Typography variant="caption" sx={{ fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                {section.headerTitle}{dupBadge} {section.headerSubtitle && `• ${section.headerSubtitle}`}
+              </Typography>
+              <Tooltip title={copiedSection === sectionId ? 'Copied!' : 'Copy this section'}>
+                <IconButton
+                  size="small"
+                  onClick={() => handleCopy(section.rawSection, sectionId)}
+                  sx={{ color: '#fff', '&:hover': { bgcolor: 'rgba(255,255,255,0.2)' } }}
                 >
-                  <Typography variant="caption" sx={{ fontWeight: 800, textTransform: 'uppercase', letterSpacing: '0.05em' }}>
-                    {match[1]} {match[2] && `• ${match[2].trim()}`}
-                  </Typography>
-                  <Tooltip title={copiedSection === sectionId ? 'Copied!' : 'Copy this section'}>
-                    <IconButton
-                      size="small"
-                      onClick={() => handleCopy(section.trim(), sectionId)}
-                      sx={{ color: '#fff', '&:hover': { bgcolor: 'rgba(255,255,255,0.2)' } }}
-                    >
-                      {copiedSection === sectionId ? <CheckRoundedIcon sx={{ fontSize: 16 }} /> : <ContentCopyRoundedIcon sx={{ fontSize: 16 }} />}
-                    </IconButton>
-                  </Tooltip>
-                </Box>
-                <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
-                  {lines.slice(1).map((line, lIdx) => {
-                    const seqMatch = line.match(/^(\d+)\s*[\.\)]?\s*(.*)/);
-                    if (seqMatch) {
-                      return (
-                        <Box key={lIdx} sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
-                          <Box
-                            sx={{
-                              width: 22,
-                              height: 22,
-                              borderRadius: 1,
-                              bgcolor: 'rgba(129,140,248,0.2)',
-                              color: 'primary.light',
-                              display: 'flex',
-                              alignItems: 'center',
-                              justifyContent: 'center',
-                              fontSize: '0.72rem',
-                              fontWeight: 700,
-                              flexShrink: 0,
-                              mt: 0.25,
-                            }}
-                          >
-                            {seqMatch[1]}
-                          </Box>
-                          <Typography variant="body2" sx={{ color: 'text.secondary', lineHeight: 1.6, flex: 1 }}>
-                            {processLineContent(seqMatch[2])}
-                          </Typography>
-                        </Box>
-                      );
-                    }
-                    return line.trim() ? (
-                      <Typography key={lIdx} variant="body2" sx={{ color: 'text.secondary', lineHeight: 1.6 }}>
-                        {processLineContent(line)}
+                  {copiedSection === sectionId ? <CheckRoundedIcon sx={{ fontSize: 16 }} /> : <ContentCopyRoundedIcon sx={{ fontSize: 16 }} />}
+                </IconButton>
+              </Tooltip>
+            </Box>
+            <Box sx={{ p: 2, display: 'flex', flexDirection: 'column', gap: 1 }}>
+              {section.bodyLines.map((line, lIdx) => {
+                const trimmedLine = line.trim();
+                if (!trimmedLine) {
+                  return <Box key={lIdx} sx={{ height: 6 }} />;
+                }
+
+                // Section subheaders like "HOOK :", "CONTENT :", "CTA :"
+                const cueMatch = trimmedLine.match(/^(HOOK|CONTENT|CTA|BODY|INTRO|OUTRO)\s*:\s*(.*)$/i);
+                if (cueMatch) {
+                  const cueLabel = cueMatch[1].toUpperCase();
+                  const cueRest = cueMatch[2].trim();
+                  return (
+                    <Box key={lIdx} sx={{ mt: lIdx > 0 ? 0.5 : 0 }}>
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          color: 'primary.light',
+                          fontWeight: 800,
+                          letterSpacing: '0.06em',
+                          textTransform: 'uppercase',
+                          fontSize: '0.72rem',
+                          display: cueRest ? 'inline' : 'block',
+                          mr: cueRest ? 1 : 0,
+                        }}
+                      >
+                        {cueLabel}:
                       </Typography>
-                    ) : (
-                      <Box key={lIdx} sx={{ height: 6 }} />
-                    );
-                  })}
-                </Box>
-              </>
-            ) : (
-              <Box sx={{ p: 2 }}>
-                <Typography variant="body2" sx={{ color: 'text.secondary', lineHeight: 1.6, whiteSpace: 'pre-wrap' }}>
-                  {processLineContent(section)}
-                </Typography>
-              </Box>
-            )}
+                      {cueRest && (
+                        <Typography component="span" variant="body2" sx={{ color: 'text.secondary', lineHeight: 1.6 }}>
+                          {processLineContent(cueRest)}
+                        </Typography>
+                      )}
+                    </Box>
+                  );
+                }
+
+                // Numbered list items: "1. ...", "1) ...", "Number 1 — ...", or "1 Country" (avoiding "7 Things...", "1 Year...", "2027...")
+                const seqMatch =
+                  trimmedLine.match(/^(\d{1,2})\s*[.)]\s*(.+)/) ||
+                  trimmedLine.match(/^Number\s+(\d{1,2})\s*[:.\-–—…]+\s*(.+)/i) ||
+                  trimmedLine.match(
+                    /^(\d{1,2})\s+(?!(?:things?|years?|months?|days?|hours?|weeks?|grams?|liters?|litres?|lakhs?|crores?|full|half|la)\b)(.+)/i
+                  );
+                if (seqMatch) {
+                  return (
+                    <Box key={lIdx} sx={{ display: 'flex', gap: 1.5, alignItems: 'flex-start' }}>
+                      <Box
+                        sx={{
+                          width: 22,
+                          height: 22,
+                          borderRadius: 1,
+                          bgcolor: 'rgba(129,140,248,0.2)',
+                          color: 'primary.light',
+                          display: 'flex',
+                          alignItems: 'center',
+                          justifyContent: 'center',
+                          fontSize: '0.72rem',
+                          fontWeight: 700,
+                          flexShrink: 0,
+                          mt: 0.25,
+                        }}
+                      >
+                        {seqMatch[1]}
+                      </Box>
+                      <Typography variant="body2" sx={{ color: 'text.secondary', lineHeight: 1.6, flex: 1 }}>
+                        {processLineContent(seqMatch[2])}
+                      </Typography>
+                    </Box>
+                  );
+                }
+
+                return (
+                  <Typography key={lIdx} variant="body2" sx={{ color: 'text.secondary', lineHeight: 1.6 }}>
+                    {processLineContent(line)}
+                  </Typography>
+                );
+              })}
+            </Box>
           </Paper>
         );
       })}
@@ -331,15 +596,11 @@ export default function BatchflowBatches() {
 
   // Script text extractor for an individual video
   const getVideoScriptText = (batchScript?: string, scriptNum?: number | null): string => {
-    if (!batchScript || !scriptNum) return '';
-    const sections = batchScript.split(/(?=script\s*[-\s]?\s*\d+)/gi).filter(s => s.trim().length > 0);
-    for (const s of sections) {
-      const lines = s.trim().split('\n');
-      const firstLine = lines[0] || '';
-      const match = firstLine.match(/^script\s*[-\s]?\s*(\d+)/i);
-      if (match && parseInt(match[1], 10) === scriptNum) {
-        return s.trim();
-      }
+    if (!batchScript || scriptNum === null || scriptNum === undefined) return '';
+    const sections = parseMasterScriptSections(batchScript);
+    const matching = sections.filter(s => s.scriptNum === scriptNum);
+    if (matching.length > 0) {
+      return matching.map(s => s.rawSection).join('\n\n---\n\n');
     }
     return batchScript.trim();
   };
@@ -2507,12 +2768,20 @@ export default function BatchflowBatches() {
                       </Box>
                     )}
                   </Box>
-                  {selectedBatch && (
-                    <Typography variant="caption" sx={{ color: 'text.secondary', display: 'flex', alignItems: 'center', gap: 0.6, mt: 0.4, fontSize: '0.74rem' }}>
-                      <CalendarMonthRoundedIcon sx={{ fontSize: 14, color: 'text.disabled' }} />
-                      Shoot Date: <strong style={{ color: 'rgba(255,255,255,0.9)' }}>{selectedBatch.shoot_date || 'Not set'}</strong> • {currentBatchVideos.length} Videos in pipeline
-                    </Typography>
-                  )}
+                  {selectedBatch && (() => {
+                    const postedDates = currentBatchVideos
+                      .filter(v => v.status === 'Posted')
+                      .map(v => extractDateFromVideoUrl(v.video_url) || (v.posted_date ? v.posted_date.slice(0, 10) : ''))
+                      .filter(Boolean)
+                      .sort();
+                    const lastPostedDate = postedDates.length > 0 ? postedDates[postedDates.length - 1] : null;
+                    return (
+                      <Typography variant="caption" sx={{ color: 'text.secondary', display: 'flex', alignItems: 'center', gap: 0.6, mt: 0.4, fontSize: '0.74rem' }}>
+                        <CalendarMonthRoundedIcon sx={{ fontSize: 14, color: 'text.disabled' }} />
+                        Last Posted: <strong style={{ color: 'rgba(255,255,255,0.9)' }}>{lastPostedDate || 'Not posted yet'}</strong> • {currentBatchVideos.length} Videos in pipeline
+                      </Typography>
+                    );
+                  })()}
                 </Box>
 
                 {/* Action Buttons: Minimal & Modern */}
