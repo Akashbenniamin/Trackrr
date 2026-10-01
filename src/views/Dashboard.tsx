@@ -23,8 +23,8 @@ import { usePersistedState } from '../lib/usePersistedState';
 import { calcTaskRevenue, calcTaskRevenueFull, calcMonthlyRevenue, formatCurrency, formatDate } from '../types';
 import type { ViewName } from '../types';
 
-function StatCard({ label, value, icon, color, progress, onClick }: {
-  label: string; value: string | number; icon: React.ReactNode; color: string;
+function StatCard({ label, value, sublabel, icon, color, progress, onClick }: {
+  label: string; value: string | number; sublabel?: React.ReactNode; icon: React.ReactNode; color: string;
   progress?: number; onClick?: () => void;
 }) {
   return (
@@ -99,6 +99,21 @@ function StatCard({ label, value, icon, color, progress, onClick }: {
           >
             {value}
           </Typography>
+          {sublabel && (
+            <Typography
+              variant="caption"
+              sx={{
+                color: 'text.secondary',
+                fontSize: { xs: '0.68rem', sm: '0.74rem' },
+                fontWeight: 600,
+                display: 'block',
+                mt: 0.6,
+                lineHeight: 1.1,
+              }}
+            >
+              {sublabel}
+            </Typography>
+          )}
           {progress !== undefined && (
             <LinearProgress
               variant="determinate"
@@ -170,8 +185,9 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (v: ViewName) =
     const scopedPayments = scope === 'total' ? payments : payments.filter(p => p.date >= scopeBounds.start! && p.date <= scopeBounds.end!);
     const totalPaid = scopedPayments.reduce((sum, p) => sum + p.amount, 0);
 
-    // Tasks per day (each task = 1 video)
+    // Tasks & Earnings per day (each task = 1 video)
     let tasksPerDay = 0;
+    let earnedPerDay = 0;
     if (scope === 'total') {
       const earliest = tasks.reduce<string | null>((min, t) => {
         const d = t.completed_date ?? t.received_date;
@@ -180,12 +196,14 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (v: ViewName) =
       if (earliest) {
         const days = Math.max(1, Math.ceil((Date.now() - new Date(earliest).getTime()) / 86400000));
         tasksPerDay = scopedTasks.length / days;
+        earnedPerDay = earned / days;
       }
     } else {
       const start = scopeBounds.start ? new Date(scopeBounds.start) : startOfMonth(new Date());
       const end = scopeBounds.end ? new Date(scopeBounds.end) : new Date();
       const days = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86400000));
       tasksPerDay = scopedTasks.length / days;
+      earnedPerDay = earned / days;
     }
 
     return {
@@ -193,6 +211,7 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (v: ViewName) =
       earned, totalPaid,
       paymentCount: scopedPayments.length,
       tasksPerDay,
+      earnedPerDay,
     };
   }, [tasks, clients, payments, salaryRates, scope, scopeBounds]);
 
@@ -357,6 +376,7 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (v: ViewName) =
           <StatCard
             label="Earned"
             value={cur(stats.earned)}
+            sublabel={`avg. ${cur(Math.round(stats.earnedPerDay))}/day`}
             icon={<TrendingUpRoundedIcon />}
             color="#818CF8"
             onClick={() => onNavigate?.('analytics')}
