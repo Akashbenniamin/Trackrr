@@ -3,13 +3,15 @@ import {
   Box, Card, Typography, Button, Select, MenuItem, Chip,
   FormControl, InputLabel, TextField, Checkbox, FormControlLabel,
   Divider, Fade, Table, TableBody, TableCell, TableHead, TableRow,
-  ToggleButtonGroup, ToggleButton, Snackbar, Alert,
+  ToggleButtonGroup, ToggleButton, Snackbar, Alert, CircularProgress,
 } from '@mui/material';
 import DownloadRoundedIcon from '@mui/icons-material/DownloadRounded';
 import ContentCopyRoundedIcon from '@mui/icons-material/ContentCopyRounded';
 import PrintRoundedIcon from '@mui/icons-material/PrintRounded';
 import FilterListRoundedIcon from '@mui/icons-material/FilterListRounded';
+import PictureAsPdfRoundedIcon from '@mui/icons-material/PictureAsPdfRounded';
 import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
+import { jsPDF } from 'jspdf';
 import { useApp } from '../contexts/AppContext';
 import { usePersistedState } from '../lib/usePersistedState';
 import { calcTaskRevenueFull, formatCurrency, formatDate } from '../types';
@@ -31,6 +33,7 @@ export default function BillsView() {
   const [includeOldBalance, setIncludeOldBalance] = usePersistedState('bills_includeOldBalance', true);
   const [billTitle, setBillTitle] = usePersistedState('bills_title', '');
   const [snackMsg, setSnackMsg] = useState('');
+  const [isExportingPDF, setIsExportingPDF] = useState(false);
   const previewRef = useRef<HTMLDivElement>(null);
 
   const cur = (v: number) => formatCurrency(v, settings.currency);
@@ -483,6 +486,363 @@ export default function BillsView() {
     setTimeout(() => URL.revokeObjectURL(url), 30000);
   };
 
+  const exportPDF = async () => {
+    setIsExportingPDF(true);
+    try {
+      const doc = new jsPDF({
+        orientation: 'portrait',
+        unit: 'mm',
+        format: 'a4',
+      });
+
+      const title = billTitle || getTitle();
+      const today = format(new Date(), 'MMMM d, yyyy');
+      const pageWidth = 210;
+      const marginLeft = 14;
+      const marginRight = 14;
+      const contentWidth = pageWidth - marginLeft - marginRight; // 182mm
+
+      const formatPdfCur = (val: number) => {
+        const isNeg = val < -0.0001;
+        const sign = isNeg ? '-' : '';
+        const locale = settings.currency === 'INR' ? 'en-IN' : 'en-US';
+        const num = Math.abs(Math.round(val)).toLocaleString(locale);
+        const sym = settings.currency === 'INR' ? 'Rs. ' : '$';
+        return `${sign}${sym}${num}`;
+      };
+
+      // --- Header (Page 1) ---
+      doc.setFillColor(99, 102, 241); // Indigo top accent bar
+      doc.rect(0, 0, pageWidth, 3.5, 'F');
+
+      const wsName = (activeWorkspace?.name || 'Trackrr Workspace').toUpperCase();
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(8);
+      doc.setTextColor(99, 102, 241);
+      doc.text(wsName, marginLeft, 13);
+
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(18);
+      doc.setTextColor(15, 23, 42);
+      const titleLines = doc.splitTextToSize(title, 115);
+      doc.text(titleLines[0] || title, marginLeft, 21);
+
+      // Badge: INVOICE
+      doc.setFillColor(15, 23, 42);
+      doc.roundedRect(pageWidth - marginRight - 22, 10, 22, 6, 1.2, 1.2, 'F');
+      doc.setFont('helvetica', 'bold');
+      doc.setFontSize(7.5);
+      doc.setTextColor(255, 255, 255);
+      doc.text('INVOICE', pageWidth - marginRight - 11, 14.3, { align: 'center' });
+
+      // Date & Count
+      doc.setFont('helvetica', 'normal');
+      doc.setFontSize(8);
+      doc.setTextColor(100, 116, 139);
+      doc.text(today, pageWidth - marginRight, 20.5, { align: 'right' });
+      doc.text(`${filteredTasks.length} project${filteredTasks.length !== 1 ? 's' : ''}`, pageWidth - marginRight, 25, { align: 'right' });
+
+      // Header Divider
+      doc.setDrawColor(226, 232, 240);
+      doc.setLineWidth(0.4);
+      doc.line(marginLeft, 29, pageWidth - marginRight, 29);
+
+      // --- KPI Summary Cards ---
+      const cards: { label: string; value: string; color: [number, number, number] }[] = [
+        { label: 'TOTAL TASKS', value: String(filteredTasks.length), color: [99, 102, 241] },
+        ...(includePrice ? [{ label: 'TOTAL AMOUNT', value: formatPdfCur(totals.total), color: [16, 185, 129] as [number, number, number] }] : []),
+        ...(includePaid ? [{ label: 'TOTAL RECEIVED', value: formatPdfCur(totals.paidInPeriod), color: [59, 130, 246] as [number, number, number] }] : []),
+      ];
+
+      const cardGap = 4;
+      const cardW = (contentWidth - ((cards.length - 1) * cardGap)) / cards.length;
+      const cardH = 14;
+      let cardX = marginLeft;
+
+      cards.forEach(c => {
+        doc.setFillColor(248, 250, 252);
+        doc.setDrawColor(226, 232, 240);
+        doc.setLineWidth(0.3);
+        doc.roundedRect(cardX, 33, cardW, cardH, 2, 2, 'FD');
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(11);
+        doc.setTextColor(c.color[0], c.color[1], c.color[2]);
+        doc.text(c.value, cardX + cardW / 2, 40, { align: 'center' });
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(6);
+        doc.setTextColor(100, 116, 139);
+        doc.text(c.label, cardX + cardW / 2, 44.5, { align: 'center' });
+
+        cardX += cardW + cardGap;
+      });
+
+      // --- Tasks Table ---
+      const drawTableHeader = (headerY: number) => {
+        doc.setFillColor(241, 245, 249);
+        doc.rect(marginLeft, headerY, contentWidth, 7, 'F');
+
+        doc.setDrawColor(203, 213, 225);
+        doc.setLineWidth(0.3);
+        doc.line(marginLeft, headerY, marginLeft + contentWidth, headerY);
+        doc.line(marginLeft, headerY + 7, marginLeft + contentWidth, headerY + 7);
+
+        doc.setFont('helvetica', 'bold');
+        doc.setFontSize(7);
+        doc.setTextColor(71, 85, 105);
+
+        const textY = headerY + 4.8;
+        doc.text('#', marginLeft + 2, textY);
+        doc.text('DATE', marginLeft + 10, textY);
+        doc.text('PROJECT / TASK', marginLeft + 35, textY);
+        if (includePrice) {
+          doc.text('CLIENT', marginLeft + 118, textY);
+          doc.text('AMOUNT', marginLeft + contentWidth - 2, textY, { align: 'right' });
+        } else {
+          doc.text('CLIENT', marginLeft + 145, textY);
+        }
+      };
+
+      let yPos = 52;
+      drawTableHeader(yPos);
+      yPos += 7;
+
+      if (filteredTasks.length === 0) {
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(8.5);
+        doc.setTextColor(148, 163, 184);
+        doc.text('No projects found for the selected filters.', marginLeft + contentWidth / 2, yPos + 8, { align: 'center' });
+        yPos += 16;
+      } else {
+        filteredTasks.forEach((t, i) => {
+          if (yPos + 8 > 265) {
+            doc.addPage();
+            yPos = 18;
+            drawTableHeader(yPos);
+            yPos += 7;
+          }
+
+          // Alternating background
+          if (i % 2 === 1) {
+            doc.setFillColor(248, 250, 252);
+            doc.rect(marginLeft, yPos, contentWidth, 7.5, 'F');
+          }
+
+          const client = clients.find(c => c.id === t.client_id);
+          const rev = calcTaskRevenueFull(t, client, salaryRates, tasks);
+          const dateStr = formatDate(t.completed_date ?? t.received_date);
+          const numStr = String(i + 1).padStart(2, '0');
+          const clientName = client?.name || '—';
+          const taskTitle = t.title || 'Untitled';
+
+          const textY = yPos + 5;
+
+          // #
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(7.5);
+          doc.setTextColor(148, 163, 184);
+          doc.text(numStr, marginLeft + 2, textY);
+
+          // Date
+          doc.setTextColor(100, 116, 139);
+          doc.text(dateStr, marginLeft + 10, textY);
+
+          // Title
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(15, 23, 42);
+          const titleMaxW = includePrice ? 80 : 105;
+          const cleanT = doc.splitTextToSize(taskTitle, titleMaxW)[0] || taskTitle;
+          doc.text(cleanT, marginLeft + 35, textY);
+
+          // Client
+          doc.setFont('helvetica', 'normal');
+          doc.setTextColor(71, 85, 105);
+          const clientMaxW = includePrice ? 32 : 45;
+          const clientX = includePrice ? marginLeft + 118 : marginLeft + 145;
+          const cleanC = doc.splitTextToSize(clientName, clientMaxW)[0] || clientName;
+          doc.text(cleanC, clientX, textY);
+
+          // Amount
+          if (includePrice) {
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(79, 70, 229);
+            doc.text(formatPdfCur(rev), marginLeft + contentWidth - 2, textY, { align: 'right' });
+          }
+
+          // Row divider
+          doc.setDrawColor(241, 245, 249);
+          doc.setLineWidth(0.2);
+          doc.line(marginLeft, yPos + 7.5, marginLeft + contentWidth, yPos + 7.5);
+
+          yPos += 7.5;
+        });
+      }
+
+      // --- Totals Box ---
+      let totalsLinesCount = 0;
+      if (includePrice) totalsLinesCount++;
+      if (includePaid) {
+        totalsLinesCount++;
+        if (totals.paymentForLabel) totalsLinesCount++;
+        if (includeOldBalance && totals.hasOldBalance && totals.oldBalance !== 0) totalsLinesCount++;
+        if (totals.discountInPeriod > 0) totalsLinesCount++;
+        totalsLinesCount++; // Final balance
+      }
+
+      const totalsBoxHeight = Math.max(22, totalsLinesCount * 6 + 6);
+      if (yPos + totalsBoxHeight + 8 > 270) {
+        doc.addPage();
+        yPos = 18;
+      }
+
+      if (totalsLinesCount > 0) {
+        yPos += 5;
+        const boxW = 82;
+        const boxX = marginLeft + contentWidth - boxW;
+
+        doc.setFillColor(248, 250, 252);
+        doc.setDrawColor(226, 232, 240);
+        doc.setLineWidth(0.3);
+        doc.roundedRect(boxX, yPos, boxW, totalsBoxHeight, 2, 2, 'FD');
+
+        let rowY = yPos + 5.5;
+
+        if (includePrice) {
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(8);
+          doc.setTextColor(100, 116, 139);
+          doc.text('Total', boxX + 6, rowY);
+
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(15, 23, 42);
+          doc.text(formatPdfCur(totals.total), boxX + boxW - 6, rowY, { align: 'right' });
+          rowY += 5.5;
+        }
+
+        if (includePaid) {
+          doc.setFont('helvetica', 'normal');
+          doc.setFontSize(8);
+          doc.setTextColor(100, 116, 139);
+          doc.text('Received', boxX + 6, rowY);
+
+          doc.setFont('helvetica', 'bold');
+          doc.setTextColor(16, 185, 129);
+          doc.text(formatPdfCur(totals.paidInPeriod), boxX + boxW - 6, rowY, { align: 'right' });
+          rowY += 5.5;
+
+          if (totals.paymentForLabel) {
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(7.5);
+            doc.setTextColor(99, 102, 241);
+            doc.text('Payment For', boxX + 6, rowY);
+
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(99, 102, 241);
+            doc.text(totals.paymentForLabel, boxX + boxW - 6, rowY, { align: 'right' });
+            rowY += 5.5;
+          }
+
+          if (includeOldBalance && totals.hasOldBalance && totals.oldBalance !== 0) {
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(8);
+            doc.setTextColor(100, 116, 139);
+            doc.text('Old Balance', boxX + 6, rowY);
+
+            doc.setFont('helvetica', 'bold');
+            if (totals.oldBalance > 0) {
+              doc.setTextColor(239, 68, 68);
+              doc.text(formatPdfCur(totals.oldBalance), boxX + boxW - 6, rowY, { align: 'right' });
+            } else {
+              doc.setTextColor(16, 185, 129);
+              doc.text(`-${formatPdfCur(Math.abs(totals.oldBalance))}`, boxX + boxW - 6, rowY, { align: 'right' });
+            }
+            rowY += 5.5;
+          }
+
+          if (totals.discountInPeriod > 0) {
+            doc.setFont('helvetica', 'normal');
+            doc.setFontSize(8);
+            doc.setTextColor(100, 116, 139);
+            doc.text('Discount', boxX + 6, rowY);
+
+            doc.setFont('helvetica', 'bold');
+            doc.setTextColor(139, 92, 246);
+            doc.text(`-${formatPdfCur(totals.discountInPeriod)}`, boxX + boxW - 6, rowY, { align: 'right' });
+            rowY += 5.5;
+          }
+
+          // Balance Divider
+          doc.setDrawColor(203, 213, 225);
+          doc.setLineWidth(0.3);
+          doc.line(boxX + 5, rowY - 1, boxX + boxW - 5, rowY - 1);
+          rowY += 3.5;
+
+          // Final balance
+          doc.setFont('helvetica', 'bold');
+          doc.setFontSize(8.5);
+          doc.setTextColor(15, 23, 42);
+          doc.text(totals.balanceLabel, boxX + 6, rowY);
+
+          if (totals.isOverpaid || totals.rawBalance > 0) {
+            doc.setTextColor(239, 68, 68);
+          } else {
+            doc.setTextColor(16, 185, 129);
+          }
+          doc.setFontSize(9);
+          doc.text(formatPdfCur(Math.abs(totals.rawBalance)), boxX + boxW - 6, rowY, { align: 'right' });
+        }
+      }
+
+      // --- Running Footers on All Pages ---
+      const totalPages = doc.getNumberOfPages();
+      for (let p = 1; p <= totalPages; p++) {
+        doc.setPage(p);
+        const pHeight = doc.internal.pageSize.getHeight();
+
+        doc.setDrawColor(226, 232, 240);
+        doc.setLineWidth(0.3);
+        doc.line(marginLeft, pHeight - 12, pageWidth - marginRight, pHeight - 12);
+
+        doc.setFont('helvetica', 'normal');
+        doc.setFontSize(7.5);
+        doc.setTextColor(148, 163, 184);
+        doc.text(`${wsName} • Generated on ${today}`, marginLeft, pHeight - 7);
+        doc.text(`Page ${p} of ${totalPages}`, pageWidth - marginRight, pHeight - 7, { align: 'right' });
+      }
+
+      // --- Mobile Share / Save Logic ---
+      const pdfBlob = doc.output('blob');
+      const safeTitle = title.replace(/[^a-zA-Z0-9_-]/g, '_');
+      const filename = `${safeTitle}_Invoice.pdf`;
+      const file = new File([pdfBlob], filename, { type: 'application/pdf' });
+
+      if (navigator.canShare && navigator.canShare({ files: [file] })) {
+        try {
+          await navigator.share({
+            files: [file],
+            title: filename,
+          });
+          setSnackMsg('PDF shared successfully!');
+          return;
+        } catch (err: any) {
+          if (err?.name === 'AbortError') {
+            return;
+          }
+          console.warn('Native sharing failed, falling back to download:', err);
+        }
+      }
+
+      doc.save(filename);
+      setSnackMsg('PDF downloaded successfully!');
+    } catch (err) {
+      console.error('Error generating PDF:', err);
+      setSnackMsg('Failed to generate PDF. Please try again.');
+    } finally {
+      setIsExportingPDF(false);
+    }
+  };
+
   return (
     <Fade in timeout={400}>
       <Box sx={{ pb: 3 }}>
@@ -663,19 +1023,30 @@ export default function BillsView() {
 
         {/* Action buttons */}
         <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
-          <Box sx={{ flex: '1 1 calc(50% - 6px)', minWidth: 0 }}>
+          <Box sx={{ flex: { xs: '1 1 100%', sm: '1 1 calc(50% - 6px)' }, minWidth: 0 }}>
             <Button variant="outlined" fullWidth startIcon={<ContentCopyRoundedIcon />} onClick={copyWhatsApp}>
               WhatsApp
             </Button>
           </Box>
-          <Box sx={{ flex: '1 1 calc(50% - 6px)', minWidth: 0 }}>
+          <Box sx={{ display: { xs: 'none', sm: 'block' }, flex: { sm: '1 1 calc(50% - 6px)' }, minWidth: 0 }}>
             <Button variant="outlined" fullWidth startIcon={<DownloadRoundedIcon />} onClick={exportCSV}>
               CSV
             </Button>
           </Box>
-          <Box sx={{ flex: '1 1 100%', minWidth: 0 }}>
-            <Button variant="contained" fullWidth startIcon={<PrintRoundedIcon />} onClick={printBill}>
-              Print / Save PDF
+          <Box sx={{ flex: { xs: '1 1 100%', sm: '1 1 calc(50% - 6px)' }, minWidth: 0 }}>
+            <Button
+              variant="contained"
+              fullWidth
+              startIcon={isExportingPDF ? <CircularProgress size={16} sx={{ color: 'inherit' }} /> : <PictureAsPdfRoundedIcon />}
+              onClick={exportPDF}
+              disabled={isExportingPDF}
+            >
+              {isExportingPDF ? 'Exporting PDF...' : 'Export PDF'}
+            </Button>
+          </Box>
+          <Box sx={{ display: { xs: 'none', sm: 'block' }, flex: { sm: '1 1 calc(50% - 6px)' }, minWidth: 0 }}>
+            <Button variant="outlined" fullWidth startIcon={<PrintRoundedIcon />} onClick={printBill}>
+              Print
             </Button>
           </Box>
         </Box>
