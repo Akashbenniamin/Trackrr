@@ -845,7 +845,7 @@ export default function BillsView() {
 
   return (
     <Fade in timeout={400}>
-      <Box sx={{ pb: 3 }}>
+      <Box sx={{ pb: { xs: 8, sm: 3 } }}>
         {/* Filters */}
         <Card sx={{ p: 2, mb: 2 }}>
           <Box sx={{ display: 'flex', alignItems: 'center', gap: 1, mb: 1.5 }}>
@@ -1022,30 +1022,31 @@ export default function BillsView() {
         </Card>
 
         {/* Action buttons */}
-        <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap' }}>
-          <Box sx={{ flex: { xs: '1 1 100%', sm: '1 1 calc(50% - 6px)' }, minWidth: 0 }}>
-            <Button variant="outlined" fullWidth startIcon={<ContentCopyRoundedIcon />} onClick={copyWhatsApp}>
-              WhatsApp
-            </Button>
-          </Box>
-          <Box sx={{ display: { xs: 'none', sm: 'block' }, flex: { sm: '1 1 calc(50% - 6px)' }, minWidth: 0 }}>
-            <Button variant="outlined" fullWidth startIcon={<DownloadRoundedIcon />} onClick={exportCSV}>
-              CSV
-            </Button>
-          </Box>
-          <Box sx={{ flex: { xs: '1 1 100%', sm: '1 1 calc(50% - 6px)' }, minWidth: 0 }}>
+        <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mb: { xs: 4, sm: 1 } }}>
+          <Box sx={{ flex: '1 1 calc(50% - 6px)', minWidth: 0 }}>
             <Button
               variant="contained"
               fullWidth
               startIcon={isExportingPDF ? <CircularProgress size={16} sx={{ color: 'inherit' }} /> : <PictureAsPdfRoundedIcon />}
               onClick={exportPDF}
               disabled={isExportingPDF}
+              sx={{ py: 1 }}
             >
-              {isExportingPDF ? 'Exporting PDF...' : 'Export PDF'}
+              {isExportingPDF ? 'Exporting...' : 'Export PDF'}
+            </Button>
+          </Box>
+          <Box sx={{ flex: '1 1 calc(50% - 6px)', minWidth: 0 }}>
+            <Button variant="outlined" fullWidth startIcon={<ContentCopyRoundedIcon />} onClick={copyWhatsApp} sx={{ py: 1 }}>
+              WhatsApp
             </Button>
           </Box>
           <Box sx={{ display: { xs: 'none', sm: 'block' }, flex: { sm: '1 1 calc(50% - 6px)' }, minWidth: 0 }}>
-            <Button variant="outlined" fullWidth startIcon={<PrintRoundedIcon />} onClick={printBill}>
+            <Button variant="outlined" fullWidth startIcon={<DownloadRoundedIcon />} onClick={exportCSV} sx={{ py: 1 }}>
+              CSV
+            </Button>
+          </Box>
+          <Box sx={{ display: { xs: 'none', sm: 'block' }, flex: { sm: '1 1 calc(50% - 6px)' }, minWidth: 0 }}>
+            <Button variant="outlined" fullWidth startIcon={<PrintRoundedIcon />} onClick={printBill} sx={{ py: 1 }}>
               Print
             </Button>
           </Box>
