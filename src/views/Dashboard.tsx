@@ -20,7 +20,7 @@ import {
 import { format, subMonths, startOfMonth, endOfMonth, eachDayOfInterval } from 'date-fns';
 import { useApp } from '../contexts/AppContext';
 import { usePersistedState } from '../lib/usePersistedState';
-import { calcTaskRevenue, calcMonthlyRevenue, formatCurrency, formatDate } from '../types';
+import { calcTaskRevenue, calcTaskRevenueFull, calcMonthlyRevenue, formatCurrency, formatDate } from '../types';
 import type { ViewName } from '../types';
 
 function StatCard({ label, value, icon, color, progress, onClick }: {
@@ -212,10 +212,9 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (v: ViewName) =
 
         const dayTasks = tasks.filter(t => { const d = t.completed_date ?? t.received_date; return d && d >= ds && d <= de; });
         let rev = 0;
-        dayTasks.forEach(t => { const c = clients.find(c => c.id === t.client_id); if (!c || c.payment_type !== 'monthly') rev += calcTaskRevenue(t, c); });
-        clients.filter(c => c.payment_type === 'monthly').forEach(c => {
-          const dates = dayTasks.filter(t => t.client_id === c.id && (t.completed_date ?? t.received_date)).map(t => (t.completed_date ?? t.received_date)!);
-          if (dates.length > 0) rev += calcMonthlyRevenue(c.id, salaryRates, dates, c);
+        dayTasks.forEach(t => {
+          const c = clients.find(c => c.id === t.client_id);
+          rev += calcTaskRevenueFull(t, c, salaryRates, tasks);
         });
         const dayPayments = payments.filter(p => p.date >= ds && p.date <= de).reduce((s, p) => s + p.amount, 0);
 
@@ -232,10 +231,9 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (v: ViewName) =
       const end = endOfMonth(date).toISOString();
       const monthTasks = tasks.filter(t => { const d = t.completed_date ?? t.received_date; return d && d >= start && d <= end; });
       let rev = 0;
-      monthTasks.forEach(t => { const c = clients.find(c => c.id === t.client_id); if (!c || c.payment_type !== 'monthly') rev += calcTaskRevenue(t, c); });
-      clients.filter(c => c.payment_type === 'monthly').forEach(c => {
-        const dates = monthTasks.filter(t => t.client_id === c.id && (t.completed_date ?? t.received_date)).map(t => (t.completed_date ?? t.received_date)!);
-        if (dates.length > 0) rev += calcMonthlyRevenue(c.id, salaryRates, dates, c);
+      monthTasks.forEach(t => {
+        const c = clients.find(c => c.id === t.client_id);
+        rev += calcTaskRevenueFull(t, c, salaryRates, tasks);
       });
       const monthPayments = payments.filter(p => p.date >= start && p.date <= end).reduce((s, p) => s + p.amount, 0);
 
