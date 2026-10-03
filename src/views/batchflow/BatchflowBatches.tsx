@@ -140,23 +140,176 @@ interface ParsedScriptSection {
   isTocCandidate?: boolean;
 }
 
+const isCueLine = (t: string): boolean => {
+  if (!t) return false;
+  if (/^(?:CONTENTS|TABLE\s+OF\s+CONTENTS)\b/i.test(t)) return false;
+  return (
+    /^(?:[\p{Emoji}\u200d\ufe0f\s]*\s)?(?:HOOK|CONTENT|CONTEXT|CTA|BODY|INTRO|OUTRO|SCENE|MEME|TEXT|EDUCATION|THE\s+METHOD|AUDIO\s+NOTE|AUDIO|VISUAL|NOTE)\b/iu.test(t) ||
+    /^\[.+\]$/.test(t)
+  );
+};
+
+const isOrphanSpeakerLabel = (t: string): string | null => {
+  if (!t || isCueLine(t)) return null;
+  const numMatch = t.match(/^#?0*(\d{1,2})\s*:\s*$/);
+  if (numMatch) return `${numMatch[1]}:`;
+  const nameMatch = t.match(/^([A-Z][A-Z0-9\s._'/-]{1,25})\s*:\s*$/);
+  if (nameMatch) {
+    const name = nameMatch[1].trim();
+    if (/^(?:NOTE|WARNING|TIP|STEP|RULE|POINT)\b/i.test(name)) return null;
+    return `${name}:`;
+  }
+  return null;
+};
+
+function unwrapSoftWraps(lines: string[]): string[] {
+  const result: string[] = [];
+  let i = 0;
+  while (i < lines.length) {
+    const cur = lines[i].trim();
+    if (!cur) {
+      result.push('');
+      i++;
+      continue;
+    }
+
+    let combined = cur;
+    while (i + 1 < lines.length) {
+      let j = i + 1;
+      while (j < lines.length && !lines[j].trim()) {
+        j++;
+      }
+      if (j >= lines.length) break;
+
+      const next = lines[j].trim();
+
+      if (isCueLine(combined) || isCueLine(next)) break;
+      if (/^(?:[-*•]|\d{1,2}[:.)]|[A-Z][A-Z0-9\s._'/-]{1,25}:|[(\[])/.test(next)) break;
+      if (isOrphanSpeakerLabel(combined) || isOrphanSpeakerLabel(next)) break;
+
+      const endsWithSentencePunct = /[.!?…:;]$/.test(combined);
+      const endsWithConnector = /[,&+\/-–—]\s*$/.test(combined);
+      const nextStartsLowercase = /^[a-z]/.test(next);
+
+      if (!endsWithSentencePunct || endsWithConnector || nextStartsLowercase) {
+        combined += ' ' + next;
+        i = j;
+      } else {
+        break;
+      }
+    }
+
+    result.push(combined);
+    i++;
+  }
+  return result;
+}
+
+function stitchOrphanSpeakers(lines: string[]): string[] {
+  const result: string[] = [];
+  let i = 0;
+
+  while (i < lines.length) {
+    const cur = lines[i].trim();
+    const speakerLabel = isOrphanSpeakerLabel(cur);
+
+    if (speakerLabel) {
+      const labels = [speakerLabel];
+      let j = i + 1;
+      while (j < lines.length) {
+        const nextTrimmed = lines[j].trim();
+        if (!nextTrimmed) {
+          j++;
+          continue;
+        }
+        const nextLabel = isOrphanSpeakerLabel(nextTrimmed);
+        if (nextLabel) {
+          labels.push(nextLabel);
+          j++;
+        } else {
+          break;
+        }
+      }
+
+      const paragraphs: string[][] = [];
+      let currentParagraph: string[] = [];
+
+      while (j < lines.length) {
+        const line = lines[j];
+        const trimmed = line.trim();
+
+        if (isCueLine(trimmed) || (isOrphanSpeakerLabel(trimmed) && paragraphs.length >= labels.length)) {
+          break;
+        }
+
+        if (!trimmed) {
+          if (currentParagraph.length > 0) {
+            paragraphs.push(currentParagraph);
+            currentParagraph = [];
+            if (paragraphs.length === labels.length) {
+              j++;
+              break;
+            }
+          }
+        } else {
+          currentParagraph.push(line);
+        }
+        j++;
+      }
+      if (currentParagraph.length > 0) {
+        paragraphs.push(currentParagraph);
+      }
+
+      if (paragraphs.length > 0) {
+        paragraphs.forEach((para, pIdx) => {
+          const label = pIdx < labels.length ? labels[pIdx] : '';
+          if (label && para.length > 0) {
+            para[0] = `${label} ${para[0].trim()}`;
+          }
+          result.push(...para);
+          result.push('');
+        });
+        i = j;
+        continue;
+      } else {
+        result.push(lines[i]);
+        i++;
+        continue;
+      }
+    }
+
+    result.push(lines[i]);
+    i++;
+  }
+
+  return result;
+}
+
 function parseMasterScriptSections(rawText: string): ParsedScriptSection[] {
   if (!rawText || !rawText.trim()) return [];
 
-  // 1. Normalize line endings and strip zero-width / BOM characters
+  // 1. Normalize line endings and strip replacement / zero-width / BOM characters
   let normalized = rawText
     .replace(/\r+/g, '\r')
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n')
-    .replace(/[\u200B-\u200D\uFEFF]/g, '');
+    .replace(/^[ \t]*\uFFFD+[ \t]*/gm, '')
+    .replace(/[\uFFFD\u200B-\u200D\uFEFF]/g, '');
 
   // 2. Collapse letter-spaced headers and cues (e.g., from PDF text extraction)
   normalized = normalized.replace(/\bV\s+I\s+D\s+E\s+O\s+S\s+C\s+R\s+I\s+P\s+T\b/gi, 'VIDEO SCRIPT');
   normalized = normalized.replace(/\bS\s+C\s+R\s+I\s+P\s+T(?:\s+S)?\b/gi, 'SCRIPT');
   normalized = normalized.replace(/\bC\s+O\s+N\s+T\s+E\s+N\s+T\s+S\b/gi, 'CONTENTS');
   normalized = normalized.replace(/\bC\s+O\s+N\s+T\s+E\s+N\s+T\b/gi, 'CONTENT');
-  normalized = normalized.replace(/\bH\s+O\s+O\s+K\b/gi, 'HOOK');
-  normalized = normalized.replace(/\bC\s+T\s+A\b/gi, 'CTA');
+  normalized = normalized.replace(/\bC\s+O\s+N\s+T\s+E\s+X\s+T\b/gi, 'CONTEXT');
+  normalized = normalized.replace(/\bH\s*O\s*O\s*K\b/gi, 'HOOK');
+  normalized = normalized.replace(/\bC\s*T\s*A\b/gi, 'CTA');
+  normalized = normalized.replace(/\bE\s*D\s*U\s*C\s*A\s*T\s*I\s*O\s*N\b/gi, 'EDUCATION');
+  normalized = normalized.replace(/\bT\s*H\s*E\s+M\s*E\s*T\s*H\s*O\s*D\b/gi, 'THE METHOD');
+  normalized = normalized.replace(/\bM\s*E\s*M\s*E\b/gi, 'MEME');
+
+  normalized = normalized.replace(/\bD\s+R\s+J\s+E\s+E\s+V\s+A\b/g, 'DR JEEVA');
+  normalized = normalized.replace(/\bS\s+T\s+A\s+F\s+F\b/g, 'STAFF');
 
   // Collapse spaced digits after SCRIPT / VIDEO SCRIPT (e.g. "SCRIPT 1 0" -> "SCRIPT 10", "SCRIPT 1 9" -> "SCRIPT 19")
   normalized = normalized.replace(
@@ -281,12 +434,7 @@ function parseMasterScriptSections(rawText: string): ParsedScriptSection[] {
   const isCueOrDialogueLine = (line: string) => {
     const t = line.trim();
     if (!t) return false;
-    if (/^(?:CONTENTS|TABLE\s+OF\s+CONTENTS)\b/i.test(t)) return false;
-    return (
-      /^(?:HOOK|H\s*O\s*O\s*K|CONTEXT|C\s*O\s*N\s*T\s*E\s*X\s*T|CONTENT|CTA|C\s*T\s*A|BODY|INTRO|OUTRO|SCENE|AUDIO|VISUAL|EMOTIONAL\s+BEAT|EDUCATION|THE\s+KEY\s+TRUTH|THE\s+PROVEN\s+FIX|THE\s+GOLDEN\s+RULES?|MEME|TEXT|REEL)\b/i.test(t) ||
-      /^\[.+\]$/.test(t) ||
-      /^[A-Z0-9\s._'-]{2,25}\s*:\s*.+/i.test(t)
-    );
+    return isCueLine(t) || /^[A-Z0-9\s._'-]{2,25}\s*:\s*.+/i.test(t);
   };
 
   const flushSection = () => {
@@ -368,6 +516,10 @@ function parseMasterScriptSections(rawText: string): ParsedScriptSection[] {
         cleanBody = cleanBody.slice(idx);
       }
     }
+
+    // Unwrap soft wraps from PDF columns and stitch orphan speaker labels
+    cleanBody = unwrapSoftWraps(cleanBody);
+    cleanBody = stitchOrphanSpeakers(cleanBody);
 
     const headerTitle = `SCRIPT ${scriptNum}`;
     const fullHeaderLine = headerSubtitle ? `${headerTitle} • ${headerSubtitle}` : headerTitle;
@@ -604,8 +756,10 @@ function FormattedScriptViewer({
                   return <Box key={lIdx} sx={{ height: 6 }} />;
                 }
 
-                // Section subheaders like "HOOK :", "CONTENT :", "CTA :", "HOOK", "CONTEXT :"
-                const cueMatch = trimmedLine.match(/^(HOOK|CONTENT|CONTEXT|CTA|BODY|INTRO|OUTRO|SCENE)\b\s*[:\-–—]?\s*(.*)$/i);
+                // Section subheaders like "HOOK :", "CONTENT :", "CTA :", "HOOK", "CONTEXT :", "MEME:", "TEXT:"
+                const cueMatch = trimmedLine.match(
+                  /^(?:[\p{Emoji}\u200d\ufe0f\s]*\s)?(HOOK|CONTENT|CONTEXT|CTA|BODY|INTRO|OUTRO|SCENE|MEME|TEXT|EDUCATION|THE\s+METHOD|AUDIO\s+NOTE|AUDIO|VISUAL|NOTE)\b\s*[:\-–—]?\s*(.*)$/iu
+                );
                 if (cueMatch) {
                   const cueLabel = cueMatch[1].toUpperCase();
                   const cueRest = cueMatch[2].trim();
@@ -666,6 +820,46 @@ function FormattedScriptViewer({
                         {processLineContent(seqMatch[2])}
                       </Typography>
                     </Box>
+                  );
+                }
+
+                // Character dialogue lines like "DR JEEVA: ...", "STAFF: ...", "STAFF 1: ..."
+                const speakerMatch = trimmedLine.match(/^([A-Z][A-Z0-9\s._'/-]{1,25})\s*:\s*(.+)$/);
+                if (speakerMatch) {
+                  const spkName = speakerMatch[1].trim();
+                  const spkRest = speakerMatch[2].trim();
+                  return (
+                    <Box key={lIdx} sx={{ mt: lIdx > 0 ? 0.5 : 0 }}>
+                      <Typography
+                        variant="caption"
+                        sx={{
+                          color: '#A78BFA',
+                          fontWeight: 800,
+                          letterSpacing: '0.04em',
+                          textTransform: 'uppercase',
+                          fontSize: '0.72rem',
+                          mr: 1,
+                        }}
+                      >
+                        {spkName}:
+                      </Typography>
+                      <Typography component="span" variant="body2" sx={{ color: 'text.secondary', lineHeight: 1.6 }}>
+                        {processLineContent(spkRest)}
+                      </Typography>
+                    </Box>
+                  );
+                }
+
+                // Parentheticals / stage directions: "(Dr Jeeva, calm, smiling...)" or "(fast cuts...)"
+                if (/^\(.*\)$/.test(trimmedLine) || /^\[.*\]$/.test(trimmedLine)) {
+                  return (
+                    <Typography
+                      key={lIdx}
+                      variant="body2"
+                      sx={{ color: 'text.disabled', fontStyle: 'italic', lineHeight: 1.6 }}
+                    >
+                      {processLineContent(trimmedLine)}
+                    </Typography>
                   );
                 }
 
