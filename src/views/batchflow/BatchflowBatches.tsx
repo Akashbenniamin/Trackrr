@@ -137,6 +137,7 @@ interface ParsedScriptSection {
   bodyLines: string[];
   rawSection: string;
   originalIndex: number;
+  isTocCandidate?: boolean;
 }
 
 function parseMasterScriptSections(rawText: string): ParsedScriptSection[] {
@@ -144,14 +145,23 @@ function parseMasterScriptSections(rawText: string): ParsedScriptSection[] {
 
   // 1. Normalize line endings and strip zero-width / BOM characters
   let normalized = rawText
+    .replace(/\r+/g, '\r')
     .replace(/\r\n/g, '\n')
     .replace(/\r/g, '\n')
     .replace(/[\u200B-\u200D\uFEFF]/g, '');
 
-  // 2. Collapse letter-spaced "V I D E O   S C R I P T" if a PDF viewer inserted spaces between letters
+  // 2. Collapse letter-spaced headers and cues (e.g., from PDF text extraction)
+  normalized = normalized.replace(/\bV\s+I\s+D\s+E\s+O\s+S\s+C\s+R\s+I\s+P\s+T\b/gi, 'VIDEO SCRIPT');
+  normalized = normalized.replace(/\bS\s+C\s+R\s+I\s+P\s+T(?:\s+S)?\b/gi, 'SCRIPT');
+  normalized = normalized.replace(/\bC\s+O\s+N\s+T\s+E\s+N\s+T\s+S\b/gi, 'CONTENTS');
+  normalized = normalized.replace(/\bC\s+O\s+N\s+T\s+E\s+N\s+T\b/gi, 'CONTENT');
+  normalized = normalized.replace(/\bH\s+O\s+O\s+K\b/gi, 'HOOK');
+  normalized = normalized.replace(/\bC\s+T\s+A\b/gi, 'CTA');
+
+  // Collapse spaced digits after SCRIPT / VIDEO SCRIPT (e.g. "SCRIPT 1 0" -> "SCRIPT 10", "SCRIPT 1 9" -> "SCRIPT 19")
   normalized = normalized.replace(
-    /\bV\s+I\s+D\s+E\s+O\s+S\s+C\s+R\s+I\s+P\s+T\b/gi,
-    'VIDEO SCRIPT'
+    /\b(SCRIPT|VIDEO SCRIPT)\s*([#:\-–—.]*)\s*(\d(?:\s+\d)+)\b/gi,
+    (_match, prefix, sep, digits) => (sep ? `${prefix} ${sep} ` : `${prefix} `) + digits.replace(/\s+/g, '')
   );
 
   // 3. Ensure inline script headers split onto their own line if pasted without a line break
@@ -166,8 +176,7 @@ function parseMasterScriptSections(rawText: string): ParsedScriptSection[] {
 
   const rawLines = normalized.split('\n');
 
-  // 4. Pre-pass: strip PDF page footers ("Prepared for ... • Arra Social [page]")
-  //    and merge 2-line split headers like "01\nVIDEO SCRIPT" or "VIDEO SCRIPT\n01"
+  // 4. Pre-pass: strip PDF running headers, page footers, and page numbers
   const mergedLines: string[] = [];
   for (let i = 0; i < rawLines.length; i++) {
     const cur = rawLines[i].trim();
@@ -177,30 +186,51 @@ function parseMasterScriptSections(rawText: string): ParsedScriptSection[] {
     if (/^Prepared\s+for\s+.+(?:•|\|)\s*Arra\s+Social(?:\s+\d+)?$/i.test(cur)) {
       const afterNext = i + 2 < rawLines.length ? rawLines[i + 2].trim() : '';
       const nextIsStandaloneNum = /^\d{1,3}$/.test(next);
-      const afterNextIsScriptLabel = /^(?:video\s+script|script)\b(?!\s*s\b|\s+count\b)/i.test(afterNext);
+      const afterNextIsScriptLabel = /^(?:video\s+)?script\b(?!\s*s\b|\s+count\b)/i.test(afterNext);
       if (nextIsStandaloneNum && !afterNextIsScriptLabel) {
         i++; // skip standalone page number line
       }
       continue;
     }
 
-    // Check 2-line header Pattern 1: Line i is just a number ("01" or "#1"), Line i+1 is "VIDEO SCRIPT" / "Video Script 1"
+    // Skip running PDF page headers like "DR JEEVA SINGARAJ SCRIPTS", "D R JEE VA SI N GA RA J SC RI P TS", etc.
+    const isRunningPdfHeader =
+      /^(?:D\s*R\s+)?[\w\s.&'-]+(?:SCRIPTS?|S\s*C\s*R\s*I\s*P\s*T\s*S?)\s*$/i.test(cur) &&
+      cur.length >= 10 &&
+      !/^(?:video\s+)?script\s*#?0*\d{1,3}/i.test(cur);
+    if (isRunningPdfHeader) {
+      if (/^\d{1,3}$/.test(next)) {
+        i++; // skip both running header line and standalone page number line!
+      }
+      continue;
+    }
+
+    // If cur is a standalone page number line (e.g. "3") and the next line is a SCRIPT header (e.g. "SCRIPT 1 :"),
+    // skip the page number line so it doesn't get confused with a 2-line script header!
+    if (/^\d{1,3}$/.test(cur) && /^(?:video\s+)?script\b(?!\s*s\b|\s+count\b)\s*[#:\-–—.]*\s*0*\d{1,3}\b/i.test(next)) {
+      continue; // Skip standalone page number!
+    }
+
+    // Check 2-line header Pattern 1: Line i is just a number ("01" or "#1"), Line i+1 is "VIDEO SCRIPT" / "Script" WITHOUT an own number
     const standaloneNumMatch = cur.match(/^#?0*(\d{1,3})\s*[.:\-–—]?\s*$/);
     if (standaloneNumMatch && next) {
-      const nextScriptLabelMatch = next.match(
-        /^(?:video\s+script|script)\b(?!\s*s\b|\s+count\b)(?:\s+0*(\d{1,3})\b)?\s*[.:\-–—]?\s*(.*)$/i
-      );
-      if (nextScriptLabelMatch) {
-        const num = standaloneNumMatch[1];
-        const sub = (nextScriptLabelMatch[2] || '').trim();
-        mergedLines.push(sub ? `Script ${num} : ${sub}` : `Script ${num}`);
-        i++;
-        continue;
+      const nextHasOwnNumber = /^(?:video\s+)?script\b(?!\s*s\b|\s+count\b)\s*[#:\-–—.]*\s*0*\d{1,3}\b/i.test(next);
+      if (!nextHasOwnNumber) {
+        const nextScriptLabelMatch = next.match(
+          /^(?:video\s+)?script\b(?!\s*s\b|\s+count\b)\s*[.:\-–—]?\s*(.*)$/i
+        );
+        if (nextScriptLabelMatch) {
+          const num = standaloneNumMatch[1];
+          const sub = (nextScriptLabelMatch[1] || '').trim();
+          mergedLines.push(sub ? `Script ${num} : ${sub}` : `Script ${num}`);
+          i++;
+          continue;
+        }
       }
     }
 
     // Check 2-line header Pattern 2: Line i is just "VIDEO SCRIPT" or "Script", Line i+1 is a standalone number ("01")
-    if (/^(?:video\s+script|script)\s*[#:\-–—]?\s*$/i.test(cur) && next) {
+    if (/^(?:video\s+)?script\s*[#:\-–—]?\s*$/i.test(cur) && next) {
       const nextNumMatch = next.match(/^#?0*(\d{1,3})\s*[.:\-–—]?\s*(.*)$/);
       if (nextNumMatch && !/^(?:scripts?\b)/i.test(nextNumMatch[2] || '')) {
         const num = nextNumMatch[1];
@@ -220,7 +250,7 @@ function parseMasterScriptSections(rawText: string): ParsedScriptSection[] {
 
     // Pattern A: Number before "VIDEO SCRIPT" / "Script" (e.g., "01 VIDEO SCRIPT", "01 Video Script 1", "01 - VIDEO SCRIPT: Title")
     const mNumFirst = trimmed.match(
-      /^#?0*(\d{1,3})\s*[.:\-–—]?\s*(?:video\s+script|script)\b(?!\s*s\b|\s+count\b)(?:\s+0*\d{1,3}\b)?\s*[.:\-–—]?\s*(.*)$/i
+      /^#?0*(\d{1,3})\s*[.:\-–—]?\s*(?:video\s+)?script\b(?!\s*s\b|\s+count\b)(?:\s+0*\d{1,3}\b)?\s*[.:\-–—]?\s*(.*)$/i
     );
     if (mNumFirst) {
       return {
@@ -246,6 +276,18 @@ function parseMasterScriptSections(rawText: string): ParsedScriptSection[] {
   const rawSections: ParsedScriptSection[] = [];
   let currentHeader: { scriptNum: number; subtitle: string; hasExplicitHeader: boolean } | null = null;
   let currentBody: string[] = [];
+  let isCurrentlyInTOC = false;
+
+  const isCueOrDialogueLine = (line: string) => {
+    const t = line.trim();
+    if (!t) return false;
+    if (/^(?:CONTENTS|TABLE\s+OF\s+CONTENTS)\b/i.test(t)) return false;
+    return (
+      /^(?:HOOK|H\s*O\s*O\s*K|CONTEXT|C\s*O\s*N\s*T\s*E\s*X\s*T|CONTENT|CTA|C\s*T\s*A|BODY|INTRO|OUTRO|SCENE|AUDIO|VISUAL|EMOTIONAL\s+BEAT|EDUCATION|THE\s+KEY\s+TRUTH|THE\s+PROVEN\s+FIX|THE\s+GOLDEN\s+RULES?|MEME|TEXT|REEL)\b/i.test(t) ||
+      /^\[.+\]$/.test(t) ||
+      /^[A-Z0-9\s._'-]{2,25}\s*:\s*.+/i.test(t)
+    );
+  };
 
   const flushSection = () => {
     let start = 0;
@@ -262,12 +304,12 @@ function parseMasterScriptSections(rawText: string): ParsedScriptSection[] {
     ) {
       end--;
     }
-    const cleanBody = currentBody.slice(start, end + 1);
+    let cleanBody = currentBody.slice(start, end + 1);
 
     if (
       !currentHeader?.hasExplicitHeader &&
       cleanBody.length === 1 &&
-      /^contents$/i.test(cleanBody[0].trim())
+      /^(?:contents|c\s*o\s*n\s*t\s*e\s*n\s*t\s*s)$/i.test(cleanBody[0].trim())
     ) {
       currentBody = [];
       return;
@@ -275,7 +317,7 @@ function parseMasterScriptSections(rawText: string): ParsedScriptSection[] {
     if (
       !currentHeader?.hasExplicitHeader &&
       cleanBody.length > 1 &&
-      /^contents$/i.test(cleanBody[cleanBody.length - 1].trim())
+      /^(?:contents|c\s*o\s*n\s*t\s*e\s*n\s*t\s*s)$/i.test(cleanBody[cleanBody.length - 1].trim())
     ) {
       cleanBody.pop();
       while (cleanBody.length > 0 && !cleanBody[cleanBody.length - 1].trim()) {
@@ -290,12 +332,50 @@ function parseMasterScriptSections(rawText: string): ParsedScriptSection[] {
 
     const scriptNum = currentHeader ? currentHeader.scriptNum : 0;
     const hasExplicitHeader = currentHeader ? currentHeader.hasExplicitHeader : false;
+    let headerSubtitle = currentHeader?.subtitle || '';
+
+    // If headerSubtitle is empty, check if the first non-empty lines of cleanBody are the script title
+    if (hasExplicitHeader && !headerSubtitle && cleanBody.length > 0) {
+      const titleLines: string[] = [];
+      let idx = 0;
+      while (idx < cleanBody.length && titleLines.length < 3) {
+        const curLine = cleanBody[idx].trim();
+        if (!curLine) {
+          idx++;
+          continue;
+        }
+        if (isCueOrDialogueLine(curLine)) {
+          break;
+        }
+        if (/^[#*•_=~-]+$/.test(curLine)) {
+          break;
+        }
+        if (/^[A-Z]\s+[A-Z]\s+[A-Z]\s+[A-Z]/.test(curLine)) {
+          break; // Letter-spaced table header like "N O . C O M M O N..."
+        }
+        if (titleLines.length > 0 && curLine.length > 55) {
+          break; // Body sentence, not title continuation
+        }
+        if (/^(?:according\s+to|note\s*:|important\s*:)/i.test(curLine)) {
+          break;
+        }
+
+        titleLines.push(curLine);
+        idx++;
+      }
+      if (titleLines.length > 0) {
+        headerSubtitle = titleLines.join(' ');
+        cleanBody = cleanBody.slice(idx);
+      }
+    }
+
     const headerTitle = `SCRIPT ${scriptNum}`;
-    const headerSubtitle = currentHeader?.subtitle || '';
     const fullHeaderLine = headerSubtitle ? `${headerTitle} • ${headerSubtitle}` : headerTitle;
     const rawSection = hasExplicitHeader
       ? [fullHeaderLine, ...cleanBody].join('\n').trim()
       : cleanBody.join('\n').trim();
+
+    const isTocCandidate = isCurrentlyInTOC && cleanBody.length <= 2 && !cleanBody.some(isCueOrDialogueLine);
 
     rawSections.push({
       scriptNum,
@@ -304,14 +384,24 @@ function parseMasterScriptSections(rawText: string): ParsedScriptSection[] {
       headerSubtitle,
       bodyLines: cleanBody,
       rawSection,
+      isTocCandidate,
       originalIndex: rawSections.length,
     });
     currentBody = [];
   };
 
   for (const line of mergedLines) {
+    const trimmed = line.trim();
+    if (/^(?:CONTENTS|TABLE\s+OF\s+CONTENTS|INDEX)$/i.test(trimmed)) {
+      isCurrentlyInTOC = true;
+    }
+
     const hm = matchScriptHeader(line);
     if (hm) {
+      if (isCurrentlyInTOC && isCueOrDialogueLine(line)) {
+        isCurrentlyInTOC = false;
+      }
+
       if (currentHeader !== null || currentBody.some(l => l.trim().length > 0)) {
         flushSection();
       } else {
@@ -323,6 +413,9 @@ function parseMasterScriptSections(rawText: string): ParsedScriptSection[] {
         hasExplicitHeader: true,
       };
     } else {
+      if (isCurrentlyInTOC && isCueOrDialogueLine(trimmed)) {
+        isCurrentlyInTOC = false;
+      }
       currentBody.push(line);
     }
   }
@@ -334,16 +427,49 @@ function parseMasterScriptSections(rawText: string): ParsedScriptSection[] {
   const nonEmpty = rawSections.filter(s => s.bodyLines.length > 0);
   let finalSections = nonEmpty.length > 0 ? nonEmpty : rawSections;
 
+  // If full scripts are present (with cues or multiple lines), discard any TOC candidate sections!
+  const hasFullScripts = finalSections.some(
+    s => !s.isTocCandidate && s.hasExplicitHeader && (s.bodyLines.length > 2 || s.bodyLines.some(isCueOrDialogueLine))
+  );
+  if (hasFullScripts) {
+    finalSections = finalSections.filter(s => !s.isTocCandidate);
+  }
+
+  // De-duplicate any remaining same-scriptNum collisions: keep the one with the richest body
+  const byNum = new Map<number, ParsedScriptSection[]>();
+  finalSections.forEach(s => {
+    if (!byNum.has(s.scriptNum)) {
+      byNum.set(s.scriptNum, []);
+    }
+    byNum.get(s.scriptNum)!.push(s);
+  });
+
+  const deduplicated: ParsedScriptSection[] = [];
+  byNum.forEach((secs, num) => {
+    if (secs.length === 1 || num === 0) {
+      deduplicated.push(...secs);
+    } else {
+      const best = secs.reduce((max, cur) => (cur.bodyLines.length > max.bodyLines.length ? cur : max), secs[0]);
+      deduplicated.push(best);
+    }
+  });
+  finalSections = deduplicated;
+
   // If numbered scripts exist, filter out pure PDF cover page / title-only preamble blocks
   const hasExplicitNumbered = finalSections.some(s => s.hasExplicitHeader);
   if (hasExplicitNumbered) {
     finalSections = finalSections.filter(s => {
       if (s.hasExplicitHeader) return true;
       const joined = s.bodyLines.join('\n');
+      const nonBlankLines = s.bodyLines.filter(l => l.trim().length > 0);
       const isCoverBoilerplate =
         /C\s*O\s*N\s*T\s*E\s*N\s*T\s+S\s*C\s*R\s*I\s*P\s*T\s+P\s*A\s*C\s*K\s*A\s*G\s*E/i.test(joined) ||
         (/\bPREPARED\s+FOR\b/i.test(joined) && /\bSCRIPT\s+COUNT\b/i.test(joined)) ||
-        (s.bodyLines.length === 1 && /^(?:additional\s+scripts|video\s+scripts|scripts|contents)$/i.test(s.bodyLines[0].trim()));
+        (nonBlankLines.length <= 8 &&
+          /^(?:additional\s+scripts|video\s+scripts|scripts|contents|dr\s+jeeva|roarzen|dr\.?\s+[a-z]+)/i.test(
+            nonBlankLines[0] || ''
+          )) ||
+        (!s.bodyLines.some(isCueOrDialogueLine) && nonBlankLines.length <= 6);
       return !isCoverBoilerplate;
     });
   }
@@ -478,8 +604,8 @@ function FormattedScriptViewer({
                   return <Box key={lIdx} sx={{ height: 6 }} />;
                 }
 
-                // Section subheaders like "HOOK :", "CONTENT :", "CTA :"
-                const cueMatch = trimmedLine.match(/^(HOOK|CONTENT|CTA|BODY|INTRO|OUTRO)\s*:\s*(.*)$/i);
+                // Section subheaders like "HOOK :", "CONTENT :", "CTA :", "HOOK", "CONTEXT :"
+                const cueMatch = trimmedLine.match(/^(HOOK|CONTENT|CONTEXT|CTA|BODY|INTRO|OUTRO|SCENE)\b\s*[:\-–—]?\s*(.*)$/i);
                 if (cueMatch) {
                   const cueLabel = cueMatch[1].toUpperCase();
                   const cueRest = cueMatch[2].trim();
@@ -508,9 +634,9 @@ function FormattedScriptViewer({
                   );
                 }
 
-                // Numbered list items: "1. ...", "1) ...", "Number 1 — ...", or "1 Country" (avoiding "7 Things...", "1 Year...", "2027...")
+                // Numbered list items: "1. ...", "1) ...", "1: ...", "Number 1 — ...", or "1 Country" (avoiding "7 Things...", "1 Year...", "2027...")
                 const seqMatch =
-                  trimmedLine.match(/^(\d{1,2})\s*[.)]\s*(.+)/) ||
+                  trimmedLine.match(/^(\d{1,2})\s*[:.)]\s*(.+)/) ||
                   trimmedLine.match(/^Number\s+(\d{1,2})\s*[:.\-–—…]+\s*(.+)/i) ||
                   trimmedLine.match(
                     /^(\d{1,2})\s+(?!(?:things?|years?|months?|days?|hours?|weeks?|grams?|liters?|litres?|lakhs?|crores?|full|half|la)\b)(.+)/i
