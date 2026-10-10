@@ -21,7 +21,7 @@ import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import FilterAltOffRoundedIcon from '@mui/icons-material/FilterAltOffRounded';
 import { format, startOfMonth, endOfMonth } from 'date-fns';
 import { useApp } from '../contexts/AppContext';
-import { calcTaskRevenueFull, formatCurrency, formatDate, PAYMENT_METHODS } from '../types';
+import { calcTaskRevenueFull, calcClientOutstanding, calcTotalOutstanding, formatCurrency, formatDate, PAYMENT_METHODS } from '../types';
 import type { Task, Payment, Discount } from '../types';
 import TaskDialog from '../components/TaskDialog';
 
@@ -371,7 +371,7 @@ function TaskListRow({ task, onEdit, onDelete }: {
 
 // Payments & Ledger View (Spacious Layout)
 function PaymentsSection() {
-  const { clients, payments, discounts, settings, addPayment, updatePayment, deletePayment, addDiscount, updateDiscount, deleteDiscount, activeWorkspace, canEdit, currentRole } = useApp();
+  const { clients, payments, discounts, tasks, salaryRates, settings, addPayment, updatePayment, deletePayment, addDiscount, updateDiscount, deleteDiscount, activeWorkspace, canEdit, currentRole } = useApp();
   const [entryType, setEntryType] = useState<'payment' | 'discount'>('payment');
   const [clientId, setClientId] = useState('');
   const [amount, setAmount] = useState('');
@@ -388,6 +388,27 @@ function PaymentsSection() {
   const filteredDiscounts = filterClient ? discounts.filter(d => d.client_id === filterClient) : discounts;
   const discTotal = filteredDiscounts.reduce((s, d) => s + d.amount, 0);
   const netReceived = total - discTotal;
+
+  // Selected client in the Record Entry form
+  const selectedClient = useMemo(() => clients.find(c => c.id === clientId), [clients, clientId]);
+  const selectedClientOutstanding = useMemo(() => {
+    if (!clientId) return null;
+    return calcClientOutstanding(clientId, selectedClient, tasks, salaryRates, payments, discounts);
+  }, [clientId, selectedClient, tasks, salaryRates, payments, discounts]);
+
+  // Client selected in the Transaction History filter dropdown
+  const filterClientObj = useMemo(() => clients.find(c => c.id === filterClient), [clients, filterClient]);
+  const filterClientOutstanding = useMemo(() => {
+    if (!filterClient) return null;
+    return calcClientOutstanding(filterClient, filterClientObj, tasks, salaryRates, payments, discounts);
+  }, [filterClient, filterClientObj, tasks, salaryRates, payments, discounts]);
+
+  // Overall outstanding across all clients
+  const totalOutstanding = useMemo(() => {
+    return calcTotalOutstanding(clients, tasks, salaryRates, payments, discounts);
+  }, [clients, tasks, salaryRates, payments, discounts]);
+
+  const activeOutstanding = filterClient ? (filterClientOutstanding?.balance ?? 0) : totalOutstanding;
 
   const resetForm = () => { setAmount(''); setNote(''); setPaymentForMonths([]); };
 
@@ -413,7 +434,7 @@ function PaymentsSection() {
   return (
     <Box>
       {/* Financial KPI Highlights */}
-      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: '1fr 1fr 1fr' }, gap: 1.5, mb: 3 }}>
+      <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', sm: 'repeat(2, 1fr)', lg: 'repeat(4, 1fr)' }, gap: 1.5, mb: 3 }}>
         <Card sx={{ p: 2, bgcolor: 'background.paper', border: '1px solid rgba(52,211,153,0.2)' }}>
           <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>Total Payments Received</Typography>
           <Typography variant="h5" sx={{ fontWeight: 800, color: '#34D399', mt: 0.5 }}>{cur(total)}</Typography>
@@ -431,28 +452,70 @@ function PaymentsSection() {
           <Typography variant="h5" sx={{ fontWeight: 800, color: '#818CF8', mt: 0.5 }}>{cur(netReceived)}</Typography>
           <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.7rem' }}>After all discounts</Typography>
         </Card>
+
+        <Card sx={{
+          p: 2,
+          bgcolor: 'background.paper',
+          border: '1px solid',
+          borderColor: activeOutstanding > 0 ? 'rgba(248,113,113,0.3)' : 'rgba(52,211,153,0.25)',
+        }}>
+          <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600 }}>
+            {filterClient ? `${filterClientObj?.name ?? 'Client'} Outstanding` : 'Total Outstanding Balance'}
+          </Typography>
+          <Typography
+            variant="h5"
+            sx={{
+              fontWeight: 800,
+              color: activeOutstanding > 0 ? '#F87171' : '#34D399',
+              mt: 0.5,
+            }}
+          >
+            {cur(activeOutstanding)}
+          </Typography>
+          <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.7rem' }}>
+            {activeOutstanding > 0
+              ? 'Pending collection'
+              : (activeOutstanding < 0 ? 'Advance / Overpaid' : 'All accounts settled')}
+          </Typography>
+        </Card>
       </Box>
 
       {/* Main 2-column layout */}
       <Box sx={{ display: 'grid', gridTemplateColumns: { xs: '1fr', lg: '7fr 5fr' }, gap: 2.5, alignItems: 'start' }}>
         {/* Left: Transaction History */}
         <Card sx={{ p: 2.5, bgcolor: 'background.paper' }}>
-          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2 }}>
+          <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 2, flexWrap: 'wrap', gap: 1 }}>
             <Box>
               <Typography variant="h6" sx={{ fontWeight: 800 }}>Transaction History</Typography>
               <Typography variant="caption" sx={{ color: 'text.secondary' }}>Ledger of client payments & deductions</Typography>
             </Box>
 
-            <Select
-              value={filterClient}
-              onChange={e => setFilterClient(e.target.value)}
-              size="small"
-              displayEmpty
-              sx={{ minWidth: 150, fontSize: '0.82rem' }}
-            >
-              <MenuItem value="">All Clients</MenuItem>
-              {clients.map(c => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
-            </Select>
+            <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+              <Select
+                value={filterClient}
+                onChange={e => setFilterClient(e.target.value)}
+                size="small"
+                displayEmpty
+                sx={{ minWidth: 140, fontSize: '0.82rem' }}
+              >
+                <MenuItem value="">All Clients</MenuItem>
+                {clients.map(c => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
+              </Select>
+              {filterClient && filterClientOutstanding && (
+                <Chip
+                  label={`Outstanding: ${cur(filterClientOutstanding.balance)}`}
+                  size="small"
+                  sx={{
+                    fontWeight: 700,
+                    fontSize: '0.72rem',
+                    bgcolor: filterClientOutstanding.balance > 0 ? 'rgba(248,113,113,0.15)' : 'rgba(52,211,153,0.15)',
+                    color: filterClientOutstanding.balance > 0 ? '#F87171' : '#34D399',
+                    border: '1px solid',
+                    borderColor: filterClientOutstanding.balance > 0 ? 'rgba(248,113,113,0.3)' : 'rgba(52,211,153,0.3)',
+                  }}
+                />
+              )}
+            </Box>
           </Box>
 
           <Box sx={{ display: 'flex', flexDirection: 'column', gap: 1, maxHeight: 500, overflowY: 'auto', pr: 0.5 }}>
@@ -558,6 +621,96 @@ function PaymentsSection() {
                 <MenuItem value="" disabled>Select Client *</MenuItem>
                 {clients.map(c => <MenuItem key={c.id} value={c.id}>{c.name}</MenuItem>)}
               </Select>
+
+              {selectedClient && selectedClientOutstanding && (
+                <Fade in timeout={300}>
+                  <Box
+                    sx={{
+                      p: 1.5,
+                      borderRadius: 1.5,
+                      bgcolor: selectedClientOutstanding.balance > 0
+                        ? 'rgba(248, 113, 113, 0.08)'
+                        : selectedClientOutstanding.balance < 0
+                          ? 'rgba(52, 211, 153, 0.08)'
+                          : 'rgba(255, 255, 255, 0.03)',
+                      border: '1px solid',
+                      borderColor: selectedClientOutstanding.balance > 0
+                        ? 'rgba(248, 113, 113, 0.3)'
+                        : selectedClientOutstanding.balance < 0
+                          ? 'rgba(52, 211, 153, 0.3)'
+                          : 'rgba(255, 255, 255, 0.08)',
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      gap: 1.5,
+                    }}
+                  >
+                    <Box sx={{ minWidth: 0 }}>
+                      <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+                        <Typography variant="caption" sx={{ color: 'text.secondary', fontWeight: 600, textTransform: 'uppercase', fontSize: '0.68rem', letterSpacing: 0.5 }}>
+                          Total Outstanding
+                        </Typography>
+                        <Chip
+                          label={
+                            selectedClientOutstanding.balance > 0
+                              ? 'Unpaid'
+                              : selectedClientOutstanding.balance < 0
+                                ? 'Advance'
+                                : 'Settled'
+                          }
+                          size="small"
+                          sx={{
+                            height: 18,
+                            fontSize: '0.62rem',
+                            fontWeight: 700,
+                            bgcolor: selectedClientOutstanding.balance > 0
+                              ? 'rgba(248, 113, 113, 0.15)'
+                              : 'rgba(52, 211, 153, 0.15)',
+                            color: selectedClientOutstanding.balance > 0 ? '#F87171' : '#34D399',
+                          }}
+                        />
+                      </Box>
+                      <Typography
+                        variant="h6"
+                        sx={{
+                          fontWeight: 800,
+                          color: selectedClientOutstanding.balance > 0 ? '#F87171' : '#34D399',
+                          lineHeight: 1.2,
+                          mt: 0.25,
+                        }}
+                      >
+                        {cur(selectedClientOutstanding.balance)}
+                      </Typography>
+                      <Typography variant="caption" sx={{ color: 'text.secondary', fontSize: '0.72rem', display: 'block', mt: 0.25 }}>
+                        Earned: {cur(selectedClientOutstanding.earned)} • Paid: {cur(selectedClientOutstanding.paid)}
+                        {selectedClientOutstanding.discounts > 0 ? ` • Disc: ${cur(selectedClientOutstanding.discounts)}` : ''}
+                      </Typography>
+                    </Box>
+
+                    {selectedClientOutstanding.balance > 0 && canEdit && (
+                      <Button
+                        size="small"
+                        variant="outlined"
+                        onClick={() => setAmount(selectedClientOutstanding.balance.toString())}
+                        sx={{
+                          textTransform: 'none',
+                          fontSize: '0.72rem',
+                          fontWeight: 700,
+                          whiteSpace: 'nowrap',
+                          borderColor: 'rgba(248, 113, 113, 0.4)',
+                          color: '#F87171',
+                          '&:hover': {
+                            borderColor: '#F87171',
+                            bgcolor: 'rgba(248, 113, 113, 0.08)',
+                          },
+                        }}
+                      >
+                        Fill Amount
+                      </Button>
+                    )}
+                  </Box>
+                </Fade>
+              )}
 
               <Box sx={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 1.5 }}>
                 <TextField

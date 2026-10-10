@@ -295,6 +295,55 @@ export function calcClientPaid(payments: Payment[], clientId: string): number {
     .reduce((sum, p) => sum + (p.amount ?? 0), 0);
 }
 
+/**
+ * Calculates total all-time earned, paid, discounts, and outstanding balance for a client.
+ * Positive balance = client owes money (unpaid / outstanding).
+ * Negative balance = overpaid / advance.
+ * Zero = fully settled.
+ */
+export function calcClientOutstanding(
+  clientId: string,
+  client: Client | undefined | null,
+  tasks: Task[],
+  salaryRates: SalaryRate[],
+  payments: Payment[],
+  discounts: Discount[],
+): { earned: number; paid: number; discounts: number; balance: number } {
+  const allClientTasks = tasks.filter(t => t.client_id === clientId);
+  let earned = 0;
+  if (client?.payment_type === 'monthly') {
+    const allDates = allClientTasks
+      .map(t => t.completed_date ?? t.received_date)
+      .filter(Boolean) as string[];
+    earned = calcMonthlyRevenue(clientId, salaryRates, allDates, client);
+  } else {
+    allClientTasks.forEach(t => {
+      earned += calcTaskRevenueFull(t, client, salaryRates, tasks);
+    });
+  }
+
+  const paid = calcClientPaid(payments, clientId);
+  const clientDiscounts = discounts
+    .filter(d => d.client_id === clientId)
+    .reduce((s, d) => s + (d.amount ?? 0), 0);
+
+  const balance = earned - paid - clientDiscounts;
+  return { earned, paid, discounts: clientDiscounts, balance };
+}
+
+export function calcTotalOutstanding(
+  clients: Client[],
+  tasks: Task[],
+  salaryRates: SalaryRate[],
+  payments: Payment[],
+  discounts: Discount[],
+): number {
+  return clients.reduce((sum, c) => {
+    const { balance } = calcClientOutstanding(c.id, c, tasks, salaryRates, payments, discounts);
+    return sum + balance;
+  }, 0);
+}
+
 export function formatCurrency(amount: number, currency: 'USD' | 'INR'): string {
   const isNeg = amount < -0.0001;
   const sign = isNeg ? '-' : '';
