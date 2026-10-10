@@ -21,7 +21,7 @@ import CloseRoundedIcon from '@mui/icons-material/CloseRounded';
 import FilterAltOffRoundedIcon from '@mui/icons-material/FilterAltOffRounded';
 import { format, startOfMonth, endOfMonth } from 'date-fns';
 import { useApp } from '../contexts/AppContext';
-import { calcTaskRevenueFull, calcClientOutstanding, calcTotalOutstanding, formatCurrency, formatDate, PAYMENT_METHODS } from '../types';
+import { calcTaskRevenueFull, calcClientOutstanding, calcTotalOutstanding, calcClientMonthPending, formatCurrency, formatDate, PAYMENT_METHODS } from '../types';
 import type { Task, Payment, Discount } from '../types';
 import TaskDialog from '../components/TaskDialog';
 
@@ -381,6 +381,7 @@ function PaymentsSection() {
   const [paymentForMonths, setPaymentForMonths] = useState<string[]>([]);
   const [filterClient, setFilterClient] = useState('');
   const [editItem, setEditItem] = useState<{ type: 'payment' | 'discount'; id: string } | null>(null);
+  const [isAmountFocused, setIsAmountFocused] = useState(false);
   const cur = (v: number) => formatCurrency(v, settings.currency);
 
   const filtered = filterClient ? payments.filter(p => p.client_id === filterClient) : payments;
@@ -395,6 +396,76 @@ function PaymentsSection() {
     if (!clientId) return null;
     return calcClientOutstanding(clientId, selectedClient, tasks, salaryRates, payments, discounts);
   }, [clientId, selectedClient, tasks, salaryRates, payments, discounts]);
+
+  // Pending amounts for the last 2 months + current month for the selected client
+  const amountSuggestions = useMemo(() => {
+    if (!clientId) return [];
+    const client = clients.find(c => c.id === clientId);
+
+    const ref = date ? new Date(date + 'T12:00:00') : new Date();
+    const currY = ref.getFullYear();
+    const currM = ref.getMonth();
+
+    // 2 months ago, 1 month ago, current month
+    const calendarMonths = [
+      format(new Date(currY, currM - 2, 1), 'yyyy-MM'),
+      format(new Date(currY, currM - 1, 1), 'yyyy-MM'),
+      format(new Date(currY, currM, 1), 'yyyy-MM'),
+    ];
+
+    const getMonthPending = (m: string) => {
+      const { pending } = calcClientMonthPending(
+        clientId,
+        client,
+        m,
+        tasks,
+        salaryRates,
+        payments,
+        discounts
+      );
+      return pending;
+    };
+
+    let targetMonths = [...calendarMonths];
+
+    // If none of the 3 recent calendar months have pending, but client has tasks in older months,
+    // grab the latest months where the client actually has tasks with pending amount (up to 3 months)
+    const calendarHasPending = targetMonths.some(m => getMonthPending(m) > 0);
+    if (!calendarHasPending) {
+      const clientTaskMonths = Array.from(
+        new Set(
+          tasks
+            .filter(t => t.client_id === clientId)
+            .map(t => (t.completed_date ?? t.received_date)?.slice(0, 7))
+            .filter(Boolean) as string[]
+        )
+      ).sort();
+
+      if (clientTaskMonths.length > 0) {
+        targetMonths = clientTaskMonths.slice(-3);
+      }
+    }
+
+    const suggestions: { monthStr: string; monthTag: string; monthLabel: string; pending: number }[] = [];
+
+    targetMonths.forEach(m => {
+      const pending = getMonthPending(m);
+      if (pending > 0) {
+        const [yr, mo] = m.split('-').map(Number);
+        const d = new Date(yr, mo - 1, 1);
+        const monthTag = d.toLocaleDateString('en-US', { month: 'short' }).toUpperCase();
+        const monthLabel = d.toLocaleDateString('en-US', { month: 'short', year: '2-digit' });
+        suggestions.push({
+          monthStr: m,
+          monthTag,
+          monthLabel,
+          pending,
+        });
+      }
+    });
+
+    return suggestions;
+  }, [clientId, clients, date, tasks, salaryRates, payments, discounts]);
 
   // Client selected in the Transaction History filter dropdown
   const filterClientObj = useMemo(() => clients.find(c => c.id === filterClient), [clients, filterClient]);
@@ -749,21 +820,117 @@ function PaymentsSection() {
                 />
               )}
 
-              <TextField
-                size="small"
-                type="number"
-                label="Amount"
-                placeholder="0.00"
-                value={amount}
-                onChange={e => setAmount(e.target.value)}
-                InputProps={{
-                  startAdornment: (
-                    <InputAdornment position="start">
-                      {settings.currency === 'INR' ? '₹' : '$'}
-                    </InputAdornment>
-                  ),
-                }}
-              />
+              <Box>
+                <TextField
+                  size="small"
+                  type="number"
+                  label="Amount"
+                  placeholder="0.00"
+                  value={amount}
+                  autoComplete="off"
+                  fullWidth
+                  onFocus={() => setIsAmountFocused(true)}
+                  onClick={() => setIsAmountFocused(true)}
+                  onBlur={() => setTimeout(() => setIsAmountFocused(false), 250)}
+                  onChange={e => setAmount(e.target.value)}
+                  InputProps={{
+                    startAdornment: (
+                      <InputAdornment position="start">
+                        {settings.currency === 'INR' ? '₹' : '$'}
+                      </InputAdornment>
+                    ),
+                  }}
+                />
+
+                {isAmountFocused && amountSuggestions.length > 0 && (
+                  <Fade in timeout={250}>
+                    <Box
+                      sx={{
+                        mt: 1,
+                        p: 1.25,
+                        borderRadius: 1.5,
+                        bgcolor: 'rgba(52, 211, 153, 0.05)',
+                        border: '1px solid rgba(52, 211, 153, 0.25)',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: 0.75,
+                      }}
+                    >
+                      <Box sx={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+                        <Typography
+                          variant="caption"
+                          sx={{
+                            color: 'text.secondary',
+                            fontWeight: 700,
+                            fontSize: '0.66rem',
+                            textTransform: 'uppercase',
+                            letterSpacing: 0.5,
+                          }}
+                        >
+                          Pending Month Suggestions
+                        </Typography>
+                        <Typography variant="caption" sx={{ color: 'text.disabled', fontSize: '0.62rem' }}>
+                          Click to autofill
+                        </Typography>
+                      </Box>
+
+                      <Box sx={{ display: 'flex', flexWrap: 'wrap', gap: 0.75 }}>
+                        {amountSuggestions.map(s => {
+                          const isSelected = amount === s.pending.toString() && paymentForMonths.includes(s.monthStr);
+                          return (
+                            <Button
+                              key={s.monthStr}
+                              size="small"
+                              variant={isSelected ? "contained" : "outlined"}
+                              onMouseDown={(e) => {
+                                // Prevent input from blurring before click completes
+                                e.preventDefault();
+                              }}
+                              onClick={() => {
+                                setAmount(s.pending.toString());
+                                setPaymentForMonths([s.monthStr]);
+                              }}
+                              sx={{
+                                py: 0.4,
+                                px: 1,
+                                borderRadius: 1.25,
+                                textTransform: 'none',
+                                fontSize: '0.78rem',
+                                fontWeight: 700,
+                                borderColor: isSelected ? '#34D399' : 'rgba(52, 211, 153, 0.4)',
+                                bgcolor: isSelected ? 'rgba(52, 211, 153, 0.25)' : 'rgba(52, 211, 153, 0.06)',
+                                color: isSelected ? '#34D399' : 'text.primary',
+                                '&:hover': {
+                                  bgcolor: 'rgba(52, 211, 153, 0.2)',
+                                  borderColor: '#34D399',
+                                },
+                                display: 'flex',
+                                alignItems: 'center',
+                                gap: 0.75,
+                              }}
+                            >
+                              <span>{cur(s.pending)}</span>
+                              <Chip
+                                label={s.monthTag}
+                                size="small"
+                                sx={{
+                                  height: 16,
+                                  fontSize: '0.6rem',
+                                  fontWeight: 800,
+                                  bgcolor: isSelected ? 'rgba(52, 211, 153, 0.4)' : 'rgba(255, 255, 255, 0.1)',
+                                  color: isSelected ? '#FFFFFF' : 'text.secondary',
+                                  px: 0.25,
+                                  pointerEvents: 'none',
+                                }}
+                              />
+                            </Button>
+                          );
+                        })}
+                      </Box>
+                    </Box>
+                  </Fade>
+                )}
+              </Box>
 
               <Button
                 variant="contained"

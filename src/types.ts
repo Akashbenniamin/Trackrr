@@ -344,6 +344,46 @@ export function calcTotalOutstanding(
   }, 0);
 }
 
+/**
+ * Calculates earned, paid, discounts, and pending unpaid amount for a client in a specific month ('YYYY-MM').
+ */
+export function calcClientMonthPending(
+  clientId: string,
+  client: Client | undefined | null,
+  monthStr: string,
+  tasks: Task[],
+  salaryRates: SalaryRate[],
+  payments: Payment[],
+  discounts: Discount[],
+): { earned: number; paid: number; discounts: number; pending: number } {
+  const clientTasks = tasks.filter(t => {
+    if (t.client_id !== clientId) return false;
+    const d = t.completed_date ?? t.received_date;
+    return d && d.slice(0, 7) === monthStr;
+  });
+
+  let earned = 0;
+  if (client?.payment_type === 'monthly') {
+    if (clientTasks.length > 0) {
+      const [yr, mo] = monthStr.split('-').map(Number);
+      earned = getSalaryForMonth(salaryRates, clientId, new Date(yr, mo - 1, 1), client);
+    }
+  } else {
+    clientTasks.forEach(t => {
+      earned += calcTaskRevenueFull(t, client, salaryRates, tasks);
+    });
+  }
+
+  const clientPayments = payments.filter(p => p.client_id === clientId);
+  const clientDiscounts = discounts.filter(d => d.client_id === clientId);
+
+  const paid = clientPayments.reduce((s, p) => s + getItemAmountForMonth(p, monthStr), 0);
+  const disc = clientDiscounts.reduce((s, d) => s + getItemAmountForMonth(d, monthStr), 0);
+
+  const pending = Math.max(0, Math.round((earned - paid - disc) * 100) / 100);
+  return { earned, paid, discounts: disc, pending };
+}
+
 export function formatCurrency(amount: number, currency: 'USD' | 'INR'): string {
   const isNeg = amount < -0.0001;
   const sign = isNeg ? '-' : '';
