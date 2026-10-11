@@ -100,14 +100,17 @@ export default function ClientsView() {
       const currentMonth = today.toISOString().slice(0, 7);
       const sorted = [...taskDates].sort();
       const earliest = sorted[0];
-      const latest = sorted[sorted.length - 1];
       let days: number;
-      if (monthFilter === currentMonth || (!monthFilter && latest.slice(0, 7) === currentMonth)) {
-        // Ongoing month: count days from earliest task up to today
-        days = Math.max(1, Math.ceil((new Date(todayStr).getTime() - new Date(earliest).getTime()) / 86400000) + 1);
+      if (monthFilter === currentMonth) {
+        // Ongoing active month: divide by days elapsed so far (e.g. 11 on Oct 11)
+        days = Math.max(1, today.getDate());
+      } else if (monthFilter) {
+        // Completed past month: use total days in that month
+        const [yr, mo] = monthFilter.split('-').map(Number);
+        days = new Date(yr, mo, 0).getDate();
       } else {
-        // Completed month: use the full span of tasks
-        days = Math.max(1, Math.ceil((new Date(latest).getTime() - new Date(earliest).getTime()) / 86400000) + 1);
+        // All time: span from earliest task to today
+        days = Math.max(1, Math.ceil((new Date(todayStr).getTime() - new Date(earliest).getTime()) / 86400000) + 1);
       }
       tasksPerDay = taskCount / days;
     }

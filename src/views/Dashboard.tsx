@@ -199,11 +199,22 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (v: ViewName) =
         earnedPerDay = earned / days;
       }
     } else {
-      const start = scopeBounds.start ? new Date(scopeBounds.start) : startOfMonth(new Date());
-      const end = scopeBounds.end ? new Date(scopeBounds.end) : new Date();
-      const days = Math.max(1, Math.ceil((end.getTime() - start.getTime()) / 86400000));
-      tasksPerDay = scopedTasks.length / days;
-      earnedPerDay = earned / days;
+      const now = new Date();
+      const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+      const isCurrentActiveMonth = scope === 'this_month' || scope === currentMonthStr;
+
+      let days: number;
+      if (isCurrentActiveMonth) {
+        // Active ongoing month: calculate for days elapsed so far (e.g. 11 on Oct 11)
+        days = Math.max(1, now.getDate());
+      } else {
+        // Completed or specific past month: use total days in that month
+        const [yr, mo] = scope.split('-').map(Number);
+        days = new Date(yr, mo, 0).getDate();
+      }
+
+      tasksPerDay = scopedTasks.length / Math.max(1, days);
+      earnedPerDay = earned / Math.max(1, days);
     }
 
     return {
@@ -252,7 +263,13 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (v: ViewName) =
       let rev = 0;
       monthTasks.forEach(t => {
         const c = clients.find(c => c.id === t.client_id);
-        rev += calcTaskRevenueFull(t, c, salaryRates, tasks);
+        if (!c || c.payment_type !== 'monthly') {
+          rev += calcTaskRevenue(t, c);
+        }
+      });
+      clients.filter(c => c.payment_type === 'monthly').forEach(c => {
+        const dates = monthTasks.filter(t => t.client_id === c.id && (t.completed_date ?? t.received_date)).map(t => (t.completed_date ?? t.received_date)!);
+        rev += calcMonthlyRevenue(c.id, salaryRates, dates, c);
       });
       const monthPayments = payments.filter(p => p.date >= start && p.date <= end).reduce((s, p) => s + p.amount, 0);
 

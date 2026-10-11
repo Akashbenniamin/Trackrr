@@ -220,8 +220,11 @@ export function calcTaskRevenue(task: Task, client?: Client | null): number {
 }
 
 /**
- * Per-task revenue for monthly clients: splits the monthly salary evenly
- * across all tasks completed in that task's month (1 task = 1 video).
+ * Per-task revenue for monthly clients:
+ * Divides the total monthly salary by the number of days in that month (daily salary),
+ * and distributes that day's salary across all videos completed on that day.
+ * e.g., Monthly rate 30,000 in a 30-day month = 1,000/day.
+ * 4 videos on day 1 -> 250/video; 2 videos on day 2 -> 500/video.
  */
 export function calcTaskRevenueFull(
   task: Task,
@@ -234,15 +237,26 @@ export function calcTaskRevenueFull(
   if (!taskDate) return 0;
 
   const monthStr = taskDate.slice(0, 7);
+  const dayStr = taskDate.slice(0, 10);
   const [yr, mo] = monthStr.split('-').map(Number);
   const salary = getSalaryForMonth(rates, client.id, new Date(yr, mo - 1, 1), client);
   if (salary <= 0) return 0;
 
-  const tasksInMonth = allTasks
-    .filter(t => t.client_id === client.id && (t.completed_date ?? t.received_date)?.slice(0, 7) === monthStr).length;
+  // Number of days in that month (e.g. 30 for Sep, 31 for Oct)
+  const daysInMonth = new Date(yr, mo, 0).getDate();
+  if (daysInMonth <= 0) return 0;
+  const dailySalary = salary / daysInMonth;
 
-  if (tasksInMonth === 0) return 0;
-  return salary / tasksInMonth;
+  // Find all tasks for this client on the same day (YYYY-MM-DD)
+  const tasksOnDay = allTasks.filter(t =>
+    t.client_id === client.id &&
+    (t.completed_date ?? t.received_date)?.slice(0, 10) === dayStr
+  );
+
+  const totalVideosOnDay = tasksOnDay.reduce((sum, t) => sum + Math.max(1, t.videos || 1), 0) || Math.max(1, task.videos || 1);
+  const taskVideos = Math.max(1, task.videos || 1);
+
+  return Math.round(((dailySalary / totalVideosOnDay) * taskVideos) * 100) / 100;
 }
 
 export function getSalaryForMonth(
