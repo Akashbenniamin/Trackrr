@@ -47,13 +47,35 @@ export default function ClientsView() {
     }
     const client = clients.find(c => c.id === clientId);
 
+    const today = new Date();
+    const todayStr = today.toISOString().slice(0, 10);
+    const currentMonth = today.toISOString().slice(0, 7);
+    const isCurrentActiveMonth = monthFilter === currentMonth;
+
     // Month-scoped earned (or all-time if no monthFilter)
     let earned = 0;
     if (client?.payment_type === 'monthly') {
-      const dates = clientTasks
-        .map(t => t.completed_date ?? t.received_date)
-        .filter(Boolean) as string[];
-      earned = calcMonthlyRevenue(clientId, salaryRates, dates, client);
+      if (isCurrentActiveMonth) {
+        clientTasks.forEach(t => {
+          earned += calcTaskRevenueFull(t, client, salaryRates, tasks);
+        });
+      } else if (!monthFilter) {
+        const pastDates = clientTasks
+          .filter(t => (t.completed_date ?? t.received_date) && (t.completed_date ?? t.received_date)!.slice(0, 7) < currentMonth)
+          .map(t => (t.completed_date ?? t.received_date)!);
+        if (pastDates.length > 0) {
+          earned += calcMonthlyRevenue(clientId, salaryRates, pastDates, client);
+        }
+        const currTasks = clientTasks.filter(t => (t.completed_date ?? t.received_date)?.slice(0, 7) === currentMonth);
+        currTasks.forEach(t => {
+          earned += calcTaskRevenueFull(t, client, salaryRates, tasks);
+        });
+      } else {
+        const dates = clientTasks
+          .map(t => t.completed_date ?? t.received_date)
+          .filter(Boolean) as string[];
+        earned = calcMonthlyRevenue(clientId, salaryRates, dates, client);
+      }
     } else {
       clientTasks.forEach(t => {
         earned += calcTaskRevenueFull(t, client, salaryRates, tasks);
@@ -63,10 +85,16 @@ export default function ClientsView() {
     // All-time earned across all tasks for this client (to compute all unpaid balance)
     let allTimeEarned = 0;
     if (client?.payment_type === 'monthly') {
-      const allDates = allClientTasks
-        .map(t => t.completed_date ?? t.received_date)
-        .filter(Boolean) as string[];
-      allTimeEarned = calcMonthlyRevenue(clientId, salaryRates, allDates, client);
+      const pastDates = allClientTasks
+        .filter(t => (t.completed_date ?? t.received_date) && (t.completed_date ?? t.received_date)!.slice(0, 7) < currentMonth)
+        .map(t => (t.completed_date ?? t.received_date)!);
+      if (pastDates.length > 0) {
+        allTimeEarned += calcMonthlyRevenue(clientId, salaryRates, pastDates, client);
+      }
+      const currTasks = allClientTasks.filter(t => (t.completed_date ?? t.received_date)?.slice(0, 7) === currentMonth);
+      currTasks.forEach(t => {
+        allTimeEarned += calcTaskRevenueFull(t, client, salaryRates, tasks);
+      });
     } else {
       allClientTasks.forEach(t => {
         allTimeEarned += calcTaskRevenueFull(t, client, salaryRates, tasks);
@@ -95,9 +123,6 @@ export default function ClientsView() {
       .map(t => t.completed_date ?? t.received_date)
       .filter(Boolean) as string[];
     if (taskDates.length > 0) {
-      const today = new Date();
-      const todayStr = today.toISOString().slice(0, 10);
-      const currentMonth = today.toISOString().slice(0, 7);
       const sorted = [...taskDates].sort();
       const earliest = sorted[0];
       let days: number;

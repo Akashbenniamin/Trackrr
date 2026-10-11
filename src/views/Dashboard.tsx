@@ -171,16 +171,43 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (v: ViewName) =
 
   const stats = useMemo(() => {
     const scopedTasks = tasks.filter(t => inScope(t.completed_date ?? t.received_date));
+    const now = new Date();
+    const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+    const isCurrentActiveMonth = scope === 'this_month' || scope === currentMonthStr;
 
     let earned = 0;
-    scopedTasks.forEach(t => {
-      const client = clients.find(c => c.id === t.client_id);
-      if (!client || client.payment_type !== 'monthly') earned += calcTaskRevenue(t, client);
-    });
-    clients.filter(c => c.payment_type === 'monthly').forEach(c => {
-      const dates = scopedTasks.filter(t => t.client_id === c.id && (t.completed_date ?? t.received_date)).map(t => (t.completed_date ?? t.received_date)!);
-      earned += calcMonthlyRevenue(c.id, salaryRates, dates, c);
-    });
+    if (isCurrentActiveMonth) {
+      scopedTasks.forEach(t => {
+        const client = clients.find(c => c.id === t.client_id);
+        earned += calcTaskRevenueFull(t, client, salaryRates, tasks);
+      });
+    } else if (scope === 'total') {
+      scopedTasks.forEach(t => {
+        const client = clients.find(c => c.id === t.client_id);
+        if (!client || client.payment_type !== 'monthly') earned += calcTaskRevenue(t, client);
+      });
+      clients.filter(c => c.payment_type === 'monthly').forEach(c => {
+        const pastDates = scopedTasks
+          .filter(t => t.client_id === c.id && (t.completed_date ?? t.received_date) && (t.completed_date ?? t.received_date)!.slice(0, 7) < currentMonthStr)
+          .map(t => (t.completed_date ?? t.received_date)!);
+        if (pastDates.length > 0) earned += calcMonthlyRevenue(c.id, salaryRates, pastDates, c);
+        const currTasks = scopedTasks.filter(t => t.client_id === c.id && (t.completed_date ?? t.received_date)?.slice(0, 7) === currentMonthStr);
+        currTasks.forEach(t => {
+          earned += calcTaskRevenueFull(t, c, salaryRates, tasks);
+        });
+      });
+    } else {
+      // Completed past month
+      scopedTasks.forEach(t => {
+        const client = clients.find(c => c.id === t.client_id);
+        if (!client || client.payment_type !== 'monthly') earned += calcTaskRevenue(t, client);
+      });
+      clients.filter(c => c.payment_type === 'monthly').forEach(c => {
+        const dates = scopedTasks.filter(t => t.client_id === c.id && (t.completed_date ?? t.received_date)).map(t => (t.completed_date ?? t.received_date)!);
+        earned += calcMonthlyRevenue(c.id, salaryRates, dates, c);
+      });
+    }
+    earned = Math.round(earned * 100) / 100;
 
     const scopedPayments = scope === 'total' ? payments : payments.filter(p => p.date >= scopeBounds.start! && p.date <= scopeBounds.end!);
     const totalPaid = scopedPayments.reduce((sum, p) => sum + p.amount, 0);
@@ -199,10 +226,6 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (v: ViewName) =
         earnedPerDay = earned / days;
       }
     } else {
-      const now = new Date();
-      const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
-      const isCurrentActiveMonth = scope === 'this_month' || scope === currentMonthStr;
-
       let days: number;
       if (isCurrentActiveMonth) {
         // Active ongoing month: calculate for days elapsed so far (e.g. 11 on Oct 11)
@@ -255,22 +278,35 @@ export default function Dashboard({ onNavigate }: { onNavigate?: (v: ViewName) =
 
     // Monthly data: 6m or 12m
     const months = timeRange === '12m' ? 12 : 6;
+    const currentMonthStr = format(now, 'yyyy-MM');
+
     return Array.from({ length: months }).map((_, i) => {
       const date = subMonths(now, months - 1 - i);
       const start = startOfMonth(date).toISOString();
       const end = endOfMonth(date).toISOString();
+      const mStr = format(date, 'yyyy-MM');
+      const isCurrentMonth = mStr === currentMonthStr;
+
       const monthTasks = tasks.filter(t => { const d = t.completed_date ?? t.received_date; return d && d >= start && d <= end; });
       let rev = 0;
-      monthTasks.forEach(t => {
-        const c = clients.find(c => c.id === t.client_id);
-        if (!c || c.payment_type !== 'monthly') {
-          rev += calcTaskRevenue(t, c);
-        }
-      });
-      clients.filter(c => c.payment_type === 'monthly').forEach(c => {
-        const dates = monthTasks.filter(t => t.client_id === c.id && (t.completed_date ?? t.received_date)).map(t => (t.completed_date ?? t.received_date)!);
-        rev += calcMonthlyRevenue(c.id, salaryRates, dates, c);
-      });
+      if (isCurrentMonth) {
+        monthTasks.forEach(t => {
+          const c = clients.find(c => c.id === t.client_id);
+          rev += calcTaskRevenueFull(t, c, salaryRates, tasks);
+        });
+      } else {
+        monthTasks.forEach(t => {
+          const c = clients.find(c => c.id === t.client_id);
+          if (!c || c.payment_type !== 'monthly') {
+            rev += calcTaskRevenue(t, c);
+          }
+        });
+        clients.filter(c => c.payment_type === 'monthly').forEach(c => {
+          const dates = monthTasks.filter(t => t.client_id === c.id && (t.completed_date ?? t.received_date)).map(t => (t.completed_date ?? t.received_date)!);
+          rev += calcMonthlyRevenue(c.id, salaryRates, dates, c);
+        });
+      }
+      rev = Math.round(rev * 100) / 100;
       const monthPayments = payments.filter(p => p.date >= start && p.date <= end).reduce((s, p) => s + p.amount, 0);
 
       const v = metric === 'revenue' ? rev : metric === 'completed' ? monthTasks.length : monthPayments;

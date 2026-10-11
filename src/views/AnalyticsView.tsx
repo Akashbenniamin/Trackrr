@@ -9,7 +9,7 @@ import {
 import { format, subMonths, startOfMonth, endOfMonth } from 'date-fns';
 import { useApp } from '../contexts/AppContext';
 import { usePersistedState } from '../lib/usePersistedState';
-import { calcTaskRevenue, calcMonthlyRevenue, formatCurrency, getItemAmountForMonth } from '../types';
+import { calcTaskRevenue, calcTaskRevenueFull, calcMonthlyRevenue, formatCurrency, getItemAmountForMonth } from '../types';
 
 const CHART_COLORS = ['#818CF8', '#34D399', '#FBBF24', '#F87171', '#A78BFA', '#60A5FA', '#FB7185', '#4ADE80'];
 
@@ -67,24 +67,37 @@ export default function AnalyticsView() {
 
   // Monthly revenue (last 6 months) — always full timeline regardless of scope
   const monthlyRevenue = useMemo(() => {
+    const now = new Date();
+    const currentMonthStr = format(now, 'yyyy-MM');
+
     return Array.from({ length: 6 }).map((_, i) => {
-      const date = subMonths(new Date(), 5 - i);
+      const date = subMonths(now, 5 - i);
       const start = startOfMonth(date).toISOString();
       const end = endOfMonth(date).toISOString();
       const mStr = format(date, 'yyyy-MM');
+      const isCurrentMonth = mStr === currentMonthStr;
+
       const monthTasks = tasks.filter(t => {
         const d = t.completed_date ?? t.received_date;
         return d && d >= start && d <= end;
       });
       let rev = 0;
-      monthTasks.forEach(t => {
-        const client = clients.find(c => c.id === t.client_id);
-        if (!client || client.payment_type !== 'monthly') rev += calcTaskRevenue(t, client);
-      });
-      clients.filter(c => c.payment_type === 'monthly').forEach(c => {
-        const dates = monthTasks.filter(t => t.client_id === c.id).map(t => (t.completed_date ?? t.received_date)!);
-        if (dates.length > 0) rev += calcMonthlyRevenue(c.id, salaryRates, dates, c);
-      });
+      if (isCurrentMonth) {
+        monthTasks.forEach(t => {
+          const client = clients.find(c => c.id === t.client_id);
+          rev += calcTaskRevenueFull(t, client, salaryRates, tasks);
+        });
+      } else {
+        monthTasks.forEach(t => {
+          const client = clients.find(c => c.id === t.client_id);
+          if (!client || client.payment_type !== 'monthly') rev += calcTaskRevenue(t, client);
+        });
+        clients.filter(c => c.payment_type === 'monthly').forEach(c => {
+          const dates = monthTasks.filter(t => t.client_id === c.id).map(t => (t.completed_date ?? t.received_date)!);
+          if (dates.length > 0) rev += calcMonthlyRevenue(c.id, salaryRates, dates, c);
+        });
+      }
+      rev = Math.round(rev * 100) / 100;
       const videos = monthTasks.reduce((s, t) => s + (t.videos ?? 0), 0);
       const paid = payments.reduce((s, p) => s + getItemAmountForMonth(p, mStr), 0);
       return { month: format(date, 'MMM'), rev, videos, paid };
@@ -93,18 +106,40 @@ export default function AnalyticsView() {
 
   // Revenue by client (scoped)
   const revenueByClient = useMemo(() => {
+    const now = new Date();
+    const currentMonthStr = format(now, 'yyyy-MM');
+    const isCurrentActiveMonth = scope === 'this_month' || scope === currentMonthStr;
+
     return clients.map(client => {
       const clientTasks = scopedTasks.filter(t => t.client_id === client.id);
       let rev = 0;
       if (client.payment_type === 'monthly') {
-        const dates = clientTasks.map(t => t.completed_date ?? t.received_date).filter(Boolean) as string[];
-        rev = calcMonthlyRevenue(client.id, salaryRates, dates, client);
+        if (isCurrentActiveMonth) {
+          clientTasks.forEach(t => {
+            rev += calcTaskRevenueFull(t, client, salaryRates, tasks);
+          });
+        } else if (scope === 'all') {
+          const pastDates = clientTasks
+            .filter(t => (t.completed_date ?? t.received_date) && (t.completed_date ?? t.received_date)!.slice(0, 7) < currentMonthStr)
+            .map(t => (t.completed_date ?? t.received_date)!);
+          if (pastDates.length > 0) {
+            rev += calcMonthlyRevenue(client.id, salaryRates, pastDates, client);
+          }
+          const currentTasks = clientTasks.filter(t => (t.completed_date ?? t.received_date)?.slice(0, 7) === currentMonthStr);
+          currentTasks.forEach(t => {
+            rev += calcTaskRevenueFull(t, client, salaryRates, tasks);
+          });
+        } else {
+          // Specific past month (e.g. 2026-09)
+          const dates = clientTasks.map(t => t.completed_date ?? t.received_date).filter(Boolean) as string[];
+          rev += calcMonthlyRevenue(client.id, salaryRates, dates, client);
+        }
       } else {
         clientTasks.forEach(t => { rev += calcTaskRevenue(t, client); });
       }
-      return { name: client.name, value: rev, color: client.color };
+      return { name: client.name, value: Math.round(rev * 100) / 100, color: client.color };
     }).filter(c => c.value > 0).sort((a, b) => b.value - a.value);
-  }, [scopedTasks, clients, salaryRates]);
+  }, [scopedTasks, clients, salaryRates, scope, tasks]);
 
   // Tasks per client (scoped)
   const tasksByClient = useMemo(() => {
@@ -130,6 +165,30 @@ export default function AnalyticsView() {
   const avgPerTask = (() => {
     return scopedTasks.length > 0 ? totalEarned / scopedTasks.length : 0;
   })();
+
+  const earnedPerDay = useMemo(() => {
+    if (scope === 'all') {
+      const earliest = tasks.reduce<string | null>((min, t) => {
+        const d = t.completed_date ?? t.received_date;
+        return d && (!min || d < min) ? d : min;
+      }, null);
+      if (earliest) {
+        const days = Math.max(1, Math.ceil((Date.now() - new Date(earliest).getTime()) / 86400000));
+        return totalEarned / days;
+      }
+      return 0;
+    }
+    const now = new Date();
+    const currentMonthStr = format(now, 'yyyy-MM');
+    const isCurrentActiveMonth = scope === 'this_month' || scope === currentMonthStr;
+    const days = isCurrentActiveMonth
+      ? Math.max(1, now.getDate())
+      : (() => {
+          const [yr, mo] = scope.split('-').map(Number);
+          return new Date(yr, mo, 0).getDate();
+        })();
+    return totalEarned / Math.max(1, days);
+  }, [scope, totalEarned, tasks]);
 
   const bestMonth = monthlyRevenue.reduce((best, m) => m.rev > best.rev ? m : best, { month: '—', rev: 0 });
 
@@ -172,7 +231,12 @@ export default function AnalyticsView() {
         </Typography>
         <Box sx={{ display: 'flex', gap: 1.5, flexWrap: 'wrap', mb: 2 }}>
           {[
-            { label: 'Total Earned', value: cur(totalEarned), color: '#818CF8' },
+            {
+              label: 'Total Earned',
+              value: cur(totalEarned),
+              sublabel: earnedPerDay > 0 ? `avg. ${cur(Math.round(earnedPerDay))}/day` : undefined,
+              color: '#818CF8',
+            },
             { label: 'Total Received', value: cur(totalPaid), color: '#34D399' },
             { label: 'Outstanding', value: cur(outstanding), color: '#F87171' },
             { label: 'Avg per Task', value: cur(avgPerTask), color: '#FBBF24' },
@@ -210,6 +274,11 @@ export default function AnalyticsView() {
                 >
                   {s.value}
                 </Typography>
+                {s.sublabel && (
+                  <Typography variant="caption" sx={{ color: 'text.secondary', display: 'block', mt: 0.5, fontSize: '0.72rem', fontWeight: 600 }}>
+                    {s.sublabel}
+                  </Typography>
+                )}
               </Card>
             </Box>
           ))}

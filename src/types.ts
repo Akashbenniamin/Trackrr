@@ -326,10 +326,21 @@ export function calcClientOutstanding(
   const allClientTasks = tasks.filter(t => t.client_id === clientId);
   let earned = 0;
   if (client?.payment_type === 'monthly') {
-    const allDates = allClientTasks
+    const currentMonthStr = `${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`;
+    const pastDates = allClientTasks
       .map(t => t.completed_date ?? t.received_date)
-      .filter(Boolean) as string[];
-    earned = calcMonthlyRevenue(clientId, salaryRates, allDates, client);
+      .filter(Boolean)
+      .filter(d => (d as string).slice(0, 7) < currentMonthStr) as string[];
+    if (pastDates.length > 0) {
+      earned += calcMonthlyRevenue(clientId, salaryRates, pastDates, client);
+    }
+    const currentTasks = allClientTasks.filter(t => {
+      const d = t.completed_date ?? t.received_date;
+      return d && d.slice(0, 7) === currentMonthStr;
+    });
+    currentTasks.forEach(t => {
+      earned += calcTaskRevenueFull(t, client, salaryRates, tasks);
+    });
   } else {
     allClientTasks.forEach(t => {
       earned += calcTaskRevenueFull(t, client, salaryRates, tasks);
@@ -341,7 +352,7 @@ export function calcClientOutstanding(
     .filter(d => d.client_id === clientId)
     .reduce((s, d) => s + (d.amount ?? 0), 0);
 
-  const balance = earned - paid - clientDiscounts;
+  const balance = Math.round((earned - paid - clientDiscounts) * 100) / 100;
   return { earned, paid, discounts: clientDiscounts, balance };
 }
 
@@ -376,9 +387,17 @@ export function calcClientMonthPending(
     return d && d.slice(0, 7) === monthStr;
   });
 
+  const now = new Date();
+  const currentMonthStr = `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}`;
+  const isCurrentActiveMonth = monthStr === currentMonthStr;
+
   let earned = 0;
   if (client?.payment_type === 'monthly') {
-    if (clientTasks.length > 0) {
+    if (isCurrentActiveMonth) {
+      clientTasks.forEach(t => {
+        earned += calcTaskRevenueFull(t, client, salaryRates, tasks);
+      });
+    } else if (clientTasks.length > 0) {
       const [yr, mo] = monthStr.split('-').map(Number);
       earned = getSalaryForMonth(salaryRates, clientId, new Date(yr, mo - 1, 1), client);
     }
