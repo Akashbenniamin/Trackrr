@@ -14,7 +14,7 @@ import { format, startOfMonth, endOfMonth, subMonths } from 'date-fns';
 import { jsPDF } from 'jspdf';
 import { useApp } from '../contexts/AppContext';
 import { usePersistedState } from '../lib/usePersistedState';
-import { calcTaskRevenueFull, formatCurrency, formatDate } from '../types';
+import { calcTaskRevenueFull, calcMonthlyRevenue, formatCurrency, formatDate } from '../types';
 
 type Period = 'all' | 'this_month' | 'last_month' | 'custom';
 
@@ -113,13 +113,44 @@ export default function BillsView() {
     let oldBalance = 0;
     if (bounds.start) {
       const beforeStart = bounds.start;
+      const bDate = new Date(beforeStart);
+      const beforeStartMonth = `${bDate.getFullYear()}-${String(bDate.getMonth() + 1).padStart(2, '0')}`;
+
       let oldEarned = 0;
-      tasks
-        .filter(t => t.client_id && clientIds.has(t.client_id) && (t.completed_date ?? t.received_date) && (t.completed_date ?? t.received_date)! < beforeStart)
-        .forEach(t => {
-          const c = clients.find(c => c.id === t.client_id);
-          oldEarned += calcTaskRevenueFull(t, c, salaryRates, tasks);
+      clientIds.forEach(cid => {
+        const c = clients.find(cl => cl.id === cid);
+        if (!c) return;
+        const clientTasksBefore = tasks.filter(t => {
+          if (t.client_id !== cid) return false;
+          const d = t.completed_date ?? t.received_date;
+          return d && d < beforeStart;
         });
+
+        if (c.payment_type === 'monthly') {
+          // Completed full months before beforeStartMonth: full monthly retainer
+          const pastFullMonthDates = clientTasksBefore
+            .map(t => (t.completed_date ?? t.received_date)!)
+            .filter(d => d.slice(0, 7) < beforeStartMonth);
+          if (pastFullMonthDates.length > 0) {
+            oldEarned += calcMonthlyRevenue(cid, salaryRates, pastFullMonthDates, c);
+          }
+
+          // Partial month tasks in the same month as beforeStart (e.g. if beforeStart is mid-month)
+          const sameMonthTasks = clientTasksBefore.filter(t => {
+            const d = t.completed_date ?? t.received_date;
+            return d && d.slice(0, 7) === beforeStartMonth;
+          });
+          sameMonthTasks.forEach(t => {
+            oldEarned += calcTaskRevenueFull(t, c, salaryRates, tasks);
+          });
+        } else {
+          clientTasksBefore.forEach(t => {
+            oldEarned += calcTaskRevenueFull(t, c, salaryRates, tasks);
+          });
+        }
+      });
+      oldEarned = Math.round(oldEarned * 100) / 100;
+
       const oldPaid = payments
         .filter(p => clientIds.has(p.client_id) && isBeforePeriod(p, beforeStart))
         .reduce((s, p) => s + p.amount, 0);
