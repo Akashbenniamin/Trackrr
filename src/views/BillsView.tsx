@@ -92,13 +92,18 @@ export default function BillsView() {
   const totals = useMemo(() => {
     let total = 0;
     let totalVideos = 0;
-    const clientIds = new Set(filteredTasks.map(t => t.client_id).filter(Boolean)) as Set<string>;
+    const clientIds = clientFilter
+      ? new Set([clientFilter])
+      : (new Set(filteredTasks.map(t => t.client_id).filter(Boolean)) as Set<string>);
+
     filteredTasks.forEach(t => {
       const client = clients.find(c => c.id === t.client_id);
       const rev = calcTaskRevenueFull(t, client, salaryRates, tasks);
       total += rev;
       totalVideos += t.videos ?? 0;
     });
+    total = Math.round(total * 100) / 100;
+
     const bounds = getPeriodBounds();
     const paidInPeriod = payments
       .filter(p => clientIds.has(p.client_id) && matchesPeriod(p, bounds))
@@ -110,7 +115,7 @@ export default function BillsView() {
       const beforeStart = bounds.start;
       let oldEarned = 0;
       tasks
-        .filter(t => t.client_id && clientIds.has(t.client_id) && (t.completed_date ?? t.received_date) && (t.completed_date ?? t.received_date) < beforeStart)
+        .filter(t => t.client_id && clientIds.has(t.client_id) && (t.completed_date ?? t.received_date) && (t.completed_date ?? t.received_date)! < beforeStart)
         .forEach(t => {
           const c = clients.find(c => c.id === t.client_id);
           oldEarned += calcTaskRevenueFull(t, c, salaryRates, tasks);
@@ -121,7 +126,7 @@ export default function BillsView() {
       const oldDiscounts = discounts
         .filter(d => clientIds.has(d.client_id) && isBeforePeriod(d, beforeStart))
         .reduce((s, d) => s + d.amount, 0);
-      oldBalance = oldEarned - oldPaid - oldDiscounts;
+      oldBalance = Math.round((oldEarned - oldPaid - oldDiscounts) * 100) / 100;
     }
 
     // Discounts in period
@@ -130,7 +135,7 @@ export default function BillsView() {
       .reduce((s, d) => s + d.amount, 0);
 
     const effectiveOldBalance = includeOldBalance ? oldBalance : 0;
-    const rawBalance = total + effectiveOldBalance - paidInPeriod - discountInPeriod;
+    const rawBalance = Math.round((total + effectiveOldBalance - paidInPeriod - discountInPeriod) * 100) / 100;
     const isOverpaid = rawBalance < 0;
     const balanceLabel = isOverpaid ? 'Overpaid' : 'Outstanding';
 
@@ -141,8 +146,20 @@ export default function BillsView() {
       ? Array.from(paymentForMonthsSet).sort().map(m => { const [y, mo] = m.split('-'); return new Date(+y, +mo - 1, 1).toLocaleDateString('en', { month: 'short', year: '2-digit' }); }).join(', ')
       : '';
 
-    return { total, totalVideos, paidInPeriod, discountInPeriod, oldBalance: effectiveOldBalance, rawBalance, isOverpaid, balanceLabel, hasOldBalance: oldBalance !== 0, paymentForLabel };
-  }, [filteredTasks, tasks, clients, payments, discounts, salaryRates, period, startDate, endDate, includeOldBalance]);
+    return {
+      total,
+      totalVideos,
+      paidInPeriod,
+      discountInPeriod,
+      oldBalance,
+      effectiveOldBalance,
+      rawBalance,
+      isOverpaid,
+      balanceLabel,
+      hasOldBalance: oldBalance !== 0,
+      paymentForLabel,
+    };
+  }, [filteredTasks, tasks, clients, payments, discounts, salaryRates, period, startDate, endDate, includeOldBalance, clientFilter]);
 
   const getTitle = () => {
     if (billTitle) return billTitle;
@@ -167,10 +184,10 @@ export default function BillsView() {
       }),
       '────────────────',
       `*Total: ${cur(totals.total)}*`,
+      includePaid && includeOldBalance && totals.hasOldBalance ? `*Old Balance: ${totals.oldBalance > 0 ? '' : '-'}${cur(Math.abs(totals.oldBalance))}*` : '',
       includePaid ? `*Received: ${cur(totals.paidInPeriod)}*` : '',
       totals.paymentForLabel ? `*Payment For: ${totals.paymentForLabel}*` : '',
       totals.discountInPeriod > 0 ? `*Discount: -${cur(totals.discountInPeriod)}*` : '',
-      includePaid && totals.oldBalance !== 0 ? `*Old Balance: ${totals.oldBalance > 0 ? '' : '-'}${cur(Math.abs(totals.oldBalance))}*` : '',
       includePaid ? `*${totals.balanceLabel}: ${cur(Math.abs(totals.rawBalance))}*` : '',
     ].filter(Boolean).join('\n');
 
@@ -247,7 +264,7 @@ export default function BillsView() {
           <span style="color:#818CF8">Payment For</span>
           <span style="color:#818CF8;font-weight:600">${totals.paymentForLabel}</span>
         </div>` : ''}
-        ${totals.oldBalance !== 0 ? `
+        ${includePaid && includeOldBalance && totals.hasOldBalance ? `
         <div class="total-row">
           <span>Old Balance</span>
           <span style="color:${totals.oldBalance > 0 ? '#EF4444' : '#10B981'};font-weight:700">${totals.oldBalance > 0 ? '' : '-'}${cur(Math.abs(totals.oldBalance))}</span>
@@ -977,7 +994,7 @@ export default function BillsView() {
                       }
                       label={<Typography variant="caption" sx={{ color: 'text.secondary' }}>Old Balance</Typography>}
                     />
-                    <Typography variant="body2" sx={{ fontWeight: 700, color: totals.oldBalance > 0 ? '#F87171' : '#34D399' }}>
+                    <Typography variant="body2" sx={{ fontWeight: 700, color: !includeOldBalance ? 'text.disabled' : totals.oldBalance > 0 ? '#F87171' : '#34D399' }}>
                       {totals.oldBalance > 0 ? '' : '-'}{cur(Math.abs(totals.oldBalance))}
                     </Typography>
                   </Box>
